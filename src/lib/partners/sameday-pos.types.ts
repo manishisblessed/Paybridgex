@@ -25,7 +25,7 @@ export type PosMachineStatus =
   | "maintenance"
   | "decommissioned";
 
-export type PosExportFormat = "csv" | "excel" | "pdf" | "zip";
+export type PosExportFormat = "csv" | "pdf" | "zip";
 
 export type PosExportJobStatus =
   | "QUEUED"

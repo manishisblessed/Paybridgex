@@ -13,7 +13,7 @@ export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
-  format: z.enum(["csv", "excel", "pdf", "zip"]),
+  format: z.enum(["csv", "pdf", "zip"]),
   date_from: z.string().min(1, "date_from is required"),
   date_to: z.string().min(1, "date_to is required"),
   status: z.enum(["AUTHORIZED", "CAPTURED", "FAILED", "REFUNDED", "VOIDED"]).nullable().optional(),

@@ -96,16 +96,33 @@ export async function GET(req: Request) {
       }))
       .sort((a, b) => b.volume - a.volume);
 
-    // CSV export of the service report.
-    if (url.searchParams.get("format") === "csv") {
+    // CSV / ZIP export of the service report.
+    const exportFormat = url.searchParams.get("format");
+    if (exportFormat === "csv" || exportFormat === "zip") {
       const header = "service,total_txns,success,failed,success_rate_pct,volume,fees,commission,gst";
       const lines = services.map(
         (s) => `${s.service},${s.total},${s.success},${s.failed},${s.successRate},${s.volume},${s.fees},${s.commission},${s.gst}`
       );
-      return new NextResponse([header, ...lines].join("\n"), {
+      const csvContent = [header, ...lines].join("\n");
+      const dateRange = `${from.toISOString().slice(0, 10)}-${to.toISOString().slice(0, 10)}`;
+
+      if (exportFormat === "zip") {
+        const JSZip = (await import("jszip")).default;
+        const zip = new JSZip();
+        zip.file(`service-report-${dateRange}.csv`, csvContent);
+        const buf = Buffer.from(await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }));
+        return new NextResponse(buf, {
+          headers: {
+            "Content-Type": "application/zip",
+            "Content-Disposition": `attachment; filename="service-report-${dateRange}.zip"`,
+          },
+        });
+      }
+
+      return new NextResponse(csvContent, {
         headers: {
           "Content-Type": "text/csv",
-          "Content-Disposition": `attachment; filename="service-report-${from.toISOString().slice(0, 10)}-${to.toISOString().slice(0, 10)}.csv"`,
+          "Content-Disposition": `attachment; filename="service-report-${dateRange}.csv"`,
         },
       });
     }

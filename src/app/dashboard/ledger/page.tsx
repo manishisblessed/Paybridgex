@@ -15,7 +15,7 @@ import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { formatINR } from "@/lib/utils";
-import { downloadCSV, type ReportColumn } from "@/lib/reports";
+import { downloadCSV, downloadPDF, downloadZIP, type ReportColumn } from "@/lib/reports";
 
 type WalletTxn = {
   id: string;
@@ -98,18 +98,29 @@ export default function LedgerPage() {
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
+  const ledgerCols: ReportColumn<WalletTxn>[] = [
+    { key: "createdAt", header: "Date", render: (r) => new Date(r.createdAt).toLocaleString("en-IN") },
+    { key: "direction", header: "Type" },
+    { key: "reason", header: "Reason", render: (r) => REASON_LABELS[r.reason] ?? r.reason },
+    { key: "note", header: "Description" },
+    { key: "refId", header: "Reference" },
+    { key: "amount", header: "Amount (INR)", format: "money" },
+    { key: "balanceAfter", header: "Balance after (INR)", format: "money" },
+  ];
+
   function exportCsv() {
     if (!data) return;
-    const cols: ReportColumn<WalletTxn>[] = [
-      { key: "createdAt", header: "Date", render: (r) => new Date(r.createdAt).toLocaleString("en-IN") },
-      { key: "direction", header: "Type" },
-      { key: "reason", header: "Reason", render: (r) => REASON_LABELS[r.reason] ?? r.reason },
-      { key: "note", header: "Description" },
-      { key: "refId", header: "Reference" },
-      { key: "amount", header: "Amount (INR)", format: "money" },
-      { key: "balanceAfter", header: "Balance after (INR)", format: "money" },
-    ];
-    downloadCSV(`ledger-page-${page}.csv`, data.txns, cols);
+    downloadCSV(`ledger-page-${page}`, data.txns, ledgerCols);
+  }
+
+  function exportPdf() {
+    if (!data) return;
+    downloadPDF("Wallet Ledger", data.txns, ledgerCols);
+  }
+
+  function exportZip() {
+    if (!data) return;
+    downloadZIP(`ledger-page-${page}`, data.txns, ledgerCols);
   }
 
   return (
@@ -147,6 +158,14 @@ export default function LedgerPage() {
         <Button variant="outline" size="md" onClick={exportCsv} disabled={!data?.txns.length}>
           <FileDown className="h-4 w-4" />
           CSV
+        </Button>
+        <Button variant="outline" size="md" onClick={exportPdf} disabled={!data?.txns.length}>
+          <FileDown className="h-4 w-4" />
+          PDF
+        </Button>
+        <Button variant="outline" size="md" onClick={exportZip} disabled={!data?.txns.length}>
+          <FileDown className="h-4 w-4" />
+          ZIP
         </Button>
       </div>
 

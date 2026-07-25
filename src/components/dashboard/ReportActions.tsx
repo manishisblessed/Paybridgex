@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, Download, FileText, FileSpreadsheet, Sheet, X, Loader2 } from "lucide-react";
+import { Eye, FileText, FileSpreadsheet, FolderArchive, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/useAuth";
 import {
   downloadCSV,
   downloadPDF,
-  downloadXLSX,
+  downloadZIP,
   type ReportColumn,
   cellValue
 } from "@/lib/reports";
@@ -48,7 +48,7 @@ export function ReportActions<T>({
 }: Props<T>) {
   const { session } = useAuth();
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<null | "csv" | "xlsx" | "pdf">(null);
+  const [busy, setBusy] = useState<null | "csv" | "zip" | "pdf">(null);
 
   const generatedFor = session
     ? `${session.name} (${session.role}${session.userCode ? " · " + session.userCode : ""})`
@@ -59,12 +59,12 @@ export function ReportActions<T>({
     return await fetchRows();
   }
 
-  async function doExport(kind: "csv" | "xlsx" | "pdf") {
+  async function doExport(kind: "csv" | "zip" | "pdf") {
     try {
       setBusy(kind);
       const data = await resolveRows();
       if (kind === "csv") downloadCSV(filename, data, columns);
-      else if (kind === "xlsx") await downloadXLSX(filename, data, columns, { title, subtitle });
+      else if (kind === "zip") await downloadZIP(filename, data, columns);
       else downloadPDF(title, data, columns, { generatedFor, subtitle });
     } finally {
       setBusy(null);
@@ -90,16 +90,16 @@ export function ReportActions<T>({
       <Button
         variant="outline"
         size="md"
-        onClick={() => doExport("xlsx")}
+        onClick={() => doExport("pdf")}
         disabled={busy !== null}
-        title="Download as Excel (.xlsx)"
+        title="Open print-ready PDF"
       >
-        {busy === "xlsx" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sheet className="h-4 w-4" />}
-        Excel
-      </Button>
-      <Button size="md" onClick={() => doExport("pdf")} disabled={busy !== null} title="Open print-ready PDF">
         {busy === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
         PDF
+      </Button>
+      <Button size="md" onClick={() => doExport("zip")} disabled={busy !== null} title="Download as ZIP archive">
+        {busy === "zip" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderArchive className="h-4 w-4" />}
+        ZIP
       </Button>
 
       {open && (
@@ -111,8 +111,8 @@ export function ReportActions<T>({
           rows={rows}
           onClose={() => setOpen(false)}
           onDownloadCsv={() => doExport("csv")}
-          onDownloadXlsx={() => doExport("xlsx")}
           onDownloadPdf={() => doExport("pdf")}
+          onDownloadZip={() => doExport("zip")}
           busy={busy}
         />
       )}
@@ -128,8 +128,8 @@ function PreviewDialog<T>({
   rows,
   onClose,
   onDownloadCsv,
-  onDownloadXlsx,
   onDownloadPdf,
+  onDownloadZip,
   busy
 }: {
   title: string;
@@ -139,9 +139,9 @@ function PreviewDialog<T>({
   rows: T[];
   onClose: () => void;
   onDownloadCsv: () => void;
-  onDownloadXlsx: () => void;
   onDownloadPdf: () => void;
-  busy: null | "csv" | "xlsx" | "pdf";
+  onDownloadZip: () => void;
+  busy: null | "csv" | "zip" | "pdf";
 }) {
   return (
     <div
@@ -223,11 +223,11 @@ function PreviewDialog<T>({
           <Button variant="outline" size="md" onClick={onDownloadCsv} disabled={busy !== null}>
             {busy === "csv" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />} CSV
           </Button>
-          <Button variant="outline" size="md" onClick={onDownloadXlsx} disabled={busy !== null}>
-            {busy === "xlsx" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sheet className="h-4 w-4" />} Excel
+          <Button variant="outline" size="md" onClick={onDownloadPdf} disabled={busy !== null}>
+            {busy === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} PDF
           </Button>
-          <Button size="md" onClick={onDownloadPdf} disabled={busy !== null}>
-            {busy === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} PDF
+          <Button size="md" onClick={onDownloadZip} disabled={busy !== null}>
+            {busy === "zip" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderArchive className="h-4 w-4" />} ZIP
           </Button>
         </div>
       </div>

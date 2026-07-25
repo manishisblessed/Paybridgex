@@ -12,6 +12,7 @@ const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("activate"), reason: z.string().optional() }),
   z.object({ action: z.literal("close"), reason: z.string().optional() }),
   z.object({ action: z.literal("resetPassword") }),
+  z.object({ action: z.literal("reset2fa"), reason: z.string().optional() }),
 ]);
 
 export const fetchCache = "force-no-store";
@@ -57,6 +58,32 @@ export async function PATCH(
       ]);
       await bumpTokenVersion(params.id, { swallow: true });
       return NextResponse.json({ ok: true, password });
+    }
+
+    if (body.action === "reset2fa") {
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: params.id },
+          data: {
+            twoFactorEnabled: false,
+            twoFactorSecret: null,
+            twoFactorBackupCodes: [],
+            twoFactorVerifiedAt: null,
+          },
+        }),
+        prisma.auditLog.create({
+          data: {
+            userId: admin.id,
+            action: "user.2fa_reset",
+            entity: "User",
+            entityId: params.id,
+            meta: { email: targetUser.email, reason: body.reason },
+            ip: clientIp(req),
+          },
+        }),
+      ]);
+      await bumpTokenVersion(params.id, { swallow: true });
+      return NextResponse.json({ ok: true, message: "2FA has been reset. User will need to set up a new authenticator on next login." });
     }
 
     const { action, reason } = body;

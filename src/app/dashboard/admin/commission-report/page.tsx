@@ -16,7 +16,7 @@ import { StatSkeleton } from "@/components/ui/Skeleton";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { formatINR, formatNumber } from "@/lib/utils";
 import { RefreshCw, Download } from "lucide-react";
-import { downloadCSV, type ReportColumn } from "@/lib/reports";
+import { downloadCSV, downloadPDF, downloadZIP, type ReportColumn } from "@/lib/reports";
 
 type TierRow = {
   tier: string;
@@ -148,12 +148,26 @@ export default function CommissionReportPage() {
               <RefreshCw className="mr-2 h-4 w-4" /> Apply
             </Button>
             {data && (
-              <Button
-                variant="outline"
-                onClick={() => downloadCSV(`commission-report-${data.from}-to-${data.to}.csv`, data.byTier, csvTierCols)}
-              >
-                <Download className="mr-2 h-4 w-4" /> Export CSV
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => downloadCSV(`commission-report-${data.from}-to-${data.to}`, data.byTier, csvTierCols)}
+                >
+                  <Download className="mr-2 h-4 w-4" /> CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => downloadPDF("Commission Report", data.byTier, csvTierCols, { subtitle: `${data.from} to ${data.to}` })}
+                >
+                  <Download className="mr-2 h-4 w-4" /> PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => downloadZIP(`commission-report-${data.from}-to-${data.to}`, data.byTier, csvTierCols)}
+                >
+                  <Download className="mr-2 h-4 w-4" /> ZIP
+                </Button>
+              </>
             )}
           </div>
         }

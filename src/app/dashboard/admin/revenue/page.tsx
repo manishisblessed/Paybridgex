@@ -9,7 +9,7 @@ import { StatSkeleton } from "@/components/ui/Skeleton";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { formatINR, formatNumber } from "@/lib/utils";
 import { RefreshCw, Download } from "lucide-react";
-import { downloadCSV, type ReportColumn } from "@/lib/reports";
+import { downloadCSV, downloadPDF, downloadZIP, type ReportColumn } from "@/lib/reports";
 
 type ServiceRow = {
   service: string;
@@ -309,18 +309,45 @@ export default function RevenuePage() {
               <RefreshCw className="mr-2 h-4 w-4" /> Apply
             </Button>
             {data && (
-              <Button
-                variant="outline"
-                onClick={() =>
-                  downloadCSV(
-                    `revenue-report-${data.from}-to-${data.to}.csv`,
-                    data.byService,
-                    csvServiceCols
-                  )
-                }
-              >
-                <Download className="mr-2 h-4 w-4" /> Export CSV
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    downloadCSV(
+                      `revenue-report-${data.from}-to-${data.to}`,
+                      data.byService,
+                      csvServiceCols
+                    )
+                  }
+                >
+                  <Download className="mr-2 h-4 w-4" /> CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    downloadPDF(
+                      "Revenue Report",
+                      data.byService,
+                      csvServiceCols,
+                      { subtitle: `${data.from} to ${data.to}` }
+                    )
+                  }
+                >
+                  <Download className="mr-2 h-4 w-4" /> PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    downloadZIP(
+                      `revenue-report-${data.from}-to-${data.to}`,
+                      data.byService,
+                      csvServiceCols
+                    )
+                  }
+                >
+                  <Download className="mr-2 h-4 w-4" /> ZIP
+                </Button>
+              </>
             )}
           </div>
         }

@@ -921,7 +921,7 @@ function TransactionsTab() {
   );
   const totalMachines = machineStats?.stats?.total;
 
-  const handleExport = useCallback(async (format: "csv" | "excel") => {
+  const handleExport = useCallback(async (format: "csv" | "pdf" | "zip") => {
     setExporting(true);
     try {
       const res = await fetch("/api/pos/export", {
@@ -956,7 +956,7 @@ function TransactionsTab() {
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `pos-export-${jobId}.${fileUrl.includes(".xlsx") ? "xlsx" : fileUrl.includes(".pdf") ? "pdf" : "csv"}`;
+            a.download = `pos-export-${jobId}.${fileUrl.includes(".zip") ? "zip" : fileUrl.includes(".pdf") ? "pdf" : "csv"}`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -1038,8 +1038,11 @@ function TransactionsTab() {
             <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={exporting}>
               {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} CSV
             </Button>
-            <Button variant="outline" size="sm" onClick={() => handleExport("excel")} disabled={exporting}>
-              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Excel
+            <Button variant="outline" size="sm" onClick={() => handleExport("pdf")} disabled={exporting}>
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleExport("zip")} disabled={exporting}>
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} ZIP
             </Button>
           </div>
         </div>
@@ -1325,9 +1328,9 @@ function TrackingTab() {
   const summary = data?.summary;
   const pagination = data?.pagination;
 
-  const exportCsv = useCallback(() => {
+  const exportFile = useCallback((fmt: "csv" | "zip") => {
     const p = new URLSearchParams(params);
-    p.set("format", "csv");
+    p.set("format", fmt);
     p.delete("page");
     p.delete("pageSize");
     window.open(`/api/admin/pos/history?${p}`, "_blank");
@@ -1407,9 +1410,14 @@ function TrackingTab() {
                   : "Loading..."}
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={exportCsv}>
-              <Download className="h-4 w-4" /> Export full CSV
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => exportFile("csv")}>
+                <Download className="h-4 w-4" /> CSV
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => exportFile("zip")}>
+                <Download className="h-4 w-4" /> ZIP
+              </Button>
+            </div>
           </div>
 
           {isLoading && entries.length === 0 ? (

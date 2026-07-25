@@ -154,7 +154,13 @@ export default function AnalyticsPage() {
               variant="outline"
               onClick={() => window.open(`/api/admin/analytics?${params()}&format=csv`, "_blank")}
             >
-              <Download className="mr-2 h-4 w-4" /> Service report CSV
+              <Download className="mr-2 h-4 w-4" /> CSV
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => window.open(`/api/admin/analytics?${params()}&format=zip`, "_blank")}
+            >
+              <Download className="mr-2 h-4 w-4" /> ZIP
             </Button>
           </div>
         }

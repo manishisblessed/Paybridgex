@@ -184,95 +184,29 @@ export function downloadPDF<T>(
 }
 
 /* ----------------------------------------------------------------------- */
-/*  XLSX (Excel) — styled workbook via exceljs (dynamically imported)        */
+/*  ZIP (CSV bundled in a zip archive via jszip — dynamically imported)      */
 /* ----------------------------------------------------------------------- */
 
-const NUM_FMT: Record<NonNullable<ReportColumn<unknown>["format"]>, string | undefined> = {
-  money: '#,##0.00',
-  int: '#,##0',
-  number: '#,##0.00',
-  text: undefined,
-  date: undefined,
-  datetime: undefined,
-};
-
-/**
- * Build + download a real .xlsx workbook for the given rows/columns.
- *
- * exceljs is imported lazily so it only ships to the browser the first time a
- * user actually clicks "Excel" — it never bloats the initial dashboard bundle.
- * Money/number columns are written as native numeric cells with an INR-style
- * number format; everything else falls back to the same string value used by
- * the CSV/PDF exports.
- */
-export async function downloadXLSX<T>(
+export async function downloadZIP<T>(
   filename: string,
   rows: T[],
-  columns: ReportColumn<T>[],
-  meta?: { title?: string; subtitle?: string; sheetName?: string }
+  columns: ReportColumn<T>[]
 ) {
   if (typeof window === "undefined") return;
 
-  const mod: any = await import("exceljs");
-  const ExcelJS = mod.default ?? mod;
+  const mod: any = await import("jszip");
+  const JSZip = mod.default ?? mod;
 
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "JMP NextGenPay";
-  wb.created = new Date();
+  const zip = new JSZip();
+  const csvContent = "\uFEFF" + toCSV(rows, columns);
+  const baseName = filename.replace(/\.(zip|csv)$/i, "");
+  zip.file(`${baseName}.csv`, csvContent);
 
-  const ws = wb.addWorksheet((meta?.sheetName || "Report").slice(0, 31));
-
-  ws.columns = columns.map((c) => ({
-    header: c.header,
-    key: String(c.key),
-    width: Math.min(40, Math.max(12, c.header.length + 4)),
-  }));
-
-  // Header row styling — brand blue with white bold text.
-  const headerRow = ws.getRow(1);
-  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
-  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF185DF5" } };
-  headerRow.alignment = { vertical: "middle" };
-  headerRow.height = 20;
-
-  for (const row of rows) {
-    const cells: Record<string, unknown> = {};
-    for (const c of columns) {
-      const key = String(c.key);
-      const isNumeric = c.format === "money" || c.format === "int" || c.format === "number";
-      // For numeric columns prefer the raw keyed value so Excel gets a real
-      // number even when a `render` is supplied purely for CSV/PDF display.
-      const keyed = (row as Record<string, unknown>)[key];
-      if (isNumeric && typeof keyed === "number" && Number.isFinite(keyed)) {
-        cells[key] = keyed;
-      } else {
-        cells[key] = cellValue(c, row);
-      }
-    }
-    const added = ws.addRow(cells);
-    // Apply number formats + right alignment to numeric columns.
-    columns.forEach((c, i) => {
-      if (c.format && NUM_FMT[c.format]) {
-        const cell = added.getCell(i + 1);
-        if (typeof cell.value === "number") {
-          cell.numFmt = NUM_FMT[c.format];
-          cell.alignment = { horizontal: "right" };
-        }
-      }
-    });
-  }
-
-  ws.views = [{ state: "frozen", ySplit: 1 }];
-  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } };
-
-  const buffer = await wb.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
+  const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename.endsWith(".xlsx") ? filename : `${filename}.xlsx`;
+  a.download = `${baseName}.zip`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

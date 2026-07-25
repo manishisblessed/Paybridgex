@@ -53,7 +53,7 @@ export async function GET(req: Request) {
       };
     }
 
-    if (format === "csv") {
+    if (format === "csv" || format === "zip") {
       const rows = await prisma.walletTxn.findMany({
         where: where as never,
         include: { user: { select: { name: true, email: true, role: true } } },
@@ -82,10 +82,26 @@ export async function GET(req: Request) {
           esc(t.note),
         ].join(",")
       );
-      return new NextResponse([header, ...lines].join("\n"), {
+      const csvContent = [header, ...lines].join("\n");
+      const dateStr = new Date().toISOString().slice(0, 10);
+
+      if (format === "zip") {
+        const JSZip = (await import("jszip")).default;
+        const zip = new JSZip();
+        zip.file(`ledger-${dateStr}.csv`, csvContent);
+        const buf = Buffer.from(await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }));
+        return new NextResponse(buf, {
+          headers: {
+            "Content-Type": "application/zip",
+            "Content-Disposition": `attachment; filename="ledger-${dateStr}.zip"`,
+          },
+        });
+      }
+
+      return new NextResponse(csvContent, {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition": `attachment; filename="ledger-${new Date().toISOString().slice(0, 10)}.csv"`,
+          "Content-Disposition": `attachment; filename="ledger-${dateStr}.csv"`,
         },
       });
     }

@@ -658,7 +658,7 @@ function TransactionsTab() {
     [filterTiers]
   );
 
-  const handleExport = useCallback(async (format: "csv" | "excel") => {
+  const handleExport = useCallback(async (format: "csv" | "pdf" | "zip") => {
     setExporting(true);
     try {
       const res = await fetch("/api/pos/export", {
@@ -690,7 +690,7 @@ function TransactionsTab() {
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `pos-export-${jobId}.${fileUrl.includes(".xlsx") ? "xlsx" : fileUrl.includes(".pdf") ? "pdf" : "csv"}`;
+            a.download = `pos-export-${jobId}.${fileUrl.includes(".zip") ? "zip" : fileUrl.includes(".pdf") ? "pdf" : "csv"}`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -865,6 +865,12 @@ function TransactionsTab() {
           <div className="ml-auto flex gap-2">
             <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={exporting}>
               {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleExport("pdf")} disabled={exporting}>
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleExport("zip")} disabled={exporting}>
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} ZIP
             </Button>
           </div>
         </div>

@@ -129,7 +129,7 @@ export async function GET(req: Request) {
     };
   });
 
-  if (format === "csv") {
+  if (format === "csv" || format === "zip") {
     const header = [
       "Logged at", "Date", "Holder", "Holder code", "Holder role",
       "Movement", "Status", "TID", "Serial", "MID", "Model", "External ID",
@@ -160,10 +160,26 @@ export async function GET(req: Request) {
         .map(esc)
         .join(",")
     );
-    return new NextResponse([header.join(","), ...lines].join("\n"), {
+    const csvContent = [header.join(","), ...lines].join("\n");
+    const dateStr = new Date().toISOString().slice(0, 10);
+
+    if (format === "zip") {
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      zip.file(`pos-tracking-report-${dateStr}.csv`, csvContent);
+      const buf = Buffer.from(await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" }));
+      return new NextResponse(buf, {
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="pos-tracking-report-${dateStr}.zip"`,
+        },
+      });
+    }
+
+    return new NextResponse(csvContent, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="pos-tracking-report-${new Date().toISOString().slice(0, 10)}.csv"`,
+        "Content-Disposition": `attachment; filename="pos-tracking-report-${dateStr}.csv"`,
       },
     });
   }

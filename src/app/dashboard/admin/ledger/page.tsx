@@ -122,8 +122,8 @@ export default function LedgerExplorerPage() {
     return () => clearTimeout(t);
   }, [load, q]);
 
-  const exportCsv = () => {
-    window.open(`/api/admin/wallet/ledger?${buildParams({ format: "csv" })}`, "_blank");
+  const exportFile = (fmt: "csv" | "zip") => {
+    window.open(`/api/admin/wallet/ledger?${buildParams({ format: fmt })}`, "_blank");
   };
 
   const columns: Column<Entry>[] = [
@@ -231,8 +231,11 @@ export default function LedgerExplorerPage() {
             <Button variant="outline" onClick={load} disabled={loading}>
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
             </Button>
-            <Button onClick={exportCsv}>
-              <Download className="h-4 w-4" /> Export CSV
+            <Button variant="outline" onClick={() => exportFile("csv")}>
+              <Download className="h-4 w-4" /> CSV
+            </Button>
+            <Button variant="outline" onClick={() => exportFile("zip")}>
+              <Download className="h-4 w-4" /> ZIP
             </Button>
           </>
         }
