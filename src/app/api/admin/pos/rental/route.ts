@@ -148,6 +148,17 @@ const ActionBody = z.discriminatedUnion("action", [
     includeGst: z.boolean().default(false),
   }),
   z.object({
+    action: z.literal("subscribe_batch"),
+    machineIds: z.array(z.string().min(1)).min(1).max(500),
+    userId: z.string().min(1),
+    planId: z.string().min(1),
+    billingDay: z.number().int().min(1).max(28).default(1),
+    chargeSetup: z.boolean().default(false),
+    monthlyRent: z.number().nonnegative().optional(),
+    commission: z.number().nonnegative().default(0),
+    includeGst: z.boolean().default(false),
+  }),
+  z.object({
     action: z.literal("cancel_subscription"),
     subscriptionId: z.string().min(1),
   }),
@@ -349,6 +360,130 @@ export async function POST(req: Request) {
           upfrontCharged: body.chargeSetup ? toNumber(upfront) : 0,
         });
         return NextResponse.json({ ok: true, subscriptionId: sub.id }, { status: 201 });
+      }
+
+      case "subscribe_batch": {
+        const BILLABLE_ROLES = ["RETAILER", "DISTRIBUTOR", "MASTER_DISTRIBUTOR", "SUPER_DISTRIBUTOR"];
+        const [targetUser, plan] = await Promise.all([
+          prisma.user.findFirst({
+            where: { id: body.userId, deletedAt: null },
+            select: { id: true, name: true, role: true },
+          }),
+          prisma.posRentalPlan.findFirst({ where: { id: body.planId, active: true } }),
+        ]);
+        if (!targetUser) return NextResponse.json({ error: "User not found" }, { status: 404 });
+        if (!BILLABLE_ROLES.includes(targetUser.role))
+          return NextResponse.json(
+            { error: "Rental subscriptions can only be assigned to network users (retailer → super-distributor)" },
+            { status: 400 }
+          );
+        if (!plan) return NextResponse.json({ error: "Plan not found or inactive" }, { status: 404 });
+
+        const effectiveRent = body.monthlyRent ?? toNumber(dec(plan.monthlyRent));
+        const upfront = dec(plan.setupFee).add(dec(plan.deposit));
+        const machineIds = Array.from(new Set(body.machineIds));
+
+        // Bulk-load machines and this user's existing active subs up-front so the
+        // loop does no redundant per-machine lookups.
+        const [machines, existingSubs] = await Promise.all([
+          prisma.posMachine.findMany({
+            where: { id: { in: machineIds } },
+            select: { id: true, serial: true },
+          }),
+          prisma.posSubscription.findMany({
+            where: { machineId: { in: machineIds }, userId: targetUser.id, status: "ACTIVE" },
+            select: { machineId: true },
+          }),
+        ]);
+        const machineById = new Map(machines.map((m) => [m.id, m]));
+        const alreadySubbed = new Set(existingSubs.map((s) => s.machineId));
+
+        let created = 0;
+        const createdIds: string[] = [];
+        const errors: Array<{ machineId: string; error: string }> = [];
+
+        for (const machineId of machineIds) {
+          const machine = machineById.get(machineId);
+          if (!machine) {
+            errors.push({ machineId, error: "machine not found" });
+            continue;
+          }
+          if (alreadySubbed.has(machineId)) {
+            errors.push({ machineId, error: "already has an active subscription" });
+            continue;
+          }
+          try {
+            const sub = await prisma.$transaction(async (tx) => {
+              const c = await tx.posSubscription.create({
+                data: {
+                  machineId,
+                  userId: targetUser.id,
+                  planId: plan.id,
+                  billingDay: body.billingDay,
+                  monthlyRent: dec(effectiveRent),
+                  commission: dec(body.commission),
+                  includeGst: body.includeGst,
+                  createdById: admin.id,
+                },
+              });
+              const downstreamSubs = await tx.posSubscription.findMany({
+                where: { machineId, createdById: targetUser.id, status: "ACTIVE" },
+                select: { id: true, monthlyRent: true, plan: { select: { monthlyRent: true } } },
+              });
+              for (const ds of downstreamSubs) {
+                const dsRent = toNumber(dec(ds.monthlyRent ?? ds.plan.monthlyRent));
+                const newCommission = Math.max(0, Math.round((dsRent - effectiveRent) * 100) / 100);
+                await tx.posSubscription.update({
+                  where: { id: ds.id },
+                  data: { commission: dec(newCommission) },
+                });
+              }
+              return c;
+            });
+
+            if (body.chargeSetup && upfront.gt(0)) {
+              try {
+                await debitWallet({
+                  userId: targetUser.id,
+                  amount: upfront,
+                  reason: "RENTAL",
+                  refType: "PosSubscription",
+                  refId: sub.id,
+                  note: `POS setup+deposit · ${plan.name} · ${machine.serial ?? machine.id}`,
+                  idempotencyKey: `possetup:${sub.id}`,
+                });
+              } catch (e) {
+                await prisma.posSubscription.delete({ where: { id: sub.id } });
+                errors.push({
+                  machineId,
+                  error:
+                    e instanceof LedgerError && e.code === "INSUFFICIENT_FUNDS"
+                      ? `wallet cannot cover ₹${toNumber(upfront)} setup + deposit`
+                      : "setup charge failed",
+                });
+                continue;
+              }
+            }
+
+            created++;
+            createdIds.push(sub.id);
+          } catch (e) {
+            console.error("[admin/pos/rental] batch subscribe error:", e);
+            errors.push({ machineId, error: "could not create subscription" });
+          }
+        }
+
+        await audit("pos.subscription_batch_created", {
+          userId: targetUser.id,
+          planId: plan.id,
+          requested: machineIds.length,
+          created,
+          failed: errors.length,
+          monthlyRent: effectiveRent,
+          commission: body.commission,
+          includeGst: body.includeGst,
+        });
+        return NextResponse.json({ ok: true, created, failed: errors.length, errors, createdIds }, { status: 201 });
       }
 
       case "cancel_subscription": {

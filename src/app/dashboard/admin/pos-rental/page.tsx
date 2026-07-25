@@ -151,6 +151,15 @@ export default function PosRentalPage() {
           `Billing complete: ${d.result.billed} billed, ${d.result.waived ?? 0} waived, ${d.result.failed} failed, ${d.result.skipped} skipped.`,
           d.result.failed === 0
         );
+      } else if (body.action === "subscribe_batch") {
+        const failed = d.failed ?? 0;
+        const created = d.created ?? 0;
+        notify(
+          failed === 0
+            ? `${created} subscription${created !== 1 ? "s" : ""} created — rent will auto-debit each billing cycle.`
+            : `${created} created, ${failed} skipped (already subscribed or unavailable).`,
+          failed === 0
+        );
       } else {
         notify(doneMsg ?? "Done.", true);
       }
@@ -733,32 +742,25 @@ function SubscriptionsTab({
   };
 
   const assignSubscriptions = async () => {
-    let success = 0;
-    let fail = 0;
-    for (const machineId of selectedMachines) {
-      const ok = await act({
-        action: "subscribe",
-        machineId,
-        userId: selectedUserId,
-        planId,
-        billingDay,
-        monthlyRent: baseRent,
-        commission: 0,
-        includeGst,
-        chargeSetup: false,
-      });
-      if (ok) success++;
-      else fail++;
-    }
-    if (success > 0) {
+    const machineIds = Array.from(selectedMachines);
+    if (machineIds.length === 0) return;
+    // Single batch request → one confirmation toast + one console refresh
+    // (instead of one request/toast/reload per machine).
+    const ok = await act({
+      action: "subscribe_batch",
+      machineIds,
+      userId: selectedUserId,
+      planId,
+      billingDay,
+      monthlyRent: baseRent,
+      commission: 0,
+      includeGst,
+      chargeSetup: false,
+    });
+    if (ok) {
       setSelectedMachines(new Set());
-      // Refresh machines list
+      // Refresh machines list for the selected user
       setSelectedUserId((prev) => { setSelectedUserId(""); setTimeout(() => setSelectedUserId(prev), 100); return prev; });
-    }
-    if (fail > 0) {
-      toast.warning(`${success} of ${success + fail} subscriptions created`, {
-        description: `${fail} subscription(s) failed.`,
-      });
     }
   };
 
