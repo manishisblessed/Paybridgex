@@ -31,7 +31,8 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn, formatINR } from "@/lib/utils";
-import { downloadCSV, downloadPDF, downloadZIP, type ReportColumn } from "@/lib/reports";
+import { type ReportColumn } from "@/lib/reports";
+import { ReportActions } from "@/components/dashboard/ReportActions";
 import type {
   PosTransactionsResponse,
   PosTransaction,
@@ -523,7 +524,6 @@ function TransactionsTab() {
   const [terminalFilter, setTerminalFilter] = useState("");
   const [hierSelections, setHierSelections] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
-  const [exporting, setExporting] = useState(false);
 
   // Fetch the network hierarchy + terminal data for cascading filters.
   const { data: treeData } = useSWR<PosTerminalTreeResponse>(
@@ -672,90 +672,41 @@ function TransactionsTab() {
     { key: "card_type", header: "Card Type" },
     { key: "card_number", header: "Card No" },
     { key: "card_classification", header: "Classification" },
-    { key: "amount", header: "Amount", format: "money" },
+    { key: "amount", header: "Amount (INR)" },
     { key: "status", header: "Status" },
     { key: "rrn", header: "RRN" },
     { key: "auth_code", header: "Auth Code" },
   ];
 
-  const localExport = useCallback((format: "csv" | "pdf" | "zip", rows: PosTransaction[]) => {
-    const name = `pos-transactions-${dateFrom}-to-${dateTo}`;
-    if (format === "csv") downloadCSV(name, rows, posExportCols);
-    else if (format === "pdf") downloadPDF("POS Transactions", rows, posExportCols, { subtitle: `${dateFrom} to ${dateTo}` });
-    else downloadZIP(name, rows, posExportCols);
-  }, [dateFrom, dateTo]);
-
-  const handleExport = useCallback(async (format: "csv" | "pdf" | "zip") => {
-    setExporting(true);
-    try {
-      const res = await fetch("/api/pos/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ format, date_from: dateFrom, date_to: dateTo, status: statusFilter || null, terminal_id: activeTerminal || null }),
-      });
-      const d = await res.json();
-      if (d.data?.job_id) {
-        toast.info("Export started — the file will open when ready.");
-        pollExport(d.data.job_id);
-      } else {
-        const rows = transactions.length > 0 ? transactions : [];
-        if (rows.length > 0) {
-          localExport(format, rows);
-          toast.success("Export downloaded.");
-        } else {
-          toast.error("No transaction data available to export.");
-        }
-        setExporting(false);
-      }
-    } catch {
-      const rows = transactions.length > 0 ? transactions : [];
-      if (rows.length > 0) {
-        localExport(format, rows);
-        toast.success("Export downloaded.");
-      } else {
-        toast.error("Export request failed");
-      }
-      setExporting(false);
+  // Fetches EVERY transaction matching the current filters so downloads are
+  // complete (the server paginates the partner feed), not just this page.
+  const fetchAllRows = useCallback(async (): Promise<PosTransaction[]> => {
+    const res = await fetch("/api/pos/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        date_from: dateFrom,
+        date_to: dateTo,
+        status: statusFilter || null,
+        terminal_id: activeTerminal || null,
+      }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      toast.error(typeof d.error === "string" ? d.error : "Failed to build report");
+      return transactions;
     }
-  }, [dateFrom, dateTo, statusFilter, activeTerminal, transactions, localExport]);
-
-  const pollExport = useCallback(async (jobId: string) => {
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      try {
-        const res = await fetch(`/api/pos/export-status/${jobId}`);
-        const d = await res.json();
-        if (d.data?.job?.status === "COMPLETED" && d.data.job.file_url) {
-          const fileUrl = d.data.job.file_url;
-          try {
-            const blob = await fetch(fileUrl).then((r) => r.blob());
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `pos-export-${jobId}.${fileUrl.includes(".zip") ? "zip" : fileUrl.includes(".pdf") ? "pdf" : "csv"}`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          } catch {
-            const a = document.createElement("a");
-            a.href = fileUrl;
-            a.target = "_blank";
-            a.rel = "noopener noreferrer";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-          }
-          toast.success("Export ready — download started.");
-          setExporting(false);
-          return;
-        }
-        if (d.data?.job?.status === "FAILED") { toast.error("Export failed. Please try again."); setExporting(false); return; }
-      } catch { break; }
+    const d = await res.json();
+    if (d.truncated) {
+      toast.warning(`Report capped at ${Number(d.returned).toLocaleString("en-IN")} rows — narrow the date range for the rest.`);
     }
-    toast.warning("Export is taking longer than expected.");
-    setExporting(false);
-  }, []);
+    return (d.rows as PosTransaction[]) ?? [];
+  }, [dateFrom, dateTo, statusFilter, activeTerminal, transactions]);
+
+  const reportSubtitle =
+    `${dateFrom} to ${dateTo}` +
+    (statusFilter ? ` · ${statusFilter}` : "") +
+    (activeTerminal ? ` · TID ${activeTerminal}` : "");
 
   const cols: Column<PosTransaction>[] = [
     { key: "txn_time", header: "Time", render: (r) => <span className="text-xs">{fmtTime(r.txn_time)}</span> },
@@ -900,16 +851,15 @@ function TransactionsTab() {
           <Button variant="outline" size="sm" onClick={() => { setDateFrom(today.from); setDateTo(today.to); setPage(1); }}>
             Today
           </Button>
-          <div className="ml-auto flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={exporting}>
-              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} CSV
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleExport("pdf")} disabled={exporting}>
-              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} PDF
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleExport("zip")} disabled={exporting}>
-              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} ZIP
-            </Button>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <ReportActions<PosTransaction>
+              filename={`pos-transactions-${dateFrom}-to-${dateTo}`}
+              title="POS Transactions Report"
+              subtitle={reportSubtitle}
+              columns={posExportCols}
+              rows={transactions}
+              fetchRows={fetchAllRows}
+            />
           </div>
         </div>
       </div>

@@ -93,6 +93,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("assignScheme"), schemeId: z.string().nullable() }),
   z.object({ action: z.literal("resetPassword") }),
+  z.object({ action: z.literal("reset2fa"), reason: z.string().max(300).optional() }),
   z.object({
     action: z.literal("setLimits"),
     walletCap: z.number().positive().nullable().optional(),
@@ -195,6 +196,24 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         await audit("network.password_reset", { email: target.email });
         // Returned once to the admin for out-of-band delivery; never stored in plain.
         return NextResponse.json({ ok: true, password });
+      }
+
+      case "reset2fa": {
+        await prisma.user.update({
+          where: { id: target.id },
+          data: {
+            twoFactorEnabled: false,
+            twoFactorSecret: null,
+            twoFactorBackupCodes: [],
+            twoFactorVerifiedAt: null,
+          },
+        });
+        await bumpTokenVersion(target.id, { swallow: true });
+        await audit("network.2fa_reset", { email: target.email, reason: body.reason });
+        return NextResponse.json({
+          ok: true,
+          message: "2FA reset. User will set up a new authenticator on next login.",
+        });
       }
 
       case "setLimits": {

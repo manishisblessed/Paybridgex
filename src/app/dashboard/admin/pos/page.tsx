@@ -35,7 +35,8 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn, formatINR } from "@/lib/utils";
-import { downloadCSV, downloadPDF, downloadZIP, type ReportColumn } from "@/lib/reports";
+import { type ReportColumn } from "@/lib/reports";
+import { ReportActions } from "@/components/dashboard/ReportActions";
 import type {
   PosTransactionsResponse,
   PosTransaction,
@@ -884,7 +885,6 @@ function TransactionsTab() {
   const [modeFilter, setModeFilter] = useState<PosPaymentMode | "">("");
   const [terminalFilter, setTerminalFilter] = useState("");
   const [page, setPage] = useState(1);
-  const [exporting, setExporting] = useState(false);
   const [slipTxn, setSlipTxn] = useState<PosTransaction | null>(null);
 
   const body = {
@@ -929,103 +929,52 @@ function TransactionsTab() {
   const exportCols: ReportColumn<PosTransaction>[] = [
     { key: "txn_time", header: "Time", render: (r) => r.txn_time ? new Date(r.txn_time).toLocaleString("en-IN") : "" },
     { key: "terminal_id", header: "TID" },
+    { key: "retailer", header: "Retailer", render: (r) => r.retailer?.shopName || r.retailer?.name || "" },
+    { key: "retailer_code", header: "Retailer Code", render: (r) => r.retailer?.userCode || "" },
     { key: "customer_name", header: "Customer" },
     { key: "payment_mode", header: "Mode" },
     { key: "card_brand", header: "Card Brand" },
     { key: "card_type", header: "Card Type" },
     { key: "card_number", header: "Card No" },
     { key: "card_classification", header: "Classification" },
-    { key: "amount", header: "Amount", format: "money" },
+    { key: "amount", header: "Amount (INR)" },
     { key: "status", header: "Status" },
     { key: "rrn", header: "RRN" },
     { key: "auth_code", header: "Auth Code" },
     { key: "mid", header: "MID" },
   ];
 
-  const localExport = useCallback((format: "csv" | "pdf" | "zip", rows: PosTransaction[]) => {
-    const name = `pos-transactions-${dateFrom}-to-${dateTo}`;
-    if (format === "csv") downloadCSV(name, rows, exportCols);
-    else if (format === "pdf") downloadPDF("POS Transactions", rows, exportCols, { subtitle: `${dateFrom} to ${dateTo}` });
-    else downloadZIP(name, rows, exportCols);
-  }, [dateFrom, dateTo]);
-
-  const handleExport = useCallback(async (format: "csv" | "pdf" | "zip") => {
-    setExporting(true);
-    try {
-      const res = await fetch("/api/pos/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ format, date_from: dateFrom, date_to: dateTo, status: statusFilter || null, terminal_id: terminalFilter || null }),
-      });
-      const data = await res.json();
-      if (data.data?.job_id) {
-        toast.info("Export started — the file will open when ready.");
-        pollExport(data.data.job_id);
-      } else {
-        // Partner export unavailable — fall back to local export from loaded data
-        const rows = transactions.length > 0 ? transactions : [];
-        if (rows.length > 0) {
-          localExport(format, rows);
-          toast.success("Export downloaded (from current page data).");
-        } else {
-          toast.error("No transaction data available to export.");
-        }
-        setExporting(false);
-      }
-    } catch {
-      // Network error — fall back to local export
-      const rows = transactions.length > 0 ? transactions : [];
-      if (rows.length > 0) {
-        localExport(format, rows);
-        toast.success("Export downloaded (from current page data).");
-      } else {
-        toast.error("Export request failed");
-      }
-      setExporting(false);
+  // Fetches EVERY transaction matching the current filters (server paginates the
+  // partner feed) so CSV / PDF / ZIP downloads are complete, not just this page.
+  const fetchAllRows = useCallback(async (): Promise<PosTransaction[]> => {
+    const res = await fetch("/api/pos/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        date_from: dateFrom,
+        date_to: dateTo,
+        status: statusFilter || null,
+        payment_mode: modeFilter || null,
+        terminal_id: terminalFilter || null,
+      }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      toast.error(typeof d.error === "string" ? d.error : "Failed to build report");
+      return transactions;
     }
-  }, [dateFrom, dateTo, statusFilter, terminalFilter, transactions, localExport]);
-
-  const pollExport = useCallback(async (jobId: string) => {
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      try {
-        const res = await fetch(`/api/pos/export-status/${jobId}`);
-        const d = await res.json();
-        if (d.data?.job?.status === "COMPLETED" && d.data.job.file_url) {
-          const fileUrl = d.data.job.file_url;
-          try {
-            const blob = await fetch(fileUrl).then((r) => r.blob());
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `pos-export-${jobId}.${fileUrl.includes(".zip") ? "zip" : fileUrl.includes(".pdf") ? "pdf" : "csv"}`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          } catch {
-            const a = document.createElement("a");
-            a.href = fileUrl;
-            a.target = "_blank";
-            a.rel = "noopener noreferrer";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-          }
-          toast.success("Export ready — download started.");
-          setExporting(false);
-          return;
-        }
-        if (d.data?.job?.status === "FAILED") {
-          toast.error("Export failed. Please try again.");
-          setExporting(false);
-          return;
-        }
-      } catch { break; }
+    const d = await res.json();
+    if (d.truncated) {
+      toast.warning(`Report capped at ${Number(d.returned).toLocaleString("en-IN")} rows — narrow the date range for the rest.`);
     }
-    toast.warning("Export is taking longer than expected.");
-    setExporting(false);
-  }, []);
+    return (d.rows as PosTransaction[]) ?? [];
+  }, [dateFrom, dateTo, statusFilter, modeFilter, terminalFilter, transactions]);
+
+  const reportSubtitle =
+    `${dateFrom} to ${dateTo}` +
+    (statusFilter ? ` · ${statusFilter}` : "") +
+    (modeFilter ? ` · ${modeFilter}` : "") +
+    (terminalFilter ? ` · TID ${terminalFilter}` : "");
 
   const cols: Column<PosTransaction>[] = [
     { key: "txn_time", header: "Time", render: (r) => <span className="text-xs">{fmtTime(r.txn_time)}</span> },
@@ -1072,16 +1021,15 @@ function TransactionsTab() {
             </span>
             <span className="text-xs font-semibold text-emerald-700">Live — auto-refreshing</span>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={exporting}>
-              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} CSV
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleExport("pdf")} disabled={exporting}>
-              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} PDF
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleExport("zip")} disabled={exporting}>
-              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} ZIP
-            </Button>
+          <div className="flex flex-wrap gap-2">
+            <ReportActions<PosTransaction>
+              filename={`pos-transactions-${dateFrom}-to-${dateTo}`}
+              title="POS Transactions Report"
+              subtitle={reportSubtitle}
+              columns={exportCols}
+              rows={transactions}
+              fetchRows={fetchAllRows}
+            />
           </div>
         </div>
 

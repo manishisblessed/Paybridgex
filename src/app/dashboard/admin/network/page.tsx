@@ -975,6 +975,22 @@ function UserDrawer({
             >
               Reset password
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy === "2fa"}
+              onClick={async () => {
+                if (!confirm(`Reset 2FA for ${user.name}? They will set up a new authenticator on next login.`)) return;
+                try {
+                  await patch("2fa", { action: "reset2fa" });
+                  onChanged("2FA reset — user must re-enroll their authenticator on next login.", true);
+                } catch (e) {
+                  onChanged(e instanceof Error ? e.message : "Failed", false);
+                }
+              }}
+            >
+              Reset 2FA
+            </Button>
             {user.status === "ACTIVE" ? (
               <Button size="sm" variant="outline" disabled={busy === "suspend"} onClick={() => statusAction("suspend")}>
                 Suspend user

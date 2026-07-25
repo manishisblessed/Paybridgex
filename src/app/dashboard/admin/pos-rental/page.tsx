@@ -623,6 +623,15 @@ function PlansTab({
 type PickUser = { id: string; name: string; userCode: string; role: string; shop: string; city: string; walletBalance: number };
 type SDMachine = { id: string; serial: string | null; tid: string | null; model: string | null; status: string; hasSub: boolean };
 
+// Role filter tabs for the "Assign to user" picker (value = /api/admin/users role param).
+const ROLE_TABS = [
+  { value: "all", label: "All" },
+  { value: "super-distributor", label: "SD" },
+  { value: "master-distributor", label: "MD" },
+  { value: "distributor", label: "DT" },
+  { value: "retailer", label: "RT" },
+] as const;
+
 function SubscriptionsTab({
   subs, total, page, pageSize, setPage, loading, busy, act, plans,
 }: {
@@ -638,6 +647,7 @@ function SubscriptionsTab({
 }) {
   // User search + selection (any network user, not just super-distributors)
   const [userQuery, setUserQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
   const [userResults, setUserResults] = useState<PickUser[]>([]);
   const [userSearching, setUserSearching] = useState(false);
   const [selectedUser, setSelectedUser] = useState<PickUser | null>(null);
@@ -653,20 +663,24 @@ function SubscriptionsTab({
   const [selectedMachines, setSelectedMachines] = useState<Set<string>>(new Set());
   const [cancelTarget, setCancelTarget] = useState<Sub | null>(null);
 
-  // Debounced user search — any user (retailer → super-distributor)
+  // Debounced user search — any user (retailer → super-distributor). A role
+  // filter lets admin browse a whole tier without typing; a text query narrows
+  // within the selected tier (or across all tiers when role = "all").
   useEffect(() => {
     const q = userQuery.trim();
-    if (q.length < 2) { setUserResults([]); setUserSearching(false); return; }
+    if (q.length < 2 && roleFilter === "all") { setUserResults([]); setUserSearching(false); return; }
     setUserSearching(true);
+    const params = new URLSearchParams({ pageSize: "25", role: roleFilter });
+    if (q.length >= 2) params.set("q", q);
     const t = setTimeout(() => {
-      fetch(`/api/admin/users?q=${encodeURIComponent(q)}&pageSize=25`)
+      fetch(`/api/admin/users?${params.toString()}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => setUserResults((d?.users ?? []) as PickUser[]))
         .catch(() => setUserResults([]))
         .finally(() => setUserSearching(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [userQuery]);
+  }, [userQuery, roleFilter]);
 
   // Fetch machines for the selected user (includes machines in their downline)
   useEffect(() => {
@@ -860,19 +874,34 @@ function SubscriptionsTab({
                 </p>
               </div>
               <button type="button"
-                onClick={() => { setSelectedUser(null); setSelectedUserId(""); setUserQuery(""); setUserResults([]); }}
+                onClick={() => { setSelectedUser(null); setSelectedUserId(""); setUserQuery(""); setUserResults([]); setRoleFilter("all"); }}
                 className="shrink-0 text-xs font-semibold text-brand-600 hover:text-brand-800">
                 Change
               </button>
             </div>
           ) : (
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
-              <input className={`${inputCls} pl-9`}
-                placeholder="Search by name, shop, email, user code or city..."
-                value={userQuery}
-                onChange={(e) => setUserQuery(e.target.value)} />
-              {userQuery.trim().length >= 2 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {ROLE_TABS.map((t) => (
+                  <button key={t.value} type="button"
+                    onClick={() => setRoleFilter(t.value)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
+                      roleFilter === t.value
+                        ? "bg-brand-600 text-white"
+                        : "bg-ink-100 text-ink-600 hover:bg-ink-200"
+                    }`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+                <input className={`${inputCls} pl-9`}
+                  placeholder={roleFilter === "all" ? "Search by name, shop, email, user code or city..." : "Search within this tier — or leave blank to browse all..."}
+                  value={userQuery}
+                  onChange={(e) => setUserQuery(e.target.value)} />
+              </div>
+              {(userQuery.trim().length >= 2 || roleFilter !== "all") && (
                 <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-ink-100 bg-white shadow-lg">
                   {userSearching ? (
                     <div className="flex items-center gap-2 px-4 py-3 text-sm text-ink-500">
