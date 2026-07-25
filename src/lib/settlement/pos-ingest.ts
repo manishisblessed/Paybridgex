@@ -2,6 +2,7 @@ import { flags } from "@/lib/env";
 import { getSetting } from "@/lib/settings";
 import { getPosTransactions } from "@/lib/partners/sameday-pos";
 import { handlePosCapture } from "@/lib/settlement/pos";
+import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
 import type { PosTransaction } from "@/lib/partners/sameday-pos.types";
 
 /**
@@ -107,14 +108,31 @@ export async function runPosIngestSweep(opts?: {
         continue;
       }
 
+      const paymentMode = up(t.payment_mode) ?? "CARD";
+      // BIN fallback: when the acquirer feed omits classification but exposes a
+      // card number (e.g. Teachway terminals), derive it from the BIN so MDR is
+      // priced on the same card dimension as feeds that do provide it.
+      let classification = up(t.card_classification);
+      if (!classification && paymentMode === "CARD") {
+        const bin = (t.card_number ?? "").replace(/\D/g, "").slice(0, 6);
+        if (bin.length === 6) {
+          try {
+            const binData = await lookupBin(bin);
+            if (binData) classification = classificationFromBin(binData);
+          } catch {
+            // Non-blocking: settle without classification if BIN lookup fails.
+          }
+        }
+      }
+
       const result = await handlePosCapture({
         transactionRef: txnRef(t),
         terminalId: t.terminal_id,
         grossAmount,
-        paymentMode: up(t.payment_mode) ?? "CARD",
+        paymentMode,
         cardType: up(t.card_type),
         brandType: up(t.card_brand),
-        classification: up(t.card_classification),
+        classification,
         capturedAt: parseCapturedAt(t),
       });
 

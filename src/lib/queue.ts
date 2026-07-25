@@ -76,6 +76,11 @@ export const QUEUES = {
   // retailer didn't instant-settle into their wallet the next IST day, net of
   // the scheme's T1 MDR. Scheduled hourly; fires only at the configured hour.
   QR_SETTLEMENT_T1: "qr.settlement.t1",
+  // POS machine inventory sync — pulls the Same Day terminal inventory and
+  // upserts the local `PosMachine` mirror (partition/multi-pass union +
+  // reconcile guard). Scheduled every 10 min so the fleet stays current without
+  // a manual Sync button. Fully idempotent; assignment data is preserved.
+  POS_MACHINE_SYNC: "pos.machines.sync",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];

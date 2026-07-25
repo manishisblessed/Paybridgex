@@ -285,8 +285,25 @@ export interface PosSyncResult {
   scanned: number;
   created: number;
   updated: number;
-  /** Partner-synced rows removed because they were absent from this pull. */
+  /** Unused synced rows hard-deleted because they were absent from this pull. */
   removed: number;
+  /**
+   * Stale synced rows retired (`decommissioned`) in place instead of deleted
+   * because they still hold a rental subscription or an active assignee.
+   */
+  retired: number;
+  /** Distinct machines collected across all crawl passes (the union). */
+  distinct: number;
+  /** Machine count the partner claims exists (max `pagination.total` seen). */
+  expected: number;
+  /**
+   * Whether the union covered `expected` (or the account is genuinely empty),
+   * making destructive reconcile safe to run. When false, the partner's
+   * pagination dropped rows and reconcile is skipped to protect live terminals.
+   */
+  complete: boolean;
+  /** Number of full crawl passes performed to converge on the inventory. */
+  passes: number;
 }
 
 // ---------------------------------------------------------------------------

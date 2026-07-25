@@ -39,6 +39,8 @@ import { runPosT1SettlementSweep, runPosInstantSettlementSweep } from "@/lib/set
 import { runQrT1SettlementSweep } from "@/lib/qr/claims";
 import { runPosIngestSweep } from "@/lib/settlement/pos-ingest";
 import { runPosRentalBilling } from "@/lib/pos/rental";
+import { syncPosMachines } from "@/lib/pos/assignments";
+import { flags } from "@/lib/env";
 import { getSetting } from "@/lib/settings";
 import { deliverWebhook } from "@/lib/platform/webhooks";
 import { runAmlSweep } from "@/lib/aml/engine";
@@ -317,6 +319,28 @@ async function main() {
   });
   await boss.schedule(QUEUES.POS_RENTAL_BILLING, "0 * * * *", {}, { tz: "Asia/Kolkata" });
 
+  // QUEUES.POS_MACHINE_SYNC — pull the Same Day terminal inventory into the
+  // local mirror so the fleet page stays current without a manual Sync button.
+  // The sync unions across machine_type partitions + repeated passes to defeat
+  // the partner's unstable pagination, and only reconciles (removes/retires
+  // absent rows) when the crawl verifiably covered the partner's reported total.
+  // Idempotent and assignment-preserving, so overlapping/retried runs are safe.
+  await boss.work(QUEUES.POS_MACHINE_SYNC, async () => {
+    if (!flags.pos) return;
+    try {
+      const r = await syncPosMachines();
+      if (r.created > 0 || r.removed > 0 || r.retired > 0 || !r.complete)
+        log(
+          `pos.machines.sync: distinct=${r.distinct} expected=${r.expected} ` +
+            `complete=${r.complete} created=${r.created} updated=${r.updated} ` +
+            `removed=${r.removed} retired=${r.retired} passes=${r.passes}`
+        );
+    } catch (e) {
+      await captureError(e, { where: "pos.machines.sync" });
+    }
+  });
+  await boss.schedule(QUEUES.POS_MACHINE_SYNC, "*/10 * * * *", {}, { tz: "Asia/Kolkata" });
+
   // QUEUES.WEBHOOK_DELIVER — Phase 4. Signed partner webhook deliveries;
   // per-job retryLimit set at enqueue time, terminal failures alert ops.
   await boss.work<{ deliveryId: string }>(QUEUES.WEBHOOK_DELIVER, async (jobs) => {
@@ -362,7 +386,7 @@ async function main() {
   }
 
   log(
-    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.ingest (*/30 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
+    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.ingest (*/30 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pos.machines.sync (*/10 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
   );
 }
 

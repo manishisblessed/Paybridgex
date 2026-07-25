@@ -12,6 +12,68 @@ export interface BinResult {
 }
 
 /**
+ * Build a human-readable card classification label from a BIN lookup, used as a
+ * fallback when the acquirer feed doesn't provide `card_classification`.
+ * Prefers `network + level` (e.g. "VISA PLATINUM") to match the style of the
+ * partner API's classification strings, falling back to level or type alone.
+ * Returns undefined when there's nothing meaningful to show.
+ */
+export function classificationFromBin(bin: BinResult): string | undefined {
+  const label = [bin.cardNetwork, bin.cardLevel]
+    .map((s) => (s ?? "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const fallback = label || bin.cardLevel.trim() || bin.cardType.trim();
+  return fallback ? fallback.toUpperCase() : undefined;
+}
+
+/**
+ * Known card-tier levels, ordered most-specific first so multi-word tiers match
+ * before their single-word substrings (e.g. "WORLD ELITE" before "WORLD").
+ */
+export const CARD_LEVELS = [
+  "WORLD ELITE",
+  "INFINITE",
+  "SIGNATURE",
+  "PLATINUM",
+  "TITANIUM",
+  "CORPORATE",
+  "COMMERCIAL",
+  "BUSINESS",
+  "PURCHASE",
+  "REWARDS",
+  "PREMIUM",
+  "WORLD",
+  "GOLD",
+  "CLASSIC",
+  "STANDARD",
+  "ELECTRON",
+  "MAESTRO",
+  "PREPAID",
+] as const;
+
+/**
+ * Reduce any classification string to its canonical card tier for matching.
+ *
+ * Feeds and BIN lookups label the same tier inconsistently ("VISA PLATINUM",
+ * "Visa Platinum", "PLATINUM MASTERCARD", "World Mastercard Card"), so an exact
+ * string compare against an MDR slab pinned to a bare tier ("PLATINUM") would
+ * never match. This collapses all of those to the underlying tier token so
+ * pricing resolves regardless of the network prefix or word order. Strings with
+ * no recognised tier are returned normalized (uppercased, single-spaced) so they
+ * still compare exactly.
+ */
+export function canonicalCardLevel(value: string | null | undefined): string {
+  const s = (value ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  if (!s) return "";
+  for (const level of CARD_LEVELS) {
+    if (s === level || s.includes(level)) return level;
+  }
+  return s;
+}
+
+/**
  * Look up card BIN classification. Checks the local cache first;
  * on miss, calls eKYC Hub and caches the result permanently (BINs are static).
  * Returns null if the lookup fails or the provider is not configured.

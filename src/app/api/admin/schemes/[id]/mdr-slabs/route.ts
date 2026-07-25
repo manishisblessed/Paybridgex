@@ -5,6 +5,54 @@ import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { validateMdrSlab } from "@/lib/mdr/resolver";
 import { validateMdrAgainstFloor } from "@/lib/mdr/floor";
+import { findApprovedBrandRate } from "@/lib/brand/mdr";
+
+/**
+ * POS slabs are governed by the manually-approved brand rate card: the vendor
+ * cost is locked to it and the MDR can never be priced below it. This resolves
+ * that rate for a (company, paymentMode, band) and returns either the locked
+ * vendor values (in the approved rate's type) or an error to block the slab.
+ */
+async function lockPosVendorToBrandRate(input: {
+  company: string | null | undefined;
+  paymentMode: string;
+  mdrType: "FLAT" | "PERCENT";
+  minAmount: number;
+}): Promise<
+  | { ok: true; vendorCharge: number; vendorChargeT0: number }
+  | { ok: false; error: string }
+> {
+  const company = input.company?.trim();
+  if (!company || company === "*") {
+    return {
+      ok: false,
+      error:
+        "POS MDR must be scoped to a company. Select a company that has an approved rate in Brands & MDR.",
+    };
+  }
+  const approved = await findApprovedBrandRate({
+    company,
+    paymentMode: input.paymentMode,
+    amount: Math.max(input.minAmount, 1),
+  });
+  if (!approved) {
+    return {
+      ok: false,
+      error: `No company-approved rate exists for ${company} (${input.paymentMode}). Add it in Brands & MDR first.`,
+    };
+  }
+  if (input.mdrType !== approved.mdrType) {
+    return {
+      ok: false,
+      error: `MDR type must be ${approved.mdrType} to match the approved rate for ${company}.`,
+    };
+  }
+  return {
+    ok: true,
+    vendorCharge: Number(approved.mdrValue),
+    vendorChargeT0: Number(approved.mdrValueT0),
+  };
+}
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -101,6 +149,20 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
   const b = parsed.data;
+
+  // POS: lock vendor to the company-approved brand rate (blocks below-cost MDR).
+  if (b.serviceKind === "POS") {
+    const lock = await lockPosVendorToBrandRate({
+      company: b.company,
+      paymentMode: b.paymentMode,
+      mdrType: b.mdrType,
+      minAmount: b.minAmount,
+    });
+    if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
+    b.vendorCharge = lock.vendorCharge;
+    b.vendorChargeT0 = lock.vendorChargeT0;
+  }
+
   const { global: isGlobal, ...slabFields } = b;
 
   // Resolve target scheme(s).
@@ -119,13 +181,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     targetSchemeIds.push(params.id);
   }
 
-  const floorErr = await validateMdrAgainstFloor({
-    serviceKind: b.serviceKind,
-    paymentMode: b.paymentMode,
-    mdrType: b.mdrType,
-    mdrValue: b.mdrValue,
-    mdrValueT0: b.mdrValueT0,
-  });
+  const floorErr = await validateMdrAgainstFloor(
+    {
+      serviceKind: b.serviceKind,
+      paymentMode: b.paymentMode,
+      mdrType: b.mdrType,
+      mdrValue: b.mdrValue,
+      mdrValueT0: b.mdrValueT0,
+    },
+    // A slab is pipeline/provider-agnostic — it must clear every rail floor.
+    { matchAllScopes: true }
+  );
   if (floorErr) return NextResponse.json({ error: floorErr }, { status: 400 });
 
   const marginErr = validateMarginVsCommission(b);
@@ -264,13 +330,38 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   );
   if (overlap) return NextResponse.json({ error: overlap }, { status: 400 });
 
-  const floorErr = await validateMdrAgainstFloor({
-    serviceKind: existing.serviceKind,
-    paymentMode: next.paymentMode,
-    mdrType: b.mdrType ?? existing.mdrType,
-    mdrValue: b.mdrValue ?? Number(existing.mdrValue),
-    mdrValueT0: b.mdrValueT0 ?? Number(existing.mdrValueT0),
-  });
+  // POS: re-lock vendor to the approved brand rate when a pricing/dimension
+  // field changes. Partial edits (e.g. toggling `active`) skip this so they
+  // aren't blocked by legacy slabs.
+  const pricingTouched =
+    b.mdrValue !== undefined ||
+    b.mdrValueT0 !== undefined ||
+    b.mdrType !== undefined ||
+    b.vendorCharge !== undefined ||
+    b.company !== undefined ||
+    b.paymentMode !== undefined;
+  if (existing.serviceKind === "POS" && pricingTouched) {
+    const lock = await lockPosVendorToBrandRate({
+      company: next.company,
+      paymentMode: next.paymentMode,
+      mdrType: b.mdrType ?? existing.mdrType,
+      minAmount: next.minAmount,
+    });
+    if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
+    b.vendorCharge = lock.vendorCharge;
+    b.vendorChargeT0 = lock.vendorChargeT0;
+  }
+
+  const floorErr = await validateMdrAgainstFloor(
+    {
+      serviceKind: existing.serviceKind,
+      paymentMode: next.paymentMode,
+      mdrType: b.mdrType ?? existing.mdrType,
+      mdrValue: b.mdrValue ?? Number(existing.mdrValue),
+      mdrValueT0: b.mdrValueT0 ?? Number(existing.mdrValueT0),
+    },
+    { matchAllScopes: true }
+  );
   if (floorErr) return NextResponse.json({ error: floorErr }, { status: 400 });
 
   const marginErr = validateMarginVsCommission({

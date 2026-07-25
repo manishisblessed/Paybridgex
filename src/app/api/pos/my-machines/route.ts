@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { assertServiceEnabled, ServiceDisabledError } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
-import { scopeUserIdFilter, canAccessUser, getDescendantIds } from "@/lib/security/ownership";
+import { scopeDirectUserIdFilter, canAccessUser, getDescendantIds } from "@/lib/security/ownership";
 import { prisma } from "@/lib/db";
 import { flags } from "@/lib/env";
 import { posMachineSelect, serializePosMachine } from "@/lib/pos/assignments";
@@ -16,8 +16,9 @@ export const dynamic = "force-dynamic";
  * GET /api/pos/my-machines
  *
  * User-facing list of POS machines assigned to the caller (and, for parents,
- * their downline). Scoped via `scopeUserIdFilter` so a user can never see a
- * machine that isn't theirs. Admins see the whole assigned fleet.
+ * their DIRECT children only — SD→MDs, MD→DTs, DT→RTs). Scoped via
+ * `scopeDirectUserIdFilter` so a user only ever sees their own and their
+ * immediate children's terminals. Admins see the whole assigned fleet.
  */
 export async function GET(req: Request) {
   let user;
@@ -54,9 +55,10 @@ export async function GET(req: Request) {
     const subtreeIds = [forChild, ...(await getDescendantIds(forChild))];
     where = { assignedUserId: { in: subtreeIds } };
   } else {
-    // scopeUserIdFilter returns { userId: { in: [...] } } for non-admins, {} for
-    // admins. The machine's owner column is `assignedUserId`, so remap it.
-    const scope = await scopeUserIdFilter(user);
+    // scopeDirectUserIdFilter returns { userId: { in: [self + direct children] } }
+    // for non-admins, {} for admins. The machine's owner column is
+    // `assignedUserId`, so remap it.
+    const scope = await scopeDirectUserIdFilter(user);
     where = scope.userId
       ? { assignedUserId: scope.userId }
       : { assignedUserId: { not: null } };

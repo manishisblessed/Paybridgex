@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth-server";
 import { getPosTransactions } from "@/lib/partners/sameday-pos";
+import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
 import { prisma } from "@/lib/db";
 import { flags } from "@/lib/env";
 import { scopePosTerminals } from "@/lib/pos/assignments";
@@ -124,6 +125,48 @@ export async function POST(req: Request) {
       ...txn,
       retailer: tidToRetailer.get(txn.terminal_id) ?? null,
     }));
+
+    // Classification fallback: some acquirers (e.g. Teachway terminals) return a
+    // card number but no `card_classification`, while others (e.g. Avika) return
+    // the classification directly. For the rows still missing it, derive it from
+    // the card BIN so every card transaction shows a classification. Lookups are
+    // batched by unique 6-digit BIN and cache-first (CardBinCache), so repeats
+    // are cheap DB hits and only true misses reach the BIN provider.
+    const binOf = (cardNumber: string | null | undefined) =>
+      (cardNumber ?? "").replace(/\D/g, "").slice(0, 6);
+
+    const missingBins = new Set<string>();
+    for (const txn of enriched) {
+      if (!txn.card_classification && txn.payment_mode === "CARD") {
+        const bin = binOf(txn.card_number);
+        if (bin.length === 6) missingBins.add(bin);
+      }
+    }
+
+    if (missingBins.size > 0) {
+      const binList = [...missingBins];
+      const looked = await Promise.all(
+        binList.map(async (bin) => {
+          try {
+            return [bin, await lookupBin(bin)] as const;
+          } catch {
+            return [bin, null] as const;
+          }
+        })
+      );
+      const binToClassification = new Map(
+        looked
+          .map(([bin, res]) => [bin, res ? classificationFromBin(res) : undefined] as const)
+          .filter((entry): entry is readonly [string, string] => Boolean(entry[1]))
+      );
+
+      for (const txn of enriched) {
+        if (!txn.card_classification && txn.payment_mode === "CARD") {
+          const label = binToClassification.get(binOf(txn.card_number));
+          if (label) txn.card_classification = label;
+        }
+      }
+    }
 
     return NextResponse.json({ ...result.data, data: enriched });
   } catch (e) {

@@ -31,7 +31,13 @@ const BulkBody = z
   })
   .strict();
 
-const ASSIGNABLE_ROLES = new Set(["SUPER_DISTRIBUTOR"]);
+// A machine may be assigned to any network-tier user (see assign/route.ts).
+const ASSIGNABLE_ROLES = new Set([
+  "RETAILER",
+  "DISTRIBUTOR",
+  "MASTER_DISTRIBUTOR",
+  "SUPER_DISTRIBUTOR",
+]);
 
 /**
  * POST /api/admin/pos/machines/bulk-assign
@@ -83,7 +89,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Target user not found" }, { status: 404 });
     if (!ASSIGNABLE_ROLES.has(target.role))
       return NextResponse.json(
-        { error: "Admin can only assign POS machines to Super-Distributors" },
+        { error: "POS machines can only be assigned to network users (Retailer, Distributor, Master-Distributor, Super-Distributor)" },
         { status: 400 }
       );
     if (target.status === "CLOSED")

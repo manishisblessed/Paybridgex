@@ -1,6 +1,7 @@
 import type { MdrServiceKind, MdrSlab, RateType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { dec, gte, lte, mul, round, type Money } from "@/lib/money";
+import { canonicalCardLevel } from "@/lib/pos/binLookup";
 
 /**
  * MDR engine — resolves the merchant discount rate + commission share for
@@ -81,16 +82,20 @@ const norm = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
  */
 function slabScore(slab: MdrSlab, dims: MdrDimensions): number {
   let score = 0;
-  const pairs: Array<[string | null, string | null | undefined]> = [
-    [slab.paymentMode === "*" ? null : slab.paymentMode, dims.paymentMode === "*" ? null : dims.paymentMode],
-    [slab.company, dims.company],
-    [slab.cardType, dims.cardType],
-    [slab.brandType, dims.brandType],
-    [slab.classification, dims.classification],
+  // [slabValue, txnValue, comparator] — classification is matched on its
+  // canonical card tier so a slab pinned to "PLATINUM" matches feed/BIN labels
+  // like "VISA PLATINUM" or "PLATINUM MASTERCARD". Other dimensions compare
+  // exactly (after case/space normalization).
+  const pairs: Array<[string | null, string | null | undefined, (v: string | null | undefined) => string]> = [
+    [slab.paymentMode === "*" ? null : slab.paymentMode, dims.paymentMode === "*" ? null : dims.paymentMode, norm],
+    [slab.company, dims.company, norm],
+    [slab.cardType, dims.cardType, norm],
+    [slab.brandType, dims.brandType, norm],
+    [slab.classification, dims.classification, canonicalCardLevel],
   ];
-  for (const [slabVal, txnVal] of pairs) {
+  for (const [slabVal, txnVal, cmp] of pairs) {
     if (slabVal == null || slabVal === "") continue; // wildcard slab dimension
-    if (!txnVal || norm(slabVal) !== norm(txnVal)) return -1; // pinned mismatch
+    if (!txnVal || cmp(slabVal) !== cmp(txnVal)) return -1; // pinned mismatch
     score++;
   }
   return score;

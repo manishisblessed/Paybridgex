@@ -48,13 +48,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   });
   if (overlap) return NextResponse.json({ error: overlap }, { status: 400 });
 
-  const floorErr = await validateMdrAgainstFloor({
-    serviceKind: "POS",
-    paymentMode: b.paymentMode,
-    mdrType: b.mdrType,
-    mdrValue: b.mdrValue,
-    mdrValueT0: b.mdrValueT0,
-  });
+  const floorErr = await validateMdrAgainstFloor(
+    {
+      serviceKind: "POS",
+      paymentMode: b.paymentMode,
+      mdrType: b.mdrType,
+      mdrValue: b.mdrValue,
+      mdrValueT0: b.mdrValueT0,
+    },
+    { matchAllScopes: true }
+  );
   if (floorErr) return NextResponse.json({ error: floorErr }, { status: 400 });
 
   const rate = await prisma.brandMdrRate.create({
@@ -122,13 +125,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   );
   if (overlap) return NextResponse.json({ error: overlap }, { status: 400 });
 
-  const floorErr = await validateMdrAgainstFloor({
-    serviceKind: "POS",
-    paymentMode: next.paymentMode,
-    mdrType: b.mdrType ?? existing.mdrType,
-    mdrValue: b.mdrValue ?? Number(existing.mdrValue),
-    mdrValueT0: b.mdrValueT0 ?? Number(existing.mdrValueT0),
-  });
+  const floorErr = await validateMdrAgainstFloor(
+    {
+      serviceKind: "POS",
+      paymentMode: next.paymentMode,
+      mdrType: b.mdrType ?? existing.mdrType,
+      mdrValue: b.mdrValue ?? Number(existing.mdrValue),
+      mdrValueT0: b.mdrValueT0 ?? Number(existing.mdrValueT0),
+    },
+    { matchAllScopes: true }
+  );
   if (floorErr) return NextResponse.json({ error: floorErr }, { status: 400 });
 
   const updated = await prisma.brandMdrRate.update({

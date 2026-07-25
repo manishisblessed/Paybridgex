@@ -9,6 +9,7 @@
     "start": "next start",
     "worker": "tsx scripts/worker.ts",
     "force-logout": "tsx scripts/forceGlobalLogout.ts",
+    "backfill:pos-company": "tsx scripts/backfill-pos-company.ts",
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",

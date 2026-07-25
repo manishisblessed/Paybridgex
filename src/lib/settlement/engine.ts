@@ -59,6 +59,12 @@ export async function priceSchemeSettlement(args: {
   grossAmount: Money | string | number;
   paymentMode?: string;
   settlementType: "T0" | "T1";
+  /**
+   * Per-entity scope for the floor check (PG pipeline / QR provider). When the
+   * caller knows the routing pipeline it can pass it so a pipeline-scoped
+   * CompanyMdrFloor applies. Omit for a rail-wide floor check.
+   */
+  scopeKey?: string | null;
 }): Promise<SchemeSettlementPrice | null> {
   const gross = round(args.grossAmount);
   const paymentMode = args.paymentMode ?? "UPI";
@@ -77,7 +83,8 @@ export async function priceSchemeSettlement(args: {
     paymentMode,
     mdrAmount,
     gross,
-    args.settlementType
+    args.settlementType,
+    args.scopeKey
   );
   if (!aboveFloor) return null;
 

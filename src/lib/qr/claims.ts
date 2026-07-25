@@ -23,6 +23,7 @@ import { creditWallet, debitWallet } from "../ledger";
 import { round, toNumber } from "../money";
 import { getSetting } from "../settings";
 import { priceSchemeSettlement, startOfTodayIst, SETTLED_VIA } from "../settlement/engine";
+import { railScopeKey } from "../mdr/floor";
 
 export class QrClaimError extends Error {
   public statusCode: number;
@@ -324,6 +325,7 @@ async function settleClaim(
     grossAmount: Number(claim.amount),
     paymentMode: "UPI",
     settlementType,
+    scopeKey: await railScopeKey("QR"),
   });
   if (!price) return null; // no scheme rate / below floor — leave SETTLEABLE for admin
 
@@ -486,12 +488,13 @@ export async function listSettleableQrClaims(userId: string) {
     include: { qr: { select: { label: true } } },
   });
 
+  const scopeKey = await railScopeKey("QR");
   const rows = [];
   for (const c of claims) {
     const gross = Number(c.amount);
     const [instant, t1] = await Promise.all([
-      priceSchemeSettlement({ userId, serviceKind: "QR", grossAmount: gross, paymentMode: "UPI", settlementType: "T0" }),
-      priceSchemeSettlement({ userId, serviceKind: "QR", grossAmount: gross, paymentMode: "UPI", settlementType: "T1" }),
+      priceSchemeSettlement({ userId, serviceKind: "QR", grossAmount: gross, paymentMode: "UPI", settlementType: "T0", scopeKey }),
+      priceSchemeSettlement({ userId, serviceKind: "QR", grossAmount: gross, paymentMode: "UPI", settlementType: "T1", scopeKey }),
     ]);
     rows.push({
       id: c.id,

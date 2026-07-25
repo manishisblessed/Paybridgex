@@ -124,7 +124,30 @@ const POS_ICON = { icon: Store, className: "text-orange-600", hover: "hover:bg-o
 
 const CARD_TYPES = ["CREDIT", "DEBIT", "PREPAID"];
 const BRAND_TYPES = ["VISA", "MASTERCARD", "RUPAY", "AMEX", "DINERS"];
-const CLASSIFICATIONS = ["PLATINUM", "GOLD", "CLASSIC", "BUSINESS", "STANDARD", "SIGNATURE"];
+// Card tiers used to pin classification-specific MDR. Matching is tier-based
+// (see canonicalCardLevel), so picking "PLATINUM" here matches feed/BIN labels
+// like "VISA PLATINUM" or "PLATINUM MASTERCARD" too. Keep in sync with
+// CARD_LEVELS in src/lib/pos/binLookup.ts.
+const CLASSIFICATIONS = [
+  "SIGNATURE",
+  "INFINITE",
+  "PLATINUM",
+  "TITANIUM",
+  "WORLD",
+  "WORLD ELITE",
+  "CORPORATE",
+  "COMMERCIAL",
+  "BUSINESS",
+  "PURCHASE",
+  "REWARDS",
+  "PREMIUM",
+  "GOLD",
+  "CLASSIC",
+  "STANDARD",
+  "ELECTRON",
+  "MAESTRO",
+  "PREPAID",
+];
 const PAYMENT_MODES = ["*", "CARD", "UPI", "NFC", "BHARATQR"];
 
 function fmtRate(type: RateType, value: number): string {
@@ -980,21 +1003,40 @@ function MdrRateModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Pre-fill vendor charges from brand rates when company changes (new slabs only).
+  // POS vendor cost is LOCKED to the company-approved brand rate — never typed
+  // by hand — so the MDR can't be priced below the approved rate. `locked`
+  // means an approved rate was found and vendor is derived from it; `missing`
+  // means POS is selected without a resolvable approved rate (slab is blocked).
+  const [posLock, setPosLock] = useState<{ locked: boolean; missing: boolean }>({
+    locked: false,
+    missing: false,
+  });
+
   useEffect(() => {
-    if (isEdit || !company) return;
-    const rates = brandRatesByCompany[company];
-    if (!rates || rates.length === 0) return;
+    if (serviceKind !== "POS") {
+      setPosLock({ locked: false, missing: false });
+      return;
+    }
+    const co = company.trim();
+    if (!co) {
+      setPosLock({ locked: false, missing: true });
+      return;
+    }
+    const rates = brandRatesByCompany[co];
     // Pick best match: prefer exact paymentMode, then wildcard "*".
-    const exact = rates.find((r) => r.paymentMode === paymentMode);
-    const wildcard = rates.find((r) => r.paymentMode === "*");
-    const pick = exact ?? wildcard ?? rates[0];
-    if (!pick) return;
+    const exact = rates?.find((r) => r.paymentMode === paymentMode);
+    const wildcard = rates?.find((r) => r.paymentMode === "*");
+    const pick = exact ?? wildcard ?? rates?.[0];
+    if (!pick) {
+      setPosLock({ locked: false, missing: true });
+      return;
+    }
     const isPercent = pick.mdrType === "PERCENT";
     setMdrType(pick.mdrType as RateType);
     setVendorT1(String(isPercent ? Number(pick.mdrValue) * 100 : Number(pick.mdrValue)));
     setVendorT0(String(isPercent ? Number(pick.mdrValueT0) * 100 : Number(pick.mdrValueT0)));
-  }, [company, paymentMode, isEdit, brandRatesByCompany]);
+    setPosLock({ locked: true, missing: false });
+  }, [serviceKind, company, paymentMode, brandRatesByCompany]);
 
   function toStored(type: RateType, raw: string): number {
     const n = Number(raw);
@@ -1203,11 +1245,27 @@ function MdrRateModal({
               <div />
               <div>
                 <Label>{mdrType === "PERCENT" ? "Vendor T+1 (%)" : "Vendor T+1 (₹)"}</Label>
-                <Input type="number" min={0} step="0.0001" value={vendorT1} onChange={(e) => setVendorT1(e.target.value)} />
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.0001"
+                  value={vendorT1}
+                  onChange={(e) => setVendorT1(e.target.value)}
+                  readOnly={posLock.locked}
+                  className={posLock.locked ? "cursor-not-allowed bg-ink-50 text-ink-500" : undefined}
+                />
               </div>
               <div>
                 <Label>{mdrType === "PERCENT" ? "Vendor T+0 (%)" : "Vendor T+0 (₹)"}</Label>
-                <Input type="number" min={0} step="0.0001" value={vendorT0} onChange={(e) => setVendorT0(e.target.value)} />
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.0001"
+                  value={vendorT0}
+                  onChange={(e) => setVendorT0(e.target.value)}
+                  readOnly={posLock.locked}
+                  className={posLock.locked ? "cursor-not-allowed bg-ink-50 text-ink-500" : undefined}
+                />
               </div>
             </div>
             <p className="mt-2 text-xs text-ink-500">
@@ -1215,6 +1273,19 @@ function MdrRateModal({
               is the acquirer cost the company pays upstream. Company revenue per txn = service − vendor, credited to
               the Revenue Wallet. T+0 applies to instant settlement; leave 0 to use the T+1 rate.
             </p>
+            {posLock.locked && (
+              <p className="mt-2 rounded-lg bg-brand-50/60 p-2 text-[11px] text-brand-700">
+                Vendor cost is locked to the company-approved rate for{" "}
+                <span className="font-semibold">{company}</span>. The service charge (MDR) cannot be set below it.
+              </p>
+            )}
+            {serviceKind === "POS" && posLock.missing && (
+              <p className="mt-2 rounded-lg bg-rose-50 p-2 text-[11px] text-rose-600">
+                {company
+                  ? `No company-approved rate exists for ${company}${paymentMode ? ` (${paymentMode})` : ""}. Add it in Brands & MDR first.`
+                  : "Select a company. POS MDR must be scoped to a company with an approved brand rate."}
+              </p>
+            )}
           </div>
 
           <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
@@ -1251,7 +1322,7 @@ function MdrRateModal({
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving}>
+          <Button onClick={submit} disabled={saving || (serviceKind === "POS" && posLock.missing)}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Save configuration
           </Button>
         </div>

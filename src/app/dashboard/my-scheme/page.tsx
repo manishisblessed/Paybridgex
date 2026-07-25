@@ -45,9 +45,13 @@ type MdrSlab = {
   mdrType: RateType;
   mdrValue: number;
   mdrValueT0: number;
-  parentSlabId: string | null;
+  commissionType: RateType;
+  commission: number;
   active: boolean;
 };
+
+/** A direct child the caller may inspect the scheme of (SD→MDs, MD→DTs, DT→RTs). */
+type DirectChild = { id: string; name: string; role: string; userCode: string | null };
 
 type Scheme = {
   id: string;
@@ -94,11 +98,15 @@ export default function MyAssignedSchemePage() {
   const [loading, setLoading] = useState(true);
   const [scheme, setScheme] = useState<Scheme | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  // Direct-child scheme viewer: null = the caller's own scheme.
+  const [children, setChildren] = useState<DirectChild[]>([]);
+  const [viewUserId, setViewUserId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (userId: string | null) => {
     setLoading(true);
     try {
-      const data = await fetch("/api/me/scheme").then((r) => r.json());
+      const url = userId ? `/api/me/scheme?userId=${encodeURIComponent(userId)}` : "/api/me/scheme";
+      const data = await fetch(url).then((r) => r.json());
       setScheme(data.scheme ?? null);
       setRole(data.role ?? null);
     } catch {
@@ -108,9 +116,33 @@ export default function MyAssignedSchemePage() {
     }
   }, []);
 
+  // Load the caller's direct children (if any) so a parent can inspect a
+  // child's scheme. Retailers have none / get 403 — the selector stays hidden.
   useEffect(() => {
-    load();
-  }, [load]);
+    let cancelled = false;
+    fetch("/api/network?pageSize=100")
+      .then((r) => (r.ok ? r.json() : { users: [] }))
+      .then((d) => {
+        if (cancelled) return;
+        const list: DirectChild[] = (d.users ?? []).map((u: { id: string; name: string; role: string; userCode: string | null }) => ({
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          userCode: u.userCode,
+        }));
+        setChildren(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    load(viewUserId);
+  }, [load, viewUserId]);
+
+  const viewingChild = viewUserId ? children.find((c) => c.id === viewUserId) ?? null : null;
 
   const grouped = useMemo(() => groupByFamily(scheme?.slabs ?? []), [scheme]);
   const mdrSlabs = scheme?.mdrSlabs ?? [];
@@ -122,11 +154,37 @@ export default function MyAssignedSchemePage() {
         title="My Scheme"
         description="This is the rate-card assigned to you. Charges, commissions and POS MDR are set by your parent and applied to every transaction you process."
         actions={
-          <Button variant="outline" onClick={load} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          </Button>
+          <div className="flex items-center gap-2">
+            {children.length > 0 && (
+              <select
+                value={viewUserId ?? ""}
+                onChange={(e) => setViewUserId(e.target.value || null)}
+                title="View a direct child's scheme"
+                className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              >
+                <option value="">My scheme</option>
+                {children.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.role})
+                  </option>
+                ))}
+              </select>
+            )}
+            <Button variant="outline" onClick={() => load(viewUserId)} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            </Button>
+          </div>
         }
       />
+
+      {viewingChild && (
+        <div className="flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm text-brand-800">
+          <Info className="h-4 w-4 shrink-0" />
+          Viewing the scheme of your direct child{" "}
+          <span className="font-semibold">{viewingChild.name}</span>
+          <Badge variant="brand">{viewingChild.role}</Badge>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center rounded-2xl border border-ink-100 bg-white py-16 text-ink-500">
@@ -217,6 +275,7 @@ export default function MyAssignedSchemePage() {
                         <th className="px-3 py-2">Card / Brand</th>
                         <th className="px-3 py-2 text-right">MDR T+1</th>
                         <th className="px-3 py-2 text-right">MDR T+0</th>
+                        <th className="px-3 py-2 text-right">Commission</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -231,6 +290,9 @@ export default function MyAssignedSchemePage() {
                           <td className="px-3 py-2 text-right text-ink-900">{fmtRate(s.mdrType, s.mdrValue)}</td>
                           <td className="px-3 py-2 text-right text-ink-900">
                             {s.mdrValueT0 > 0 ? fmtRate(s.mdrType, s.mdrValueT0) : "= T+1"}
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold text-emerald-700">
+                            {s.commission > 0 ? fmtRate(s.commissionType, s.commission) : "—"}
                           </td>
                         </tr>
                       ))}

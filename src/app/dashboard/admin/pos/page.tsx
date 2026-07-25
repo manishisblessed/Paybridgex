@@ -9,7 +9,6 @@ import {
   ArrowLeftRight,
   CreditCard,
   Search,
-  RefreshCw,
   RefreshCcw,
   Download,
   ChevronLeft,
@@ -190,7 +189,14 @@ function MachinesTab() {
   const { data, error, isLoading, mutate } = useSWR<LocalPosMachinesResponse>(
     `/api/admin/pos/machines?${params}`,
     fetcher,
-    { revalidateOnFocus: false, keepPreviousData: true }
+    {
+      revalidateOnFocus: false,
+      keepPreviousData: true,
+      // Live fleet: poll the local mirror every 5s so assignments/recalls and
+      // the every-10-min background partner sync surface without a manual click.
+      refreshInterval: 5000,
+      refreshWhenHidden: false,
+    }
   );
 
   const machines = data?.data ?? [];
@@ -522,12 +528,22 @@ function MachinesTab() {
             </select>
           </div>
           <div className="flex items-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => mutate()} title="Refresh">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-            <Button variant="primary" size="sm" onClick={handleSync} disabled={syncing}>
+            <span className="mb-2 hidden items-center gap-1.5 text-xs font-medium text-emerald-600 sm:flex" title="This list refreshes every 5s; inventory auto-syncs from the partner every 10 min.">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              Live
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSync}
+              disabled={syncing}
+              title="Inventory auto-syncs from the partner every 10 min and this list refreshes live. Click to pull from the partner now."
+            >
               {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-              <span className="ml-1 hidden sm:inline">Sync</span>
+              <span className="ml-1 hidden sm:inline">Sync now</span>
             </Button>
           </div>
         </div>
@@ -686,7 +702,7 @@ function AssignModal({
   const single = machines.length === 1 ? machines[0] : null;
 
   const { data, isLoading } = useSWR<{ users: UserSearchResult[] }>(
-    `/api/admin/users?role=super-distributor&q=${encodeURIComponent(q)}&pageSize=10`,
+    `/api/admin/users?role=all&q=${encodeURIComponent(q)}&pageSize=10`,
     fetcher,
     { revalidateOnFocus: false, keepPreviousData: true }
   );
@@ -759,18 +775,18 @@ function AssignModal({
         </div>
 
         <div className="max-h-[80vh] overflow-y-auto p-5">
-          {/* Step 1: Select super-distributor */}
+          {/* Step 1: Select any network user (RT / DT / MD / SD) */}
           {!selectedUser ? (
             <>
               <p className="mb-3 text-xs text-ink-500">
-                Admin can only assign POS machines to <span className="font-semibold text-brand-700">Super-Distributors</span>. They will then assign down through the hierarchy.
+                Assign to any network user — <span className="font-semibold text-brand-700">Retailer, Distributor, Master-Distributor or Super-Distributor</span>. The terminal (and its transactions) stays visible up the chain to their uplines, and the assignee&apos;s scheme drives MDR &amp; the commission split.
               </p>
               <div className="relative mb-3">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
                 <input
                   autoFocus
                   type="text"
-                  placeholder="Search super-distributors by name, shop, city..."
+                  placeholder="Search users by name, shop, city, code..."
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   className="w-full rounded-lg border border-ink-200 py-2 pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"

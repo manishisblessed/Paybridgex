@@ -110,6 +110,46 @@ export async function resolveBrandMdr(input: {
 }
 
 /**
+ * Resolve the company-approved brand rate for a POS acquiring `company` label
+ * (e.g. "Sameday-AXIS"). The company maps to a Brand either through a POS
+ * machine that carries it (PosMachine.company -> brandId) or, failing that, by
+ * matching the brand name directly. Returns the most specific active rate whose
+ * band contains `amount`, or null when the company has no linked brand / rate.
+ *
+ * This is the authoritative "vendor cost" for a scheme's POS slab: the slab's
+ * vendor charge is locked to it and the MDR can never be priced below it.
+ */
+export async function findApprovedBrandRate(input: {
+  company: string;
+  provider?: string | null;
+  paymentMode?: string | null;
+  amount: Money | string | number;
+}): Promise<BrandMdrRate | null> {
+  const company = (input.company ?? "").trim();
+  if (!company) return null;
+
+  const machine = await prisma.posMachine.findFirst({
+    where: { company, brandId: { not: null } },
+    select: { brandId: true },
+  });
+  let brandId = machine?.brandId ?? null;
+  if (!brandId) {
+    const brand = await prisma.brand.findFirst({
+      where: { name: company, active: true },
+      select: { id: true },
+    });
+    brandId = brand?.id ?? null;
+  }
+  if (!brandId) return null;
+
+  const rates = await prisma.brandMdrRate.findMany({
+    where: { brandId, active: true },
+    orderBy: { minAmount: "asc" },
+  });
+  return pickRate(rates, round(input.amount), input.provider, input.paymentMode);
+}
+
+/**
  * Validate a candidate rate band against existing active rates sharing the
  * SAME (provider, paymentMode) tuple. Different dimension values may share
  * bands. Returns an error string or null.

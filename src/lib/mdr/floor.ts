@@ -3,6 +3,21 @@ import { prisma } from "@/lib/db";
 import { dec, gte, lte, mul, round, type Money } from "@/lib/money";
 
 /**
+ * The provider that currently powers a settlement rail (PG pipeline / QR
+ * provider), used as the floor `scopeKey` at settlement time. Reads the enabled
+ * ServiceRoute for the kind; when several exist the lowest sortOrder wins.
+ * Returns null when the rail has no provider-scoped route (rail-wide floor).
+ */
+export async function railScopeKey(kind: MdrServiceKind): Promise<string | null> {
+  const route = await prisma.serviceRoute.findFirst({
+    where: { kind, enabled: true, provider: { not: null } },
+    orderBy: { sortOrder: "asc" },
+    select: { provider: true },
+  });
+  return route?.provider ?? null;
+}
+
+/**
  * Company MDR floor engine — enforces platform-wide minimum MDR rates for
  * acquiring rails (POS / PG / QR). No scheme MDR slab, brand rate, or derived
  * scheme may set an MDR below the company floor for a matching
@@ -21,6 +36,12 @@ export type FloorCheckInput = {
   mdrValueT0?: number;
   /** Representative amount to compare FLAT vs PERCENT across rate types. */
   amount?: number;
+  /**
+   * Per-entity scope (PG pipeline / QR provider). A floor pinned to a specific
+   * scopeKey only applies when this matches it; platform-wide floors (null
+   * scopeKey) always apply. Omit for rail-wide checks (POS never scopes here).
+   */
+  scopeKey?: string | null;
 };
 
 export type FloorViolation = {
@@ -59,7 +80,18 @@ function effectiveAbsolute(
  * the floor row's minAmount as a conservative comparison point.
  */
 export async function checkMdrFloor(
-  input: FloorCheckInput
+  input: FloorCheckInput,
+  opts?: {
+    /**
+     * When true, evaluate the candidate against EVERY floor of the rail
+     * regardless of scope (the strictest wins). Use at configuration time for a
+     * pipeline-agnostic artefact — a scheme MDR slab or brand rate is not tied
+     * to one pipeline/provider, so it must clear all of them. When false/omitted
+     * the scope gate applies: only the platform-wide floor and the floor pinned
+     * to `input.scopeKey` bite (use at settlement, where the entity is known).
+     */
+    matchAllScopes?: boolean;
+  }
 ): Promise<FloorViolation[]> {
   const floors = await prisma.companyMdrFloor.findMany({
     where: { serviceKind: input.serviceKind, active: true },
@@ -69,6 +101,8 @@ export async function checkMdrFloor(
 
   const violations: FloorViolation[] = [];
   const candidateMode = norm(input.paymentMode);
+  const candidateScope = norm(input.scopeKey);
+  const matchAllScopes = opts?.matchAllScopes ?? false;
 
   for (const floor of floors) {
     const floorMode = norm(floor.paymentMode);
@@ -77,6 +111,15 @@ export async function checkMdrFloor(
     if (!isWildcard(floorMode) && !isWildcard(candidateMode) && floorMode !== candidateMode) {
       continue;
     }
+
+    // Scope gate: a floor pinned to a specific entity (scopeKey) only bites when
+    // the caller passes the same scope. Platform-wide floors (null scopeKey)
+    // always apply. In matchAllScopes mode every floor is considered.
+    const floorScope = norm(floor.scopeKey);
+    if (!matchAllScopes && !isWildcard(floorScope) && floorScope !== candidateScope) {
+      continue;
+    }
+    const scopeSuffix = isWildcard(floorScope) ? "" : ` [${floor.scopeLabel ?? floor.scopeKey}]`;
 
     const refAmount = input.amount ?? Number(floor.minAmount);
 
@@ -98,7 +141,7 @@ export async function checkMdrFloor(
         floorId: floor.id,
         serviceKind: input.serviceKind,
         paymentMode: isWildcard(floorMode) ? "*" : floorMode,
-        message: `MDR ${fmtCandidate} is below the company minimum of ${fmtFloor} for ${input.serviceKind}${isWildcard(floorMode) ? "" : `/${floorMode}`}`,
+        message: `MDR ${fmtCandidate} is below the company minimum of ${fmtFloor} for ${input.serviceKind}${isWildcard(floorMode) ? "" : `/${floorMode}`}${scopeSuffix}`,
       });
     }
 
@@ -123,7 +166,7 @@ export async function checkMdrFloor(
           floorId: floor.id,
           serviceKind: input.serviceKind,
           paymentMode: isWildcard(floorMode) ? "*" : floorMode,
-          message: `T+0 MDR ${fmtCandidate} is below the company minimum of ${fmtFloor} for ${input.serviceKind}${isWildcard(floorMode) ? "" : `/${floorMode}`}`,
+          message: `T+0 MDR ${fmtCandidate} is below the company minimum of ${fmtFloor} for ${input.serviceKind}${isWildcard(floorMode) ? "" : `/${floorMode}`}${scopeSuffix}`,
         });
       }
     }
@@ -137,9 +180,10 @@ export async function checkMdrFloor(
  * or null when the candidate passes all floors.
  */
 export async function validateMdrAgainstFloor(
-  input: FloorCheckInput
+  input: FloorCheckInput,
+  opts?: { matchAllScopes?: boolean }
 ): Promise<string | null> {
-  const violations = await checkMdrFloor(input);
+  const violations = await checkMdrFloor(input, opts);
   return violations.length > 0 ? violations[0].message : null;
 }
 
@@ -153,7 +197,8 @@ export async function isAboveMdrFloor(
   paymentMode: string,
   absoluteMdr: Money | number,
   grossAmount: Money | number,
-  settlementType: "T0" | "T1" = "T1"
+  settlementType: "T0" | "T1" = "T1",
+  scopeKey?: string | null
 ): Promise<boolean> {
   const floors = await prisma.companyMdrFloor.findMany({
     where: { serviceKind, active: true },
@@ -164,10 +209,13 @@ export async function isAboveMdrFloor(
   const amt = dec(grossAmount);
   const mdr = dec(absoluteMdr);
   const mode = norm(paymentMode);
+  const scope = norm(scopeKey);
 
   for (const floor of floors) {
     const floorMode = norm(floor.paymentMode);
     if (!isWildcard(floorMode) && !isWildcard(mode) && floorMode !== mode) continue;
+    const floorScope = norm(floor.scopeKey);
+    if (!isWildcard(floorScope) && floorScope !== scope) continue;
     if (!gte(amt, floor.minAmount) || !lte(amt, floor.maxAmount)) continue;
 
     const floorRateValue = settlementType === "T0" && Number(floor.mdrValueT0) > 0

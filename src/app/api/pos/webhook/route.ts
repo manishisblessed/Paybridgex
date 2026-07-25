@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { handlePosCapture } from "@/lib/settlement/pos";
 import { prisma } from "@/lib/db";
-import { lookupBin } from "@/lib/pos/binLookup";
+import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     try {
       const binData = await lookupBin(cardNumber);
       if (binData) {
-        classification = binData.cardLevel.toUpperCase() || binData.cardType.toUpperCase() || undefined;
+        classification = classificationFromBin(binData) ?? classification;
       }
     } catch {
       // Non-blocking: settle without classification if BIN lookup fails

@@ -17,8 +17,8 @@ const AssignBody = z.object({
   machineId: z.string().min(1, "machineId is required"),
   userId: z.string().min(1).nullable().default(null),
   note: z.string().max(500).optional(),
-  // Subscription fields — when assigning to a super-distributor, admin must
-  // set a monthly rent. Subscription is auto-created on assignment.
+  // Subscription fields — when assigning, admin may set a monthly rent.
+  // Subscription is auto-created on assignment when provided.
   subscription: z.object({
     planId: z.string().min(1),
     monthlyRent: z.number().nonnegative(),
@@ -27,7 +27,15 @@ const AssignBody = z.object({
   }).optional(),
 }).strict();
 
-const ASSIGNABLE_ROLES = new Set(["SUPER_DISTRIBUTOR"]);
+// A machine may be assigned to any network-tier user. When assigned to a
+// retailer, the terminal (and its transactions) is visible up the chain to the
+// DT/MD/SD, and the assignee's scheme drives MDR + the upline commission split.
+const ASSIGNABLE_ROLES = new Set([
+  "RETAILER",
+  "DISTRIBUTOR",
+  "MASTER_DISTRIBUTOR",
+  "SUPER_DISTRIBUTOR",
+]);
 
 /**
  * POST /api/admin/pos/machines/assign
@@ -81,7 +89,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Target user not found" }, { status: 404 });
     if (!ASSIGNABLE_ROLES.has(target.role))
       return NextResponse.json(
-        { error: "Admin can only assign POS machines to Super-Distributors" },
+        { error: "POS machines can only be assigned to network users (Retailer, Distributor, Master-Distributor, Super-Distributor)" },
         { status: 400 }
       );
     if (target.status === "CLOSED")

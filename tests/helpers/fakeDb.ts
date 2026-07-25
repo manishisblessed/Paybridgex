@@ -259,6 +259,12 @@ export class FakeDb {
     });
   }
 
+  // ── prisma.serviceRoute — only the read used by railScopeKey() at
+  //    settlement. No routes seeded in tests → null → rail-wide floor scope.
+  serviceRoute = {
+    findFirst: async () => null,
+  };
+
   staticQr = {
     findUnique: async ({ where }: { where: { id: string } }) => {
       const row = this.staticQrs.find((q) => q.id === where.id);

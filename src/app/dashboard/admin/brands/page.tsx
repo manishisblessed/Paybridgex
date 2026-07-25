@@ -7,8 +7,9 @@ import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { CompanyMdrFloors } from "@/components/admin/CompanyMdrFloors";
 import { formatINR } from "@/lib/utils";
-import { Tag, Plus, RefreshCw, Trash2, X, Zap, Clock, ArrowLeftRight } from "lucide-react";
+import { Tag, Plus, RefreshCw, Trash2, X, Zap, Clock, ArrowLeftRight, ShieldCheck } from "lucide-react";
 
 type Brand = {
   id: string;
@@ -63,6 +64,7 @@ export default function BrandsPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<BrandDetail | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [tab, setTab] = useState<"brands" | "floors">("brands");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -188,47 +190,74 @@ export default function BrandsPage() {
         title="Brands & MDR"
         description="Per-brand acquiring identities (teachway, lagoon, avika, …). Each brand carries its own MDR rate card (by provider &amp; payment mode) and a default settlement mode. Every POS settlement deducts MDR against the brand's current rate."
         actions={
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={load}>
-              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-            </Button>
-            <Button onClick={() => setShowCreate(true)}>
-              <Plus className="mr-2 h-4 w-4" /> New brand
-            </Button>
-          </div>
+          tab === "brands" ? (
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={load}>
+                <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+              </Button>
+              <Button onClick={() => setShowCreate(true)}>
+                <Plus className="mr-2 h-4 w-4" /> New brand
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 
-      <DataTable columns={columns} data={brands} loading={loading} />
+      <div className="flex gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
+        <button
+          onClick={() => setTab("brands")}
+          className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+            tab === "brands" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
+          }`}
+        >
+          <Tag className="h-4 w-4" /> Brands &amp; rates
+        </button>
+        <button
+          onClick={() => setTab("floors")}
+          className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+            tab === "floors" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
+          }`}
+        >
+          <ShieldCheck className="h-4 w-4" /> Company charges
+        </button>
+      </div>
 
-      {selected && (
-        <RateEditor
-          brandId={selected}
-          detail={detail}
-          onClose={() => {
-            setSelected(null);
-            setDetail(null);
-          }}
-          onChanged={() => {
-            loadDetail(selected);
-            load();
-          }}
-          onNotice={notify}
-        />
+      {tab === "brands" && (
+        <>
+          <DataTable columns={columns} data={brands} loading={loading} />
+
+          {selected && (
+            <RateEditor
+              brandId={selected}
+              detail={detail}
+              onClose={() => {
+                setSelected(null);
+                setDetail(null);
+              }}
+              onChanged={() => {
+                loadDetail(selected);
+                load();
+              }}
+              onNotice={notify}
+            />
+          )}
+
+          {showCreate && (
+            <CreateBrandModal
+              onClose={() => setShowCreate(false)}
+              onCreated={(brandId) => {
+                setShowCreate(false);
+                notify("Brand created. Add its MDR rates below.", true);
+                load();
+                loadDetail(brandId);
+              }}
+              onError={(text) => notify(text, false)}
+            />
+          )}
+        </>
       )}
 
-      {showCreate && (
-        <CreateBrandModal
-          onClose={() => setShowCreate(false)}
-          onCreated={(brandId) => {
-            setShowCreate(false);
-            notify("Brand created. Add its MDR rates below.", true);
-            load();
-            loadDetail(brandId);
-          }}
-          onError={(text) => notify(text, false)}
-        />
-      )}
+      {tab === "floors" && <CompanyMdrFloors />}
     </div>
   );
 }

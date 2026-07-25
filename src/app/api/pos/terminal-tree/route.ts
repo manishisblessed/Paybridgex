@@ -12,10 +12,11 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/pos/terminal-tree
  *
- * Returns the caller's network hierarchy members who sit on the path between
- * the caller and any assigned POS terminal, plus the terminals themselves.
- * Used by the frontend to build cascading filters:
- *   SD → MD → DT → RT → Terminal
+ * Returns the caller's DIRECT children who hold assigned POS terminals, plus
+ * the terminals owned by the caller or those direct children. POS visibility is
+ * one level only (SD→MDs, MD→DTs, DT→RTs), so the cascading filter shows just
+ * the caller's own + immediate children's terminals — matching exactly what the
+ * caller may actually query in the transactions feed.
  */
 export async function GET(req: Request) {
   let user;
@@ -76,23 +77,16 @@ export async function GET(req: Request) {
     });
   }
 
-  // Fetch the full downline subtree with a recursive CTE.
-  const descendants = await prisma.$queryRaw<
-    { id: string; name: string; role: string; parentId: string | null }[]
-  >`
-    WITH RECURSIVE downline AS (
-      SELECT id, name, role, "parentId" FROM "User" WHERE "parentId" = ${user.id}
-      UNION ALL
-      SELECT u.id, u.name, u.role, u."parentId" FROM "User" u
-      INNER JOIN downline d ON u."parentId" = d.id
-    )
-    SELECT id, name, role, "parentId" FROM downline
-  `;
+  // Direct children only (one hierarchy level) — POS visibility never spans the
+  // full subtree, so we only consider the caller's immediate children.
+  const children = await prisma.user.findMany({
+    where: { parentId: user.id, deletedAt: null },
+    select: { id: true, name: true, role: true, parentId: true },
+  });
 
-  const descendantIds = descendants.map((d) => d.id);
-  const allIds = [user.id, ...descendantIds];
+  const allIds = [user.id, ...children.map((c) => c.id)];
 
-  // Fetch all terminals assigned to the caller or their downline.
+  // Fetch all terminals assigned to the caller or their direct children.
   const terminals = await prisma.posMachine.findMany({
     where: { assignedUserId: { in: allIds }, tid: { not: null } },
     select: {
@@ -106,28 +100,16 @@ export async function GET(req: Request) {
     },
   });
 
-  // Walk from each terminal owner up to the caller, collecting every
-  // intermediate member that sits on the path. This ensures the cascading
-  // dropdowns include users who don't hold a terminal directly but whose
-  // children/grandchildren do.
-  const descendantMap = new Map(descendants.map((d) => [d.id, d]));
-  const relevantIds = new Set<string>();
-
-  for (const t of terminals) {
-    let cur = t.assignedUserId;
-    while (cur && cur !== user.id && descendantMap.has(cur)) {
-      relevantIds.add(cur);
-      cur = descendantMap.get(cur)!.parentId;
-    }
-  }
-
-  const members = descendants
-    .filter((d) => relevantIds.has(d.id))
-    .map((d) => ({
-      id: d.id,
-      name: d.name,
-      role: d.role,
-      parentId: d.parentId,
+  // Members for the filter dropdown = direct children who actually hold a
+  // terminal (no deeper path to walk in the one-level model).
+  const owners = new Set(terminals.map((t) => t.assignedUserId).filter(Boolean));
+  const members = children
+    .filter((c) => owners.has(c.id))
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      role: c.role,
+      parentId: c.parentId,
     }));
 
   return NextResponse.json({

@@ -42,6 +42,33 @@ export async function getDescendantIds(userId: string): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
+/**
+ * Immediate children of `userId` (one hierarchy level down only — excludes self
+ * and deeper descendants). Used by the POS visibility model where a parent sees
+ * only their DIRECT children's terminals: SD→MDs, MD→DTs, DT→RTs.
+ */
+export async function getDirectChildIds(userId: string): Promise<string[]> {
+  const rows = await prisma.user.findMany({
+    where: { parentId: userId, deletedAt: null },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
+/** True if `targetUserId` is a DIRECT child of `user` (or `user` is self/admin). */
+export async function isSelfOrDirectChild(
+  targetUserId: string,
+  user: SessionUser
+): Promise<boolean> {
+  if (isAdminRole(user.role)) return true;
+  if (targetUserId === user.id) return true;
+  const child = await prisma.user.findFirst({
+    where: { id: targetUserId, parentId: user.id, deletedAt: null },
+    select: { id: true },
+  });
+  return Boolean(child);
+}
+
 /** True if `user` may access data belonging to `targetUserId`. */
 export async function canAccessUser(
   targetUserId: string,
@@ -77,4 +104,18 @@ export async function scopeUserIdFilter(
   if (isAdminRole(user.role)) return {};
   const descendants = await getDescendantIds(user.id);
   return { userId: { in: [user.id, ...descendants] } };
+}
+
+/**
+ * Like `scopeUserIdFilter` but scopes to self + DIRECT children only (one
+ * hierarchy level), never the full subtree. This is the POS visibility model:
+ * an SD sees only their direct MDs' terminals, an MD only their direct DTs', a
+ * DT only their direct RTs'. Admins are unrestricted.
+ */
+export async function scopeDirectUserIdFilter(
+  user: SessionUser
+): Promise<{ userId?: { in: string[] } }> {
+  if (isAdminRole(user.role)) return {};
+  const children = await getDirectChildIds(user.id);
+  return { userId: { in: [user.id, ...children] } };
 }

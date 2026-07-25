@@ -2325,6 +2325,18 @@ model CompanyMdrFloor {
   id          String         @id @default(cuid())
   serviceKind MdrServiceKind // POS | PG | QR
   paymentMode String         @default("*") // CARD | UPI | NFC | * (wildcard)
+
+  // Per-entity scope within a rail. null = platform-wide (applies to every
+  // entity of this serviceKind). A specific value pins the floor to one entity:
+  //   PG  -> pipeline provider (ServiceRoute.provider, e.g. "BULKPE")
+  //   QR  -> QR provider (ServiceRoute.provider where kind = QR)
+  // POS is NOT scoped here: its floor is the manually-approved BrandMdrRate,
+  // enforced at slab assignment (vendor locked to the brand rate).
+  // Matching mirrors the MDR resolver: a scoped floor bites only when the caller
+  // passes the same scopeKey; a null-scope floor always applies.
+  scopeKey    String? // stable key (provider). null = all entities of the rail
+  scopeLabel  String? // human label for display (e.g. "BulkPe")
+
   minAmount   Decimal        @db.Decimal(14, 2)
   maxAmount   Decimal        @db.Decimal(14, 2)
   mdrType     RateType       @default(PERCENT)
@@ -2335,6 +2347,7 @@ model CompanyMdrFloor {
   updatedAt   DateTime       @updatedAt
 
   @@index([serviceKind, paymentMode, active])
+  @@index([serviceKind, scopeKey, active])
 }
 
 // ---------- Card BIN Cache ----------
