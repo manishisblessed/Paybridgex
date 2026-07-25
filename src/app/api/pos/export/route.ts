@@ -76,9 +76,11 @@ export async function POST(req: Request) {
   const result = await createPosExport(parsed.data);
 
   if (!result.ok) {
+    const upstreamStatus = result.status;
+    const clientStatus = upstreamStatus === 429 ? 429 : upstreamStatus >= 500 ? 502 : upstreamStatus === 404 ? 502 : upstreamStatus;
     return NextResponse.json(
       { error: result.error.error?.message ?? "Failed to create export job" },
-      { status: result.status }
+      { status: clientStatus }
     );
   }
 

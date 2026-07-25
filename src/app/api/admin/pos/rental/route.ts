@@ -258,18 +258,24 @@ export async function POST(req: Request) {
         ]);
         if (!machine) return NextResponse.json({ error: "Machine not found" }, { status: 404 });
         if (!targetUser) return NextResponse.json({ error: "User not found" }, { status: 404 });
-        if (targetUser.role !== "SUPER_DISTRIBUTOR")
-          return NextResponse.json({ error: "Admin can only create subscriptions for Super-Distributors" }, { status: 400 });
+        // Rental subscriptions can be assigned to any network user (retailer →
+        // super-distributor). Internal staff roles cannot hold rentals.
+        const BILLABLE_ROLES = ["RETAILER", "DISTRIBUTOR", "MASTER_DISTRIBUTOR", "SUPER_DISTRIBUTOR"];
+        if (!BILLABLE_ROLES.includes(targetUser.role))
+          return NextResponse.json(
+            { error: "Rental subscriptions can only be assigned to network users (retailer → super-distributor)" },
+            { status: 400 }
+          );
         if (!plan) return NextResponse.json({ error: "Plan not found or inactive" }, { status: 404 });
 
-        // Only block if this SD already has an active subscription for this machine
-        const existingSdSub = await prisma.posSubscription.findFirst({
+        // Only block if this user already has an active subscription for this machine
+        const existingUserSub = await prisma.posSubscription.findFirst({
           where: { machineId: machine.id, userId: targetUser.id, status: "ACTIVE" },
           select: { id: true },
         });
-        if (existingSdSub)
+        if (existingUserSub)
           return NextResponse.json(
-            { error: "This SD already has an active rental subscription for this machine" },
+            { error: "This user already has an active rental subscription for this machine" },
             { status: 409 }
           );
 

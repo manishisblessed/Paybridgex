@@ -86,9 +86,11 @@ export async function POST(req: Request) {
     const result = await getPosTransactions(parsed.data);
 
     if (!result.ok) {
+      const upstreamStatus = result.status;
+      const clientStatus = upstreamStatus === 429 ? 429 : (upstreamStatus === 404 || upstreamStatus >= 500) ? 502 : upstreamStatus;
       return NextResponse.json(
         { error: result.error.error?.message ?? "Failed to fetch POS transactions" },
-        { status: result.status >= 400 ? result.status : 502 }
+        { status: clientStatus }
       );
     }
 

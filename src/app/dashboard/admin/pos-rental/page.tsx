@@ -620,7 +620,7 @@ function PlansTab({
 
 /* ─────────────────────────────────────────────────────── Subscriptions */
 
-type SDUser = { id: string; name: string; email: string; role: string; shop: string; city: string };
+type PickUser = { id: string; name: string; userCode: string; role: string; shop: string; city: string; walletBalance: number };
 type SDMachine = { id: string; serial: string | null; tid: string | null; model: string | null; status: string; hasSub: boolean };
 
 function SubscriptionsTab({
@@ -636,10 +636,12 @@ function SubscriptionsTab({
   act: (b: Record<string, unknown>, m?: string) => Promise<boolean>;
   plans: Plan[];
 }) {
-  // SD list + selection
-  const [sdList, setSdList] = useState<SDUser[]>([]);
-  const [sdLoading, setSdLoading] = useState(true);
-  const [selectedSd, setSelectedSd] = useState("");
+  // User search + selection (any network user, not just super-distributors)
+  const [userQuery, setUserQuery] = useState("");
+  const [userResults, setUserResults] = useState<PickUser[]>([]);
+  const [userSearching, setUserSearching] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<PickUser | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState("");
   const [sdMachines, setSdMachines] = useState<SDMachine[]>([]);
   const [machLoading, setMachLoading] = useState(false);
 
@@ -651,36 +653,42 @@ function SubscriptionsTab({
   const [selectedMachines, setSelectedMachines] = useState<Set<string>>(new Set());
   const [cancelTarget, setCancelTarget] = useState<Sub | null>(null);
 
-  // Fetch SD list on mount
+  // Debounced user search — any user (retailer → super-distributor)
   useEffect(() => {
-    fetch("/api/admin/network?tier=SUPER_DISTRIBUTOR&pageSize=100")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setSdList(d?.users ?? []))
-      .catch(() => {})
-      .finally(() => setSdLoading(false));
-  }, []);
+    const q = userQuery.trim();
+    if (q.length < 2) { setUserResults([]); setUserSearching(false); return; }
+    setUserSearching(true);
+    const t = setTimeout(() => {
+      fetch(`/api/admin/users?q=${encodeURIComponent(q)}&pageSize=25`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => setUserResults((d?.users ?? []) as PickUser[]))
+        .catch(() => setUserResults([]))
+        .finally(() => setUserSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [userQuery]);
 
-  // Fetch machines for selected SD (includes machines assigned to SD's downline)
+  // Fetch machines for the selected user (includes machines in their downline)
   useEffect(() => {
-    if (!selectedSd) { setSdMachines([]); return; }
+    if (!selectedUserId) { setSdMachines([]); return; }
     setMachLoading(true);
     setSelectedMachines(new Set());
-    fetch(`/api/admin/pos/machines?assignee=${selectedSd}&includeDownline=true&pageSize=200`)
+    fetch(`/api/admin/pos/machines?assignee=${selectedUserId}&includeDownline=true&pageSize=200`)
       .then((r) => (r.ok ? r.json() : null))
       .then(async (d) => {
         const machines = (d?.data ?? []) as Array<{ id: string; serial: string | null; tid: string | null; model: string | null; status: string }>;
-        // Check which machines already have an active admin→SD subscription
+        // Check which machines already have an active subscription for this user
         const subRes = await fetch(`/api/admin/pos/rental`).then((r) => r.ok ? r.json() : null).catch(() => null);
-        const sdActiveSubs = new Set(
+        const userActiveSubs = new Set(
           ((subRes?.subscriptions ?? []) as Sub[])
-            .filter((s) => s.status === "ACTIVE" && s.user.id === selectedSd)
+            .filter((s) => s.status === "ACTIVE" && s.user.id === selectedUserId)
             .map((s) => s.machine.id)
         );
-        setSdMachines(machines.map((m) => ({ ...m, hasSub: sdActiveSubs.has(m.id) })));
+        setSdMachines(machines.map((m) => ({ ...m, hasSub: userActiveSubs.has(m.id) })));
       })
       .catch(() => {})
       .finally(() => setMachLoading(false));
-  }, [selectedSd]);
+  }, [selectedUserId]);
 
   const handlePlanChange = (id: string) => {
     setPlanId(id);
@@ -717,7 +725,7 @@ function SubscriptionsTab({
       const ok = await act({
         action: "subscribe",
         machineId,
-        userId: selectedSd,
+        userId: selectedUserId,
         planId,
         billingDay,
         monthlyRent: baseRent,
@@ -731,7 +739,7 @@ function SubscriptionsTab({
     if (success > 0) {
       setSelectedMachines(new Set());
       // Refresh machines list
-      setSelectedSd((prev) => { setSelectedSd(""); setTimeout(() => setSelectedSd(prev), 100); return prev; });
+      setSelectedUserId((prev) => { setSelectedUserId(""); setTimeout(() => setSelectedUserId(prev), 100); return prev; });
     }
     if (fail > 0) {
       toast.warning(`${success} of ${success + fail} subscriptions created`, {
@@ -833,30 +841,72 @@ function SubscriptionsTab({
             <Plus className="h-4 w-4 text-brand-600" /> Assign Subscription
           </h3>
           <p className="mt-1 text-xs text-ink-400">
-            Select a Super-Distributor, pick machines, set a plan and rate — subscription is created per machine.
+            Search any user, pick machines from their fleet, set a plan and rate — the rent auto-debits from their wallet every billing cycle.
           </p>
         </div>
 
-        {/* Step 1: Select SD */}
+        {/* Step 1: Select any user */}
         <div className="mb-4">
-          <label className={labelCls}>Select Super-Distributor</label>
-          <select className={inputCls} value={selectedSd}
-            onChange={(e) => setSelectedSd(e.target.value)}>
-            <option value="">{sdLoading ? "Loading super-distributors..." : "Choose a super-distributor..."}</option>
-            {sdList.map((sd) => (
-              <option key={sd.id} value={sd.id}>
-                {sd.name} — {sd.shop !== "—" ? sd.shop : sd.city} ({sd.email})
-              </option>
-            ))}
-          </select>
+          <label className={labelCls}>Assign to user</label>
+          {selectedUser ? (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-sm font-semibold text-ink-900">
+                  <span className="truncate">{selectedUser.name}</span>
+                  <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase text-brand-700">{selectedUser.role}</span>
+                </p>
+                <p className="truncate text-xs text-ink-500">
+                  {selectedUser.shop !== "—" ? selectedUser.shop : selectedUser.city} · {selectedUser.userCode} · Wallet {formatINR(selectedUser.walletBalance)}
+                </p>
+              </div>
+              <button type="button"
+                onClick={() => { setSelectedUser(null); setSelectedUserId(""); setUserQuery(""); setUserResults([]); }}
+                className="shrink-0 text-xs font-semibold text-brand-600 hover:text-brand-800">
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+              <input className={`${inputCls} pl-9`}
+                placeholder="Search by name, shop, email, user code or city..."
+                value={userQuery}
+                onChange={(e) => setUserQuery(e.target.value)} />
+              {userQuery.trim().length >= 2 && (
+                <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-ink-100 bg-white shadow-lg">
+                  {userSearching ? (
+                    <div className="flex items-center gap-2 px-4 py-3 text-sm text-ink-500">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Searching...
+                    </div>
+                  ) : userResults.length === 0 ? (
+                    <div className="px-4 py-3 text-sm text-ink-500">No users found.</div>
+                  ) : (
+                    userResults.map((u) => (
+                      <button key={u.id} type="button"
+                        onClick={() => { setSelectedUser(u); setSelectedUserId(u.id); setUserQuery(""); setUserResults([]); }}
+                        className="flex w-full items-center justify-between gap-3 border-b border-ink-50 px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-brand-50">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-ink-900">{u.name}</p>
+                          <p className="truncate text-[11px] text-ink-400">
+                            {u.shop !== "—" ? u.shop : u.city} · {u.userCode}
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded bg-ink-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-600">{u.role}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {selectedSd && (
+        {selectedUserId && (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
             {/* Left: Machines list */}
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className={labelCls}>Machines in this SD&apos;s fleet</label>
+                <label className={labelCls}>Machines in this user&apos;s fleet</label>
                 {machinesWithoutSub.length > 1 && (
                   <button onClick={selectAllWithoutSub}
                     className="text-xs font-semibold text-brand-600 hover:text-brand-800">
@@ -871,7 +921,7 @@ function SubscriptionsTab({
                 </div>
               ) : sdMachines.length === 0 ? (
                 <div className="rounded-xl border border-ink-100 bg-ink-50 p-6 text-center text-sm text-ink-500">
-                  No machines in this super-distributor&apos;s fleet. Go to <span className="font-semibold text-brand-700">POS Fleet</span> to assign machines first.
+                  No machines in this user&apos;s fleet. Go to <span className="font-semibold text-brand-700">POS Fleet</span> to assign machines first.
                 </div>
               ) : (
                 <div className="max-h-64 overflow-y-auto rounded-xl border border-ink-100">

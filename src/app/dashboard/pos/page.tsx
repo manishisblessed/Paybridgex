@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn, formatINR } from "@/lib/utils";
+import { downloadCSV, downloadPDF, downloadZIP, type ReportColumn } from "@/lib/reports";
 import type {
   PosTransactionsResponse,
   PosTransaction,
@@ -658,6 +659,32 @@ function TransactionsTab() {
     [filterTiers]
   );
 
+  const transactions = data?.data ?? [];
+  const summary = data?.summary;
+  const pagination = data?.pagination;
+
+  const posExportCols: ReportColumn<PosTransaction>[] = [
+    { key: "txn_time", header: "Time", render: (r) => r.txn_time ? new Date(r.txn_time).toLocaleString("en-IN") : "" },
+    { key: "terminal_id", header: "TID" },
+    { key: "customer_name", header: "Customer" },
+    { key: "payment_mode", header: "Mode" },
+    { key: "card_brand", header: "Card Brand" },
+    { key: "card_type", header: "Card Type" },
+    { key: "card_number", header: "Card No" },
+    { key: "card_classification", header: "Classification" },
+    { key: "amount", header: "Amount", format: "money" },
+    { key: "status", header: "Status" },
+    { key: "rrn", header: "RRN" },
+    { key: "auth_code", header: "Auth Code" },
+  ];
+
+  const localExport = useCallback((format: "csv" | "pdf" | "zip", rows: PosTransaction[]) => {
+    const name = `pos-transactions-${dateFrom}-to-${dateTo}`;
+    if (format === "csv") downloadCSV(name, rows, posExportCols);
+    else if (format === "pdf") downloadPDF("POS Transactions", rows, posExportCols, { subtitle: `${dateFrom} to ${dateTo}` });
+    else downloadZIP(name, rows, posExportCols);
+  }, [dateFrom, dateTo]);
+
   const handleExport = useCallback(async (format: "csv" | "pdf" | "zip") => {
     setExporting(true);
     try {
@@ -671,11 +698,26 @@ function TransactionsTab() {
         toast.info("Export started — the file will open when ready.");
         pollExport(d.data.job_id);
       } else {
-        toast.error(d.error ?? "Export failed");
+        const rows = transactions.length > 0 ? transactions : [];
+        if (rows.length > 0) {
+          localExport(format, rows);
+          toast.success("Export downloaded.");
+        } else {
+          toast.error("No transaction data available to export.");
+        }
         setExporting(false);
       }
-    } catch { toast.error("Export request failed"); setExporting(false); }
-  }, [dateFrom, dateTo, statusFilter, activeTerminal]);
+    } catch {
+      const rows = transactions.length > 0 ? transactions : [];
+      if (rows.length > 0) {
+        localExport(format, rows);
+        toast.success("Export downloaded.");
+      } else {
+        toast.error("Export request failed");
+      }
+      setExporting(false);
+    }
+  }, [dateFrom, dateTo, statusFilter, activeTerminal, transactions, localExport]);
 
   const pollExport = useCallback(async (jobId: string) => {
     for (let i = 0; i < 30; i++) {
@@ -714,10 +756,6 @@ function TransactionsTab() {
     toast.warning("Export is taking longer than expected.");
     setExporting(false);
   }, []);
-
-  const transactions = data?.data ?? [];
-  const summary = data?.summary;
-  const pagination = data?.pagination;
 
   const cols: Column<PosTransaction>[] = [
     { key: "txn_time", header: "Time", render: (r) => <span className="text-xs">{fmtTime(r.txn_time)}</span> },
