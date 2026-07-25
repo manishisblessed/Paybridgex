@@ -1,6 +1,7 @@
 import type { BrandMdrRate, RateType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { dec, gte, lte, mul, round, type Money } from "@/lib/money";
+import { canonicalCardLevel, canonicalNetwork } from "@/lib/pos/binLookup";
 
 /**
  * Brand MDR engine — resolves the merchant discount rate for a POS capture
@@ -22,6 +23,18 @@ export type BrandMdrResult = {
   mdr: Money;
   provider: string;
   paymentMode: string;
+  cardType: string | null;
+  brandType: string | null;
+  classification: string | null;
+};
+
+/** Transaction-side card dimensions used to pick the most specific brand rate. */
+export type BrandRateDims = {
+  provider?: string | null;
+  paymentMode?: string | null;
+  cardType?: string | null;
+  brandType?: string | null;
+  classification?: string | null;
 };
 
 const norm = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
@@ -45,33 +58,39 @@ function rateValue(rate: BrandMdrRate, settlementType: "T0" | "T1"): Money {
  * Score a rate against the capture dimensions. Returns -1 when ineligible
  * (a pinned dimension mismatches), otherwise the count of exact matches
  * (higher = more specific). Wildcard rate dimensions are eligible but score 0.
+ *
+ * brandType is matched on its canonical network token (so "MASTER_CARD" ==
+ * "MASTERCARD") and classification on its canonical card tier ("VISA PLATINUM"
+ * == "PLATINUM"); other dimensions compare after case/space normalization.
  */
-function rateScore(rate: BrandMdrRate, provider?: string | null, paymentMode?: string | null): number {
+function rateScore(rate: BrandMdrRate, dims: BrandRateDims): number {
   let score = 0;
-  const pairs: Array<[string, string | null | undefined]> = [
-    [rate.provider, provider],
-    [rate.paymentMode, paymentMode],
+  const pairs: Array<[
+    string | null,
+    string | null | undefined,
+    (v: string | null | undefined) => string
+  ]> = [
+    [rate.provider, dims.provider, norm],
+    [rate.paymentMode, dims.paymentMode, norm],
+    [rate.cardType, dims.cardType, norm],
+    [rate.brandType, dims.brandType, canonicalNetwork],
+    [rate.classification, dims.classification, canonicalCardLevel],
   ];
-  for (const [rateVal, txnVal] of pairs) {
+  for (const [rateVal, txnVal, cmp] of pairs) {
     if (isWildcard(rateVal)) continue;
-    if (isWildcard(txnVal) || norm(rateVal) !== norm(txnVal)) return -1;
+    if (isWildcard(txnVal) || cmp(rateVal) !== cmp(txnVal)) return -1;
     score++;
   }
   return score;
 }
 
 /** Pick the most specific eligible rate whose band contains `amount`. */
-function pickRate(
-  rates: BrandMdrRate[],
-  amount: Money,
-  provider?: string | null,
-  paymentMode?: string | null
-): BrandMdrRate | null {
+function pickRate(rates: BrandMdrRate[], amount: Money, dims: BrandRateDims): BrandMdrRate | null {
   const inBand = rates.filter((r) => gte(amount, r.minAmount) && lte(amount, r.maxAmount));
   let best: BrandMdrRate | null = null;
   let bestScore = -1;
   for (const rate of inBand) {
-    const score = rateScore(rate, provider, paymentMode);
+    const score = rateScore(rate, dims);
     if (score > bestScore) {
       best = rate;
       bestScore = score;
@@ -90,6 +109,9 @@ export async function resolveBrandMdr(input: {
   amount: Money | string | number;
   provider?: string | null;
   paymentMode?: string | null;
+  cardType?: string | null;
+  brandType?: string | null;
+  classification?: string | null;
   settlementType?: "T0" | "T1";
 }): Promise<BrandMdrResult | null> {
   const amt = round(input.amount);
@@ -97,7 +119,7 @@ export async function resolveBrandMdr(input: {
     where: { brandId: input.brandId, active: true },
     orderBy: { minAmount: "asc" },
   });
-  const rate = pickRate(rates, amt, input.provider, input.paymentMode);
+  const rate = pickRate(rates, amt, input);
   if (!rate) return null;
 
   return {
@@ -106,6 +128,9 @@ export async function resolveBrandMdr(input: {
     mdr: applyRate(amt, rate.mdrType, rateValue(rate, input.settlementType ?? "T1")),
     provider: rate.provider,
     paymentMode: rate.paymentMode,
+    cardType: rate.cardType,
+    brandType: rate.brandType,
+    classification: rate.classification,
   };
 }
 
@@ -119,12 +144,12 @@ export async function resolveBrandMdr(input: {
  * This is the authoritative "vendor cost" for a scheme's POS slab: the slab's
  * vendor charge is locked to it and the MDR can never be priced below it.
  */
-export async function findApprovedBrandRate(input: {
-  company: string;
-  provider?: string | null;
-  paymentMode?: string | null;
-  amount: Money | string | number;
-}): Promise<BrandMdrRate | null> {
+export async function findApprovedBrandRate(
+  input: {
+    company: string;
+    amount: Money | string | number;
+  } & BrandRateDims
+): Promise<BrandMdrRate | null> {
   const company = (input.company ?? "").trim();
   if (!company) return null;
 
@@ -146,18 +171,25 @@ export async function findApprovedBrandRate(input: {
     where: { brandId, active: true },
     orderBy: { minAmount: "asc" },
   });
-  return pickRate(rates, round(input.amount), input.provider, input.paymentMode);
+  return pickRate(rates, round(input.amount), input);
 }
 
 /**
  * Validate a candidate rate band against existing active rates sharing the
- * SAME (provider, paymentMode) tuple. Different dimension values may share
- * bands. Returns an error string or null.
+ * SAME full dimension tuple (provider, paymentMode, cardType, brandType,
+ * classification). Different dimension values may legitimately share bands
+ * (e.g. Credit/Visa/Platinum vs Credit/Visa/Gold). Returns an error string or
+ * null.
  */
 export async function validateBrandRate(
   brandId: string,
-  provider: string,
-  paymentMode: string,
+  dims: {
+    provider: string;
+    paymentMode: string;
+    cardType: string | null;
+    brandType: string | null;
+    classification: string | null;
+  },
   range: { minAmount: number; maxAmount: number },
   excludeRateId?: string
 ): Promise<string | null> {
@@ -168,16 +200,22 @@ export async function validateBrandRate(
   const existing = await prisma.brandMdrRate.findMany({
     where: {
       brandId,
-      provider,
-      paymentMode,
+      provider: dims.provider,
+      paymentMode: dims.paymentMode,
+      cardType: dims.cardType,
+      brandType: dims.brandType,
+      classification: dims.classification,
       active: true,
       ...(excludeRateId ? { id: { not: excludeRateId } } : {}),
     },
     select: { minAmount: true, maxAmount: true },
   });
+  const label = [dims.provider, dims.paymentMode, dims.cardType, dims.brandType, dims.classification]
+    .filter((v) => v && v !== "*")
+    .join("/");
   for (const r of existing) {
     if (lte(min, r.maxAmount) && lte(dec(r.minAmount), max)) {
-      return `Range ₹${min}–₹${max} overlaps an existing ${provider}/${paymentMode} rate (₹${dec(
+      return `Range ₹${min}–₹${max} overlaps an existing ${label || "*"} rate (₹${dec(
         r.minAmount
       )}–₹${dec(r.maxAmount)})`;
     }

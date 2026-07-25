@@ -16,6 +16,9 @@ import { findApprovedBrandRate } from "@/lib/brand/mdr";
 async function lockPosVendorToBrandRate(input: {
   company: string | null | undefined;
   paymentMode: string;
+  cardType?: string | null;
+  brandType?: string | null;
+  classification?: string | null;
   mdrType: "FLAT" | "PERCENT";
   minAmount: number;
 }): Promise<
@@ -33,12 +36,18 @@ async function lockPosVendorToBrandRate(input: {
   const approved = await findApprovedBrandRate({
     company,
     paymentMode: input.paymentMode,
+    cardType: input.cardType ?? null,
+    brandType: input.brandType ?? null,
+    classification: input.classification ?? null,
     amount: Math.max(input.minAmount, 1),
   });
   if (!approved) {
+    const dimLabel = [input.paymentMode, input.cardType, input.brandType, input.classification]
+      .filter((v) => v && v !== "*")
+      .join("/");
     return {
       ok: false,
-      error: `No company-approved rate exists for ${company} (${input.paymentMode}). Add it in Brands & MDR first.`,
+      error: `No company-approved rate exists for ${company} (${dimLabel || "*"}). Add it in Brands & MDR first.`,
     };
   }
   if (input.mdrType !== approved.mdrType) {
@@ -155,6 +164,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const lock = await lockPosVendorToBrandRate({
       company: b.company,
       paymentMode: b.paymentMode,
+      cardType: b.cardType,
+      brandType: b.brandType,
+      classification: b.classification,
       mdrType: b.mdrType,
       minAmount: b.minAmount,
     });
@@ -344,6 +356,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const lock = await lockPosVendorToBrandRate({
       company: next.company,
       paymentMode: next.paymentMode,
+      cardType: next.cardType,
+      brandType: next.brandType,
+      classification: next.classification,
       mdrType: b.mdrType ?? existing.mdrType,
       minAmount: next.minAmount,
     });

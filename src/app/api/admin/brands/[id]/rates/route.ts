@@ -12,6 +12,10 @@ export const dynamic = "force-dynamic";
 const RateBody = z.object({
   provider: z.string().trim().min(1).max(40).default("*"),
   paymentMode: z.string().trim().min(1).max(30).default("*"),
+  // Card dimensions (null = any). Enables per instrument / network / tier MDR.
+  cardType: z.string().trim().min(1).max(30).nullish(),
+  brandType: z.string().trim().min(1).max(40).nullish(),
+  classification: z.string().trim().min(1).max(40).nullish(),
   minAmount: z.number().nonnegative(),
   maxAmount: z.number().positive(),
   mdrType: z.enum(["FLAT", "PERCENT"]).default("PERCENT"),
@@ -21,6 +25,10 @@ const RateBody = z.object({
 });
 
 const norm = (v: string) => (v === "*" ? "*" : v.toUpperCase());
+const normDim = (v: string | null | undefined) => {
+  const s = (v ?? "").trim();
+  return s ? s.toUpperCase() : null;
+};
 
 /** POST — add an MDR rate to a brand (band-overlap validated per provider+mode). */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
@@ -40,12 +48,26 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const brand = await prisma.brand.findUnique({ where: { id: params.id } });
   if (!brand) return NextResponse.json({ error: "Brand not found" }, { status: 404 });
 
-  const b = { ...parsed.data, provider: norm(parsed.data.provider), paymentMode: norm(parsed.data.paymentMode) };
+  const b = {
+    ...parsed.data,
+    provider: norm(parsed.data.provider),
+    paymentMode: norm(parsed.data.paymentMode),
+    cardType: normDim(parsed.data.cardType),
+    brandType: normDim(parsed.data.brandType),
+    classification: normDim(parsed.data.classification),
+  };
 
-  const overlap = await validateBrandRate(params.id, b.provider, b.paymentMode, {
-    minAmount: b.minAmount,
-    maxAmount: b.maxAmount,
-  });
+  const overlap = await validateBrandRate(
+    params.id,
+    {
+      provider: b.provider,
+      paymentMode: b.paymentMode,
+      cardType: b.cardType,
+      brandType: b.brandType,
+      classification: b.classification,
+    },
+    { minAmount: b.minAmount, maxAmount: b.maxAmount }
+  );
   if (overlap) return NextResponse.json({ error: overlap }, { status: 400 });
 
   const floorErr = await validateMdrAgainstFloor(
@@ -82,6 +104,9 @@ const UpdateBody = z.object({
   rateId: z.string().min(1),
   provider: z.string().trim().min(1).max(40).optional(),
   paymentMode: z.string().trim().min(1).max(30).optional(),
+  cardType: z.string().trim().max(30).nullish(),
+  brandType: z.string().trim().max(40).nullish(),
+  classification: z.string().trim().max(40).nullish(),
   minAmount: z.number().nonnegative().optional(),
   maxAmount: z.number().positive().optional(),
   mdrType: z.enum(["FLAT", "PERCENT"]).optional(),
@@ -112,14 +137,22 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const next = {
     provider: b.provider !== undefined ? norm(b.provider) : existing.provider,
     paymentMode: b.paymentMode !== undefined ? norm(b.paymentMode) : existing.paymentMode,
+    cardType: b.cardType !== undefined ? normDim(b.cardType) : existing.cardType,
+    brandType: b.brandType !== undefined ? normDim(b.brandType) : existing.brandType,
+    classification: b.classification !== undefined ? normDim(b.classification) : existing.classification,
     minAmount: b.minAmount ?? Number(existing.minAmount),
     maxAmount: b.maxAmount ?? Number(existing.maxAmount),
   };
 
   const overlap = await validateBrandRate(
     params.id,
-    next.provider,
-    next.paymentMode,
+    {
+      provider: next.provider,
+      paymentMode: next.paymentMode,
+      cardType: next.cardType,
+      brandType: next.brandType,
+      classification: next.classification,
+    },
     { minAmount: next.minAmount, maxAmount: next.maxAmount },
     existing.id
   );

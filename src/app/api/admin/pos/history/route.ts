@@ -91,46 +91,69 @@ export async function GET(req: Request) {
   const users = userIds.size
     ? await prisma.user.findMany({
         where: { id: { in: Array.from(userIds) } },
-        select: { id: true, name: true, role: true },
+        select: { id: true, name: true, role: true, userCode: true },
       })
     : [];
   const userMap = new Map(users.map((u) => [u.id, u]));
+  const missing = (id: string) => ({ id, name: "Removed user", role: "", userCode: null });
 
-  const entries = rows.map((r) => ({
-    id: r.id,
-    machineId: r.machineId,
-    tid: r.machine?.tid ?? null,
-    serial: r.machine?.serial ?? null,
-    mid: r.machine?.mid ?? null,
-    model: r.machine?.model ?? null,
-    action: r.action,
-    status: r.status,
-    fromUser: r.fromUserId ? userMap.get(r.fromUserId) ?? { id: r.fromUserId, name: "Removed user", role: "" } : null,
-    toUser: r.toUserId ? userMap.get(r.toUserId) ?? { id: r.toUserId, name: "Removed user", role: "" } : null,
-    byUser: r.byUserId ? userMap.get(r.byUserId) ?? { id: r.byUserId, name: "Removed user", role: "" } : null,
-    assignedDate: r.assignedDate?.toISOString() ?? null,
-    transitDate: r.transitDate?.toISOString() ?? null,
-    deliveredDate: r.deliveredDate?.toISOString() ?? null,
-    returnedDate: r.returnedDate?.toISOString() ?? null,
-    returnReason: r.returnReason,
-    note: r.note,
-    createdAt: r.createdAt.toISOString(),
-  }));
+  const entries = rows.map((r) => {
+    const fromUser = r.fromUserId ? userMap.get(r.fromUserId) ?? missing(r.fromUserId) : null;
+    const toUser = r.toUserId ? userMap.get(r.toUserId) ?? missing(r.toUserId) : null;
+    const byUser = r.byUserId ? userMap.get(r.byUserId) ?? missing(r.byUserId) : null;
+    // The "holder" is whose section this movement is filed under in the report:
+    // an assignment lands with the receiver (toUser); a return is filed under the
+    // person who gave the machine back (fromUser).
+    const holder = r.action === "assign" ? toUser : fromUser;
+    return {
+      id: r.id,
+      machineId: r.machineId,
+      tid: r.machine?.tid ?? null,
+      serial: r.machine?.serial ?? null,
+      mid: r.machine?.mid ?? null,
+      model: r.machine?.model ?? null,
+      externalId: r.machine?.externalId ?? null,
+      action: r.action,
+      status: r.status,
+      fromUser,
+      toUser,
+      byUser,
+      holder,
+      assignedDate: r.assignedDate?.toISOString() ?? null,
+      transitDate: r.transitDate?.toISOString() ?? null,
+      deliveredDate: r.deliveredDate?.toISOString() ?? null,
+      returnedDate: r.returnedDate?.toISOString() ?? null,
+      returnReason: r.returnReason,
+      note: r.note,
+      createdAt: r.createdAt.toISOString(),
+    };
+  });
 
   if (format === "csv") {
     const header = [
-      "Date", "TID", "Serial", "MID", "Model", "Action", "Status",
-      "From", "To", "By", "Assigned", "In transit", "Delivered", "Returned",
+      "Logged at", "Date", "Holder", "Holder code", "Holder role",
+      "Movement", "Status", "TID", "Serial", "MID", "Model", "External ID",
+      "From", "From code", "From role", "To", "To code", "To role",
+      "Performed by", "By role",
+      "Assigned", "In transit", "Delivered", "Returned",
       "Return reason", "Notes",
     ];
     const esc = (v: string | null | undefined) => {
       const s = v ?? "";
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
+    const day = (iso: string) =>
+      new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    const movement = (e: (typeof entries)[number]) =>
+      e.action === "assign" ? (e.fromUser ? "Reassigned" : "Assigned") : "Returned to stock";
     const lines = entries.map((e) =>
       [
-        e.createdAt, e.tid, e.serial, e.mid, e.model, e.action, e.status,
-        e.fromUser?.name ?? "", e.toUser?.name ?? "", e.byUser?.name ?? "",
+        e.createdAt, day(e.createdAt),
+        e.holder?.name ?? "Stock", e.holder?.userCode ?? "", e.holder?.role ?? "",
+        movement(e), e.status, e.tid, e.serial, e.mid, e.model, e.externalId,
+        e.fromUser?.name ?? "", e.fromUser?.userCode ?? "", e.fromUser?.role ?? "",
+        e.toUser?.name ?? "", e.toUser?.userCode ?? "", e.toUser?.role ?? "",
+        e.byUser?.name ?? "", e.byUser?.role ?? "",
         e.assignedDate ?? "", e.transitDate ?? "", e.deliveredDate ?? "",
         e.returnedDate ?? "", e.returnReason ?? "", e.note ?? "",
       ]

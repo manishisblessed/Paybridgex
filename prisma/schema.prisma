@@ -2171,6 +2171,13 @@ model PosSettlementEntry {
   walletTxnId    String?  // ref to the credit WalletTxn
   paymentMode    String?  // CARD | UPI | NFC | BHARATQR
 
+  // Card dimensions the capture was priced against — persisted so the T+1 sweep
+  // (and instant re-pricing) resolves the SAME classification-specific rate the
+  // capture was quoted at. null on legacy rows → priced as wildcard.
+  cardType       String? // CREDIT | DEBIT | PREPAID
+  brandType      String? // VISA | MASTERCARD | RUPAY | AMEX | DINERS
+  classification String? // PLATINUM | SIGNATURE | REWARDS | ...
+
   // When the swipe actually happened at the terminal (partner txn time). The
   // T+1 sweep settles by CAPTURE date, not row-creation date, so captures that
   // are pull-ingested a day late still settle on their correct IST day. Null on
@@ -2229,6 +2236,14 @@ model BrandMdrRate {
   // Dimensions. "*" (or null) = wildcard; an exact match beats a wildcard.
   provider    String @default("*") // RAZORPAY | PAYTM | PINELAB | *
   paymentMode String @default("*") // CARD | UPI | NFC | BHARATQR | *
+
+  // Card dimensions (mirror MdrSlab) so a brand can price per instrument /
+  // network / tier — e.g. Credit + Visa + Platinum. null = any. Resolution
+  // picks the most specific matching rate (each exact dimension match scores
+  // over a wildcard). classification matches on its canonical card tier.
+  cardType       String? // CREDIT | DEBIT | PREPAID | null (any)
+  brandType      String? // VISA | MASTERCARD | RUPAY | AMEX | DINERS | null (any)
+  classification String? // PLATINUM | SIGNATURE | REWARDS | ... | null (any)
 
   minAmount Decimal @db.Decimal(14, 2)
   maxAmount Decimal @db.Decimal(14, 2)

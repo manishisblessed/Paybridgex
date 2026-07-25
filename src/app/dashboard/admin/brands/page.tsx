@@ -9,6 +9,14 @@ import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CompanyMdrFloors } from "@/components/admin/CompanyMdrFloors";
 import { formatINR } from "@/lib/utils";
+import {
+  CARD_INSTRUMENTS,
+  CARD_NETWORKS,
+  CARD_CLASSIFICATIONS,
+  instrumentToDims,
+  dimsToInstrument,
+  instrumentIsCard,
+} from "@/lib/mdr/cardOptions";
 import { Tag, Plus, RefreshCw, Trash2, X, Zap, Clock, ArrowLeftRight, ShieldCheck } from "lucide-react";
 
 type Brand = {
@@ -27,6 +35,9 @@ type Rate = {
   id: string;
   provider: string;
   paymentMode: string;
+  cardType: string | null;
+  brandType: string | null;
+  classification: string | null;
   minAmount: number;
   maxAmount: number;
   mdrType: string;
@@ -279,13 +290,16 @@ function RateEditor({
 }) {
   const [form, setForm] = useState({
     provider: "*",
-    paymentMode: "*",
+    instrument: "",
+    brandType: "",
+    classification: "",
     minAmount: "1",
     maxAmount: "100000",
     mdrType: "PERCENT",
     mdrValue: "1",
     mdrValueT0: "0",
   });
+  const isCard = instrumentIsCard(form.instrument);
   const [busy, setBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Rate | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -301,12 +315,16 @@ function RateEditor({
   const addRate = async () => {
     setBusy(true);
     try {
+      const { paymentMode, cardType } = instrumentToDims(form.instrument);
       const res = await fetch(`/api/admin/brands/${brandId}/rates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider: form.provider.trim() || "*",
-          paymentMode: form.paymentMode.trim() || "*",
+          paymentMode,
+          cardType,
+          brandType: isCard ? form.brandType || null : null,
+          classification: isCard ? form.classification || null : null,
           minAmount: Number(form.minAmount),
           maxAmount: Number(form.maxAmount),
           mdrType: form.mdrType,
@@ -364,7 +382,9 @@ function RateEditor({
               <thead>
                 <tr className="border-b border-ink-100 text-[11px] uppercase tracking-wider text-ink-400">
                   <th className="py-2 pr-3">Provider</th>
-                  <th className="py-2 pr-3">Mode</th>
+                  <th className="py-2 pr-3">Instrument</th>
+                  <th className="py-2 pr-3">Network</th>
+                  <th className="py-2 pr-3">Classification</th>
                   <th className="py-2 pr-3">Band</th>
                   <th className="py-2 pr-3">MDR (T+1)</th>
                   <th className="py-2 pr-3">MDR (instant)</th>
@@ -376,7 +396,12 @@ function RateEditor({
                 {detail.rates.map((r) => (
                   <tr key={r.id} className="border-b border-ink-50">
                     <td className="py-2.5 pr-3 font-semibold">{r.provider}</td>
-                    <td className="py-2.5 pr-3">{r.paymentMode}</td>
+                    <td className="py-2.5 pr-3">
+                      {CARD_INSTRUMENTS.find((i) => i.value === dimsToInstrument(r.paymentMode, r.cardType))?.label ??
+                        (r.paymentMode === "*" ? "Any" : r.paymentMode)}
+                    </td>
+                    <td className="py-2.5 pr-3">{r.brandType ?? <span className="text-ink-300">Any</span>}</td>
+                    <td className="py-2.5 pr-3">{r.classification ?? <span className="text-ink-300">Any</span>}</td>
                     <td className="py-2.5 pr-3">
                       {formatINR(r.minAmount)} – {formatINR(r.maxAmount)}
                     </td>
@@ -404,7 +429,7 @@ function RateEditor({
                 ))}
                 {detail.rates.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="py-6 text-center text-sm text-ink-400">
+                    <td colSpan={9} className="py-6 text-center text-sm text-ink-400">
                       No rates — add the first one below. Captures can&apos;t settle without a matching rate.
                     </td>
                   </tr>
@@ -417,14 +442,52 @@ function RateEditor({
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-500">
               Add rate {form.mdrType === "PERCENT" && "(rates in %, e.g. 1 = 1%)"}
             </p>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
               <label className="text-xs text-ink-500">
                 Provider (* = any)
                 <input className={`${inputCls} mt-1 w-full`} value={form.provider} onChange={set("provider")} placeholder="RAZORPAY" />
               </label>
               <label className="text-xs text-ink-500">
-                Mode (* = any)
-                <input className={`${inputCls} mt-1 w-full`} value={form.paymentMode} onChange={set("paymentMode")} placeholder="CARD" />
+                Card / Instrument
+                <select className={`${inputCls} mt-1 w-full`} value={form.instrument} onChange={set("instrument")}>
+                  {CARD_INSTRUMENTS.map((i) => (
+                    <option key={i.value} value={i.value}>
+                      {i.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-ink-500">
+                Network
+                <select
+                  className={`${inputCls} mt-1 w-full disabled:opacity-50`}
+                  value={form.brandType}
+                  onChange={set("brandType")}
+                  disabled={!isCard}
+                >
+                  <option value="">Any</option>
+                  {CARD_NETWORKS.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-ink-500">
+                Classification
+                <select
+                  className={`${inputCls} mt-1 w-full disabled:opacity-50`}
+                  value={form.classification}
+                  onChange={set("classification")}
+                  disabled={!isCard}
+                >
+                  <option value="">Any</option>
+                  {CARD_CLASSIFICATIONS.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="text-xs text-ink-500">
                 Min ₹
@@ -449,14 +512,15 @@ function RateEditor({
                 MDR (instant)
                 <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.mdrValueT0} onChange={set("mdrValueT0")} />
               </label>
-              <div className="flex items-end lg:col-span-7">
+              <div className="flex items-end lg:col-span-8">
                 <Button size="sm" onClick={addRate} disabled={busy} isLoading={busy}>
                   Add rate
                 </Button>
               </div>
             </div>
             <p className="mt-3 text-[11px] text-ink-400">
-              Instant MDR is optional — leave 0 to reuse the T+1 rate for instant settlements.
+              Pick the instrument (Debit / Credit / UPI); Network &amp; Classification apply to card instruments — e.g.
+              Credit · Visa · Platinum. Instant MDR is optional — leave 0 to reuse the T+1 rate.
             </p>
           </div>
         </>

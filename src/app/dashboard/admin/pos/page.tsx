@@ -1205,7 +1205,7 @@ function TxnSlipDrawer({ txn, onClose }: { txn: PosTransaction; onClose: () => v
 // TRACKING REPORT TAB — assignment / return history across the fleet
 // ═══════════════════════════════════════════════════════════════════════
 
-type TrackingUser = { id: string; name: string; role: string };
+type TrackingUser = { id: string; name: string; role: string; userCode: string | null };
 
 type TrackingEntry = {
   id: string;
@@ -1214,11 +1214,13 @@ type TrackingEntry = {
   serial: string | null;
   mid: string | null;
   model: string | null;
+  externalId: string | null;
   action: string;
   status: string;
   fromUser: TrackingUser | null;
   toUser: TrackingUser | null;
   byUser: TrackingUser | null;
+  holder: TrackingUser | null;
   assignedDate: string | null;
   transitDate: string | null;
   deliveredDate: string | null;
@@ -1246,6 +1248,55 @@ function trackingActionBadge(entry: TrackingEntry) {
       : <Badge variant="brand">Assigned</Badge>;
   }
   return <Badge variant="default">Returned to stock</Badge>;
+}
+
+function roleLabel(role: string | null | undefined) {
+  if (!role) return "";
+  return role
+    .toLowerCase()
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join("-");
+}
+
+function fmtDayHeading(iso: string) {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+// Local calendar day key (Asia/Kolkata) so grouping matches the printed date.
+function dayKey(iso: string) {
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
+type HolderGroup = { key: string; holder: TrackingUser | null; entries: TrackingEntry[] };
+type DayGroup = { key: string; label: string; count: number; groups: HolderGroup[] };
+
+// Fold a chronologically-ordered (newest-first) movement list into a
+// Date → Holder logbook, preserving order within each level.
+function groupByDayAndHolder(entries: TrackingEntry[]): DayGroup[] {
+  const days = new Map<string, DayGroup>();
+  for (const e of entries) {
+    const dKey = dayKey(e.createdAt);
+    let day = days.get(dKey);
+    if (!day) {
+      day = { key: dKey, label: fmtDayHeading(e.createdAt), count: 0, groups: [] };
+      days.set(dKey, day);
+    }
+    day.count += 1;
+    const hKey = e.holder?.id ?? "__stock__";
+    let group = day.groups.find((g) => g.key === hKey);
+    if (!group) {
+      group = { key: hKey, holder: e.holder, entries: [] };
+      day.groups.push(group);
+    }
+    group.entries.push(e);
+  }
+  return [...days.values()];
 }
 
 function TrackingTab() {
@@ -1283,90 +1334,7 @@ function TrackingTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, action, status, from, to]);
 
-  const cols: Column<TrackingEntry>[] = [
-    { key: "createdAt", header: "Logged", render: (r) => <span className="text-xs">{fmtTime(r.createdAt)}</span> },
-    {
-      key: "machine",
-      header: "Machine",
-      render: (r) => (
-        <div className="flex flex-col">
-          <span className="font-mono text-xs font-semibold">{r.tid ?? r.serial ?? "—"}</span>
-          <span className="text-[11px] text-ink-400">{r.model ?? r.mid ?? ""}</span>
-        </div>
-      ),
-    },
-    { key: "action", header: "Movement", render: (r) => trackingActionBadge(r) },
-    {
-      key: "flow",
-      header: "From → To",
-      render: (r) => (
-        <div className="flex items-center gap-1.5 text-xs">
-          <span className={r.fromUser ? "font-medium text-ink-800" : "text-ink-400"}>{r.fromUser?.name ?? "Stock"}</span>
-          <ArrowRight className="h-3 w-3 shrink-0 text-ink-400" />
-          <span className={r.toUser ? "font-medium text-ink-800" : "text-ink-400"}>{r.toUser?.name ?? "Stock"}</span>
-        </div>
-      ),
-    },
-    {
-      key: "status",
-      header: "Holding",
-      render: (r) =>
-        r.status === "ACTIVE" ? (
-          <Badge variant="success"><CheckCircle2 className="h-3 w-3" /> Active</Badge>
-        ) : r.status === "RETURNED" ? (
-          <Badge variant="warning"><RotateCcw className="h-3 w-3" /> Returned</Badge>
-        ) : (
-          <Badge variant="default">Event</Badge>
-        ),
-    },
-    {
-      key: "milestones",
-      header: "Dispatch milestones",
-      render: (r) => (
-        <div className="flex flex-col gap-0.5 text-[11px]">
-          <span className={r.transitDate ? "text-blue-600" : "text-ink-400"}>
-            <Truck className="mr-1 inline h-3 w-3" />
-            {fmtDateOnly(r.transitDate) ?? "Not in transit"}
-          </span>
-          <span className={r.deliveredDate ? "text-emerald-600" : "text-ink-400"}>
-            <PackageCheck className="mr-1 inline h-3 w-3" />
-            {fmtDateOnly(r.deliveredDate) ?? "Not delivered"}
-          </span>
-          {r.returnedDate && (
-            <span className="text-amber-600">
-              <RotateCcw className="mr-1 inline h-3 w-3" />
-              {fmtDateOnly(r.returnedDate)}
-            </span>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: "returnReason",
-      header: "Return reason",
-      render: (r) => <span className="block max-w-[160px] truncate text-xs text-ink-600" title={r.returnReason ?? ""}>{r.returnReason ?? "—"}</span>,
-    },
-    {
-      key: "byUser",
-      header: "By",
-      render: (r) => <span className="text-xs">{r.byUser?.name ?? "—"}</span>,
-    },
-    {
-      key: "note",
-      header: "Notes",
-      render: (r) => <span className="block max-w-[180px] truncate text-xs text-ink-500" title={r.note ?? ""}>{r.note ?? "—"}</span>,
-    },
-    {
-      key: "actions",
-      header: "",
-      align: "right",
-      render: (r) => (
-        <Button variant="ghost" size="sm" onClick={() => setEditTarget(r)} title="Update dispatch milestones">
-          <Pencil className="h-3.5 w-3.5" />
-        </Button>
-      ),
-    },
-  ];
+  const dayGroups = groupByDayAndHolder(entries);
 
   return (
     <div className="min-w-0 space-y-6">
@@ -1425,28 +1393,80 @@ function TrackingTab() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* Grouped logbook: Date → Holder → movements */}
       {error ? (
         <ErrorBanner message={error instanceof Error ? error.message : "Failed to load tracking history."} />
       ) : (
-        <DataTable
-          title="POS Tracking History"
-          description={
-            pagination
-              ? `${pagination.total} movement${pagination.total === 1 ? "" : "s"} · page ${pagination.page} of ${pagination.totalPages}`
-              : "Loading..."
-          }
-          action={
+        <div className="rounded-2xl border border-ink-100 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 px-5 py-4">
+            <div>
+              <h3 className="font-display text-base font-semibold text-ink-900">POS Tracking History</h3>
+              <p className="text-xs text-ink-500">
+                {pagination
+                  ? `${pagination.total} movement${pagination.total === 1 ? "" : "s"} · page ${pagination.page} of ${pagination.totalPages} · grouped by date, then by holder`
+                  : "Loading..."}
+              </p>
+            </div>
             <Button variant="outline" size="sm" onClick={exportCsv}>
-              <Download className="h-4 w-4" /> Export CSV
+              <Download className="h-4 w-4" /> Export full CSV
             </Button>
-          }
-          columns={cols}
-          data={entries}
-          loading={isLoading && entries.length === 0}
-          loadingRows={8}
-          empty="No movements recorded yet. Assign a machine to start the trail."
-        />
+          </div>
+
+          {isLoading && entries.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 px-5 py-16 text-sm text-ink-400">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading movements…
+            </div>
+          ) : dayGroups.length === 0 ? (
+            <div className="px-5 py-16 text-center text-sm text-ink-400">
+              No movements recorded yet. Assign a machine to start the trail.
+            </div>
+          ) : (
+            <div className="divide-y divide-ink-100">
+              {dayGroups.map((day) => (
+                <section key={day.key}>
+                  <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-ink-100 bg-ink-50/80 px-5 py-2.5 backdrop-blur">
+                    <div className="flex items-center gap-2">
+                      <History className="h-4 w-4 text-ink-400" />
+                      <span className="text-sm font-semibold text-ink-800">{day.label}</span>
+                    </div>
+                    <span className="text-[11px] font-medium text-ink-400">
+                      {day.count} movement{day.count === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-ink-100">
+                    {day.groups.map((group) => (
+                      <div key={`${day.key}-${group.key}`} className="px-5 py-3">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <span className={group.holder ? "text-sm font-semibold text-ink-900" : "text-sm font-semibold text-ink-400"}>
+                            {group.holder?.name ?? "Stock / Unassigned"}
+                          </span>
+                          {group.holder?.userCode && (
+                            <span className="rounded bg-ink-100 px-1.5 py-0.5 font-mono text-[11px] text-ink-600">
+                              {group.holder.userCode}
+                            </span>
+                          )}
+                          {group.holder?.role && (
+                            <span className="text-[11px] uppercase tracking-wide text-ink-400">
+                              {roleLabel(group.holder.role)}
+                            </span>
+                          )}
+                          <span className="text-[11px] text-ink-400">
+                            · {group.entries.length} item{group.entries.length === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {group.entries.map((e) => (
+                            <TrackingRow key={e.id} entry={e} onEdit={() => setEditTarget(e)} />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Pagination */}
@@ -1468,6 +1488,95 @@ function TrackingTab() {
           onSaved={() => { setEditTarget(null); mutate(); }}
         />
       )}
+    </div>
+  );
+}
+
+// ── One movement row inside a holder group (all detail for the record) ──
+
+function DetailField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">{label}</div>
+      <div className="truncate text-xs text-ink-700">{children}</div>
+    </div>
+  );
+}
+
+function TrackingRow({ entry: r, onEdit }: { entry: TrackingEntry; onEdit: () => void }) {
+  const holdingBadge =
+    r.status === "ACTIVE" ? (
+      <Badge variant="success"><CheckCircle2 className="h-3 w-3" /> Active</Badge>
+    ) : r.status === "RETURNED" ? (
+      <Badge variant="warning"><RotateCcw className="h-3 w-3" /> Returned</Badge>
+    ) : (
+      <Badge variant="default">Event</Badge>
+    );
+
+  return (
+    <div className="rounded-xl border border-ink-100 bg-ink-50/40 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {trackingActionBadge(r)}
+          {holdingBadge}
+          <span className="text-[11px] text-ink-400">{fmtTime(r.createdAt)}</span>
+        </div>
+        <Button variant="ghost" size="sm" onClick={onEdit} title="Update dispatch milestones">
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 lg:grid-cols-4">
+        <DetailField label="Machine">
+          <span className="font-mono font-semibold text-ink-900">{r.tid ?? r.serial ?? "—"}</span>
+          {r.model && <span className="text-ink-400"> · {r.model}</span>}
+        </DetailField>
+        <DetailField label="Serial / MID">
+          <span className="font-mono">{r.serial ?? "—"}</span>
+          {r.mid && <span className="text-ink-400"> · {r.mid}</span>}
+        </DetailField>
+        <DetailField label="From → To">
+          <span className="flex items-center gap-1">
+            <span className={r.fromUser ? "text-ink-800" : "text-ink-400"}>
+              {r.fromUser ? `${r.fromUser.name}${r.fromUser.userCode ? ` (${r.fromUser.userCode})` : ""}` : "Stock"}
+            </span>
+            <ArrowRight className="h-3 w-3 shrink-0 text-ink-400" />
+            <span className={r.toUser ? "text-ink-800" : "text-ink-400"}>
+              {r.toUser ? `${r.toUser.name}${r.toUser.userCode ? ` (${r.toUser.userCode})` : ""}` : "Stock"}
+            </span>
+          </span>
+        </DetailField>
+        <DetailField label="Performed by">
+          {r.byUser ? `${r.byUser.name}${r.byUser.role ? ` · ${roleLabel(r.byUser.role)}` : ""}` : "—"}
+        </DetailField>
+        <DetailField label="Assigned on">{fmtDateOnly(r.assignedDate) ?? "—"}</DetailField>
+        <DetailField label="In transit">
+          <span className={r.transitDate ? "text-blue-600" : "text-ink-400"}>
+            <Truck className="mr-1 inline h-3 w-3" />
+            {fmtDateOnly(r.transitDate) ?? "—"}
+          </span>
+        </DetailField>
+        <DetailField label="Delivered">
+          <span className={r.deliveredDate ? "text-emerald-600" : "text-ink-400"}>
+            <PackageCheck className="mr-1 inline h-3 w-3" />
+            {fmtDateOnly(r.deliveredDate) ?? "—"}
+          </span>
+        </DetailField>
+        <DetailField label="Returned">
+          <span className={r.returnedDate ? "text-amber-600" : "text-ink-400"}>
+            <RotateCcw className="mr-1 inline h-3 w-3" />
+            {fmtDateOnly(r.returnedDate) ?? "—"}
+          </span>
+        </DetailField>
+        <div className="col-span-2 min-w-0 sm:col-span-3 lg:col-span-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Return reason</div>
+          <div className="truncate text-xs text-ink-700" title={r.returnReason ?? ""}>{r.returnReason ?? "—"}</div>
+        </div>
+        <div className="col-span-2 min-w-0 sm:col-span-3 lg:col-span-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Notes</div>
+          <div className="truncate text-xs text-ink-700" title={r.note ?? ""}>{r.note ?? "—"}</div>
+        </div>
+      </div>
     </div>
   );
 }

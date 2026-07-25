@@ -46,6 +46,9 @@ export async function GET() {
           select: {
             provider: true,
             paymentMode: true,
+            cardType: true,
+            brandType: true,
+            classification: true,
             mdrType: true,
             mdrValue: true,
             mdrValueT0: true,
@@ -85,6 +88,9 @@ export async function GET() {
     Array<{
       provider: string;
       paymentMode: string;
+      cardType: string | null;
+      brandType: string | null;
+      classification: string | null;
       mdrType: string;
       mdrValue: number;
       mdrValueT0: number;
@@ -100,6 +106,9 @@ export async function GET() {
     brandRatesByCompany[name] = rates.map((r) => ({
       provider: r.provider,
       paymentMode: r.paymentMode,
+      cardType: r.cardType,
+      brandType: r.brandType,
+      classification: r.classification,
       mdrType: r.mdrType,
       mdrValue: Number(r.mdrValue),
       mdrValueT0: Number(r.mdrValueT0),

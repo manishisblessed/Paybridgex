@@ -92,39 +92,97 @@ export async function POST(req: Request) {
       );
     }
 
-    // Enrich transactions with the assigned retailer from local PosMachine table.
+    // Enrich each transaction with the retailer who ACTUALLY HELD the terminal
+    // at the moment of the swipe, resolved from the assignment history
+    // (`PosAssignmentLog`). Each `assign` entry defines a holding window
+    // [assignedDate, returnedDate) — non-overlapping, since reassigning closes
+    // the previous window. So a swipe is attributed to whoever owned the machine
+    // then: never a later holder, and never anyone for pre-assignment swipes.
     const tids = [...new Set(result.data.data.map((t) => t.terminal_id).filter(Boolean))];
     const machines = tids.length
       ? await prisma.posMachine.findMany({
           where: { tid: { in: tids } },
           select: {
             tid: true,
-            assignedUser: {
-              select: { id: true, name: true, shopName: true, userCode: true, role: true },
+            assignedUserId: true,
+            assignedAt: true,
+            assignmentLogs: {
+              where: { action: "assign", toUserId: { not: null } },
+              select: {
+                toUserId: true,
+                assignedDate: true,
+                createdAt: true,
+                returnedDate: true,
+              },
+              orderBy: { createdAt: "asc" },
             },
           },
         })
       : [];
 
-    const tidToRetailer = new Map(
-      machines
-        .filter((m) => m.tid && m.assignedUser)
-        .map((m) => [
-          m.tid!,
-          {
-            id: m.assignedUser!.id,
-            name: m.assignedUser!.name,
-            shopName: (m.assignedUser as { shopName?: string | null }).shopName ?? null,
-            userCode: (m.assignedUser as { userCode?: string | null }).userCode ?? null,
-            role: m.assignedUser!.role,
-          },
-        ])
-    );
+    // tid -> chronological holding periods { userId, start, end (null = open) }.
+    type HoldingPeriod = { userId: string; start: Date; end: Date | null };
+    const periodsByTid = new Map<string, HoldingPeriod[]>();
+    const holderIds = new Set<string>();
+    for (const m of machines) {
+      if (!m.tid) continue;
+      const periods: HoldingPeriod[] = [];
+      for (const log of m.assignmentLogs) {
+        if (!log.toUserId) continue;
+        periods.push({
+          userId: log.toUserId,
+          start: log.assignedDate ?? log.createdAt,
+          end: log.returnedDate,
+        });
+        holderIds.add(log.toUserId);
+      }
+      // Fallback for assignments not captured in the log (e.g. legacy rows):
+      // synthesize an open period from the machine's current assignment so
+      // post-assignment swipes are still attributed to the current holder.
+      if (periods.length === 0 && m.assignedUserId && m.assignedAt) {
+        periods.push({ userId: m.assignedUserId, start: m.assignedAt, end: null });
+        holderIds.add(m.assignedUserId);
+      }
+      periodsByTid.set(m.tid, periods);
+    }
 
-    const enriched = result.data.data.map((txn) => ({
-      ...txn,
-      retailer: tidToRetailer.get(txn.terminal_id) ?? null,
-    }));
+    const holders = holderIds.size
+      ? await prisma.user.findMany({
+          where: { id: { in: [...holderIds] } },
+          select: { id: true, name: true, shopName: true, userCode: true, role: true },
+        })
+      : [];
+    const holderById = new Map(holders.map((u) => [u.id, u]));
+
+    // Resolve the holder of `tid` at instant `at`. Iterates newest-first so an
+    // exact reassignment-boundary timestamp resolves to the newer holder.
+    const resolveHolderId = (tid: string, at: Date): string | null => {
+      const periods = periodsByTid.get(tid);
+      if (!periods) return null;
+      for (let i = periods.length - 1; i >= 0; i--) {
+        const p = periods[i];
+        if (at >= p.start && (p.end === null || at <= p.end)) return p.userId;
+      }
+      return null;
+    };
+
+    const enriched = result.data.data.map((txn) => {
+      const txnTime = new Date(txn.txn_time ?? txn.created_at);
+      const holderId = !Number.isNaN(txnTime.getTime())
+        ? resolveHolderId(txn.terminal_id, txnTime)
+        : null;
+      const u = holderId ? holderById.get(holderId) : null;
+      const retailer = u
+        ? {
+            id: u.id,
+            name: u.name,
+            shopName: (u as { shopName?: string | null }).shopName ?? null,
+            userCode: (u as { userCode?: string | null }).userCode ?? null,
+            role: u.role,
+          }
+        : null;
+      return { ...txn, retailer };
+    });
 
     // Classification fallback: some acquirers (e.g. Teachway terminals) return a
     // card number but no `card_classification`, while others (e.g. Avika) return

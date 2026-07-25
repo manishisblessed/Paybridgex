@@ -74,6 +74,26 @@ export function canonicalCardLevel(value: string | null | undefined): string {
 }
 
 /**
+ * Reduce a card-network label to a canonical token so pricing matches
+ * regardless of how the feed formats it. Acquirers send "MASTER_CARD",
+ * "Master Card", "VISA CREDIT", "American Express", etc.; this collapses them
+ * to VISA / MASTERCARD / RUPAY / AMEX / DINERS / MAESTRO. Unrecognised values
+ * are returned upper-cased with non-letters stripped so they still compare
+ * consistently.
+ */
+export function canonicalNetwork(value: string | null | undefined): string {
+  const s = (value ?? "").toUpperCase().replace(/[^A-Z]/g, "");
+  if (!s) return "";
+  if (s.includes("MASTER")) return "MASTERCARD";
+  if (s.includes("VISA")) return "VISA";
+  if (s.includes("RUPAY")) return "RUPAY";
+  if (s.includes("AMEX") || s.includes("AMERICANEXPRESS")) return "AMEX";
+  if (s.includes("DINER")) return "DINERS";
+  if (s.includes("MAESTRO")) return "MAESTRO";
+  return s;
+}
+
+/**
  * Look up card BIN classification. Checks the local cache first;
  * on miss, calls eKYC Hub and caches the result permanently (BINs are static).
  * Returns null if the lookup fails or the provider is not configured.

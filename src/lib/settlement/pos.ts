@@ -85,6 +85,9 @@ async function priceMdr(args: {
       amount: args.grossAmount,
       provider: args.provider,
       paymentMode: args.paymentMode,
+      cardType: args.dims?.cardType ?? null,
+      brandType: args.dims?.brandType ?? null,
+      classification: args.dims?.classification ?? null,
       settlementType: args.settlementType,
     });
     if (!brandMdr) return null;
@@ -266,6 +269,9 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
         settledVia: wtxnId ? SETTLED_VIA.INSTANT_AUTO : null,
         walletTxnId: wtxnId,
         paymentMode,
+        cardType: dims.cardType ?? null,
+        brandType: dims.brandType ?? null,
+        classification: dims.classification ?? null,
         capturedAt: capturedAtValid ? capturedAt : null,
         brandId: priced.brandId,
         provider: priced.provider,
@@ -296,6 +302,9 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
       mode: "T1",
       status: "PENDING",
       paymentMode,
+      cardType: dims.cardType ?? null,
+      brandType: dims.brandType ?? null,
+      classification: dims.classification ?? null,
       capturedAt: capturedAtValid ? capturedAt : null,
       brandId: priced.brandId,
       provider: priced.provider,
@@ -376,6 +385,9 @@ type PendingEntry = {
   mdrAmount: unknown;
   netAmount: unknown;
   paymentMode: string | null;
+  cardType: string | null;
+  brandType: string | null;
+  classification: string | null;
   brandId: string | null;
   provider: string | null;
   mdrRateId: string | null;
@@ -413,6 +425,13 @@ async function settleEntry(
       paymentMode: entry.paymentMode ?? "CARD",
       grossAmount: toNumber(gross),
       settlementType,
+      // Re-resolve against the SAME card dimensions the capture was priced on,
+      // so a classification-specific brand rate is honoured at settlement.
+      dims: {
+        cardType: entry.cardType,
+        brandType: entry.brandType,
+        classification: entry.classification,
+      },
     });
     if (!freshMdr) return null; // rate no longer resolvable — leave PENDING for admin
     netAmount = round(sub(gross, freshMdr.mdrAmount));
@@ -547,6 +566,11 @@ export async function listPendingPosSettlements(userId: string) {
       paymentMode: e.paymentMode ?? "CARD",
       grossAmount: toNumber(e.grossAmount),
       settlementType: "T0",
+      dims: {
+        cardType: e.cardType,
+        brandType: e.brandType,
+        classification: e.classification,
+      },
     });
     rows.push({
       id: e.id,

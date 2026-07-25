@@ -98,6 +98,9 @@ type AssignedUser = {
 type BrandRate = {
   provider: string;
   paymentMode: string;
+  cardType: string | null;
+  brandType: string | null;
+  classification: string | null;
   mdrType: string;
   mdrValue: number;
   mdrValueT0: number;
@@ -149,6 +152,48 @@ const CLASSIFICATIONS = [
   "PREPAID",
 ];
 const PAYMENT_MODES = ["*", "CARD", "UPI", "NFC", "BHARATQR"];
+
+// Pick the most specific approved brand rate matching a slab's card dimensions.
+// Mirrors the server resolver (brand/mdr.ts): a wildcard rate dimension is
+// eligible but scores 0; a pinned mismatch is ineligible; highest score wins.
+// Admin-entered values on both sides are canonical, so a plain uppercase
+// compare is sufficient here (feed-label canonicalisation happens server-side).
+function pickBrandRate(
+  rates: BrandRate[] | undefined,
+  dims: { paymentMode?: string | null; cardType?: string | null; brandType?: string | null; classification?: string | null }
+): BrandRate | null {
+  if (!rates || rates.length === 0) return null;
+  const up = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
+  const wild = (v: string | null | undefined) => {
+    const s = up(v);
+    return s === "" || s === "*";
+  };
+  let best: BrandRate | null = null;
+  let bestScore = -1;
+  for (const r of rates) {
+    const pairs: Array<[string | null, string | null | undefined]> = [
+      [r.paymentMode, dims.paymentMode],
+      [r.cardType, dims.cardType],
+      [r.brandType, dims.brandType],
+      [r.classification, dims.classification],
+    ];
+    let score = 0;
+    let eligible = true;
+    for (const [rv, tv] of pairs) {
+      if (wild(rv)) continue;
+      if (wild(tv) || up(rv) !== up(tv)) {
+        eligible = false;
+        break;
+      }
+      score++;
+    }
+    if (eligible && score > bestScore) {
+      best = r;
+      bestScore = score;
+    }
+  }
+  return best;
+}
 
 function fmtRate(type: RateType, value: number): string {
   if (value === 0) return "—";
@@ -1023,10 +1068,9 @@ function MdrRateModal({
       return;
     }
     const rates = brandRatesByCompany[co];
-    // Pick best match: prefer exact paymentMode, then wildcard "*".
-    const exact = rates?.find((r) => r.paymentMode === paymentMode);
-    const wildcard = rates?.find((r) => r.paymentMode === "*");
-    const pick = exact ?? wildcard ?? rates?.[0];
+    // Pick the most specific approved rate matching the slab's card dimensions
+    // (instrument / network / classification), mirroring the server resolver.
+    const pick = pickBrandRate(rates, { paymentMode, cardType, brandType, classification });
     if (!pick) {
       setPosLock({ locked: false, missing: true });
       return;
@@ -1036,7 +1080,7 @@ function MdrRateModal({
     setVendorT1(String(isPercent ? Number(pick.mdrValue) * 100 : Number(pick.mdrValue)));
     setVendorT0(String(isPercent ? Number(pick.mdrValueT0) * 100 : Number(pick.mdrValueT0)));
     setPosLock({ locked: true, missing: false });
-  }, [serviceKind, company, paymentMode, brandRatesByCompany]);
+  }, [serviceKind, company, paymentMode, cardType, brandType, classification, brandRatesByCompany]);
 
   function toStored(type: RateType, raw: string): number {
     const n = Number(raw);
