@@ -879,6 +879,7 @@ function AssignModal({
 function TransactionsTab() {
   const today = todayRange();
   const defaults = defaultDateRange();
+  // Draft filters — bound to the inputs. Nothing queries until "Search".
   const [dateFrom, setDateFrom] = useState(defaults.from);
   const [dateTo, setDateTo] = useState(defaults.to);
   const [statusFilter, setStatusFilter] = useState<PosTransactionStatus | "">("");
@@ -887,12 +888,34 @@ function TransactionsTab() {
   const [page, setPage] = useState(1);
   const [slipTxn, setSlipTxn] = useState<PosTransaction | null>(null);
 
+  // Applied filters — drive the live feed AND the report export. Updated only
+  // when the user clicks Search / Today, so the table and downloads always agree.
+  const [applied, setApplied] = useState({
+    dateFrom: defaults.from,
+    dateTo: defaults.to,
+    status: "" as PosTransactionStatus | "",
+    mode: "" as PosPaymentMode | "",
+    terminal: "",
+  });
+
+  const applySearch = useCallback(() => {
+    setApplied({ dateFrom, dateTo, status: statusFilter, mode: modeFilter, terminal: terminalFilter });
+    setPage(1);
+  }, [dateFrom, dateTo, statusFilter, modeFilter, terminalFilter]);
+
+  const applyToday = useCallback(() => {
+    setDateFrom(today.from);
+    setDateTo(today.to);
+    setApplied({ dateFrom: today.from, dateTo: today.to, status: statusFilter, mode: modeFilter, terminal: terminalFilter });
+    setPage(1);
+  }, [today.from, today.to, statusFilter, modeFilter, terminalFilter]);
+
   const body = {
-    date_from: `${dateFrom}T00:00:00.000Z`,
-    date_to: `${dateTo}T23:59:59.999Z`,
-    status: statusFilter || null,
-    payment_mode: modeFilter || null,
-    terminal_id: terminalFilter || null,
+    date_from: `${applied.dateFrom}T00:00:00.000Z`,
+    date_to: `${applied.dateTo}T23:59:59.999Z`,
+    status: applied.status || null,
+    payment_mode: applied.mode || null,
+    terminal_id: applied.terminal || null,
     page,
     page_size: 50,
   };
@@ -944,18 +967,19 @@ function TransactionsTab() {
     { key: "mid", header: "MID" },
   ];
 
-  // Fetches EVERY transaction matching the current filters (server paginates the
+  // Fetches EVERY transaction matching the APPLIED filters (server paginates the
   // partner feed) so CSV / PDF / ZIP downloads are complete, not just this page.
+  // Uses the same day boundaries as the live feed so "Today" includes today.
   const fetchAllRows = useCallback(async (): Promise<PosTransaction[]> => {
     const res = await fetch("/api/pos/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        date_from: dateFrom,
-        date_to: dateTo,
-        status: statusFilter || null,
-        payment_mode: modeFilter || null,
-        terminal_id: terminalFilter || null,
+        date_from: `${applied.dateFrom}T00:00:00.000Z`,
+        date_to: `${applied.dateTo}T23:59:59.999Z`,
+        status: applied.status || null,
+        payment_mode: applied.mode || null,
+        terminal_id: applied.terminal || null,
       }),
     });
     if (!res.ok) {
@@ -968,13 +992,13 @@ function TransactionsTab() {
       toast.warning(`Report capped at ${Number(d.returned).toLocaleString("en-IN")} rows — narrow the date range for the rest.`);
     }
     return (d.rows as PosTransaction[]) ?? [];
-  }, [dateFrom, dateTo, statusFilter, modeFilter, terminalFilter, transactions]);
+  }, [applied, transactions]);
 
   const reportSubtitle =
-    `${dateFrom} to ${dateTo}` +
-    (statusFilter ? ` · ${statusFilter}` : "") +
-    (modeFilter ? ` · ${modeFilter}` : "") +
-    (terminalFilter ? ` · TID ${terminalFilter}` : "");
+    `${applied.dateFrom} to ${applied.dateTo}` +
+    (applied.status ? ` · ${applied.status}` : "") +
+    (applied.mode ? ` · ${applied.mode}` : "") +
+    (applied.terminal ? ` · TID ${applied.terminal}` : "");
 
   const cols: Column<PosTransaction>[] = [
     { key: "txn_time", header: "Time", render: (r) => <span className="text-xs">{fmtTime(r.txn_time)}</span> },
@@ -1023,7 +1047,7 @@ function TransactionsTab() {
           </div>
           <div className="flex flex-wrap gap-2">
             <ReportActions<PosTransaction>
-              filename={`pos-transactions-${dateFrom}-to-${dateTo}`}
+              filename={`pos-transactions-${applied.dateFrom}-to-${applied.dateTo}`}
               title="POS Transactions Report"
               subtitle={reportSubtitle}
               columns={exportCols}
@@ -1036,17 +1060,19 @@ function TransactionsTab() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <div className="min-w-0">
             <label className="mb-1 block text-xs font-semibold text-ink-500">From</label>
-            <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") applySearch(); }}
               className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
           </div>
           <div className="min-w-0">
             <label className="mb-1 block text-xs font-semibold text-ink-500">To</label>
-            <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") applySearch(); }}
               className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
           </div>
           <div className="min-w-0">
             <label className="mb-1 block text-xs font-semibold text-ink-500">Status</label>
-            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value as PosTransactionStatus | ""); setPage(1); }}
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as PosTransactionStatus | "")}
               className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
               <option value="">All</option>
               <option value="CAPTURED">Captured</option>
@@ -1058,7 +1084,7 @@ function TransactionsTab() {
           </div>
           <div className="min-w-0">
             <label className="mb-1 block text-xs font-semibold text-ink-500">Mode</label>
-            <select value={modeFilter} onChange={(e) => { setModeFilter(e.target.value as PosPaymentMode | ""); setPage(1); }}
+            <select value={modeFilter} onChange={(e) => setModeFilter(e.target.value as PosPaymentMode | "")}
               className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
               <option value="">All</option>
               <option value="CARD">Card</option>
@@ -1070,11 +1096,15 @@ function TransactionsTab() {
           <div className="min-w-0">
             <label className="mb-1 block text-xs font-semibold text-ink-500">Terminal</label>
             <input type="text" placeholder="TID..." value={terminalFilter}
-              onChange={(e) => { setTerminalFilter(e.target.value); setPage(1); }}
+              onChange={(e) => setTerminalFilter(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") applySearch(); }}
               className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
           </div>
-          <div className="flex min-w-0 items-end">
-            <Button variant="outline" size="sm" className="w-full" onClick={() => { setDateFrom(today.from); setDateTo(today.to); setPage(1); }}>
+          <div className="flex min-w-0 items-end gap-2">
+            <Button size="sm" className="flex-1" onClick={applySearch}>
+              <Search className="h-4 w-4" /> Search
+            </Button>
+            <Button variant="outline" size="sm" onClick={applyToday}>
               Today
             </Button>
           </div>

@@ -680,14 +680,16 @@ function TransactionsTab() {
 
   // Fetches EVERY transaction matching the current filters so downloads are
   // complete (the server paginates the partner feed), not just this page.
+  // Uses the same day boundaries as the live feed so "Today" includes today.
   const fetchAllRows = useCallback(async (): Promise<PosTransaction[]> => {
     const res = await fetch("/api/pos/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        date_from: dateFrom,
-        date_to: dateTo,
+        date_from: `${clampedDateFrom}T00:00:00.000Z`,
+        date_to: `${dateTo}T23:59:59.999Z`,
         status: statusFilter || null,
+        payment_mode: modeFilter || null,
         terminal_id: activeTerminal || null,
       }),
     });
@@ -701,7 +703,7 @@ function TransactionsTab() {
       toast.warning(`Report capped at ${Number(d.returned).toLocaleString("en-IN")} rows — narrow the date range for the rest.`);
     }
     return (d.rows as PosTransaction[]) ?? [];
-  }, [dateFrom, dateTo, statusFilter, activeTerminal, transactions]);
+  }, [clampedDateFrom, dateTo, statusFilter, modeFilter, activeTerminal, transactions]);
 
   const reportSubtitle =
     `${dateFrom} to ${dateTo}` +

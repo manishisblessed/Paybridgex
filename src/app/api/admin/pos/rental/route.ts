@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { requireRole, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
@@ -149,11 +149,10 @@ const ActionBody = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("subscribe_batch"),
-    machineIds: z.array(z.string().min(1)).min(1).max(500),
+    machineIds: z.array(z.string().min(1)).min(1).max(2000),
     userId: z.string().min(1),
     planId: z.string().min(1),
     billingDay: z.number().int().min(1).max(28).default(1),
-    chargeSetup: z.boolean().default(false),
     monthlyRent: z.number().nonnegative().optional(),
     commission: z.number().nonnegative().default(0),
     includeGst: z.boolean().default(false),
@@ -292,39 +291,50 @@ export async function POST(req: Request) {
 
         const effectiveRent = body.monthlyRent ?? toNumber(dec(plan.monthlyRent));
 
-        const sub = await prisma.$transaction(async (tx) => {
-          const created = await tx.posSubscription.create({
-            data: {
-              machineId: machine.id,
-              userId: targetUser.id,
-              planId: plan.id,
-              billingDay: body.billingDay,
-              monthlyRent: dec(effectiveRent),
-              commission: dec(body.commission),
-              includeGst: body.includeGst,
-              createdById: admin.id,
-            },
-          });
-
-          // Recalculate commission on downstream subscriptions created by this
-          // SD. If the SD already assigned this machine downstream at ₹X/mo,
-          // the stored commission was (X − 0) = X. Now that admin charges the
-          // SD, the commission should be (X − effectiveRent).
-          const downstreamSubs = await tx.posSubscription.findMany({
-            where: { machineId: machine.id, createdById: targetUser.id, status: "ACTIVE" },
-            select: { id: true, monthlyRent: true, plan: { select: { monthlyRent: true } } },
-          });
-          for (const ds of downstreamSubs) {
-            const dsRent = toNumber(dec(ds.monthlyRent ?? ds.plan.monthlyRent));
-            const newCommission = Math.max(0, Math.round((dsRent - effectiveRent) * 100) / 100);
-            await tx.posSubscription.update({
-              where: { id: ds.id },
-              data: { commission: dec(newCommission) },
+        let sub;
+        try {
+          sub = await prisma.$transaction(async (tx) => {
+            const created = await tx.posSubscription.create({
+              data: {
+                machineId: machine.id,
+                userId: targetUser.id,
+                planId: plan.id,
+                billingDay: body.billingDay,
+                monthlyRent: dec(effectiveRent),
+                commission: dec(body.commission),
+                includeGst: body.includeGst,
+                createdById: admin.id,
+              },
             });
-          }
 
-          return created;
-        });
+            // Recalculate commission on downstream subscriptions created by this
+            // user. If they already assigned this machine downstream at ₹X/mo,
+            // the stored commission was (X − 0) = X. Now that admin charges this
+            // user, the commission should be (X − effectiveRent).
+            const downstreamSubs = await tx.posSubscription.findMany({
+              where: { machineId: machine.id, createdById: targetUser.id, status: "ACTIVE" },
+              select: { id: true, monthlyRent: true, plan: { select: { monthlyRent: true } } },
+            });
+            for (const ds of downstreamSubs) {
+              const dsRent = toNumber(dec(ds.monthlyRent ?? ds.plan.monthlyRent));
+              const newCommission = Math.max(0, Math.round((dsRent - effectiveRent) * 100) / 100);
+              await tx.posSubscription.update({
+                where: { id: ds.id },
+                data: { commission: dec(newCommission) },
+              });
+            }
+
+            return created;
+          });
+        } catch (e) {
+          // Partial unique index backstop for a race that slips past the check.
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")
+            return NextResponse.json(
+              { error: "This user already has an active rental subscription for this machine" },
+              { status: 409 }
+            );
+          throw e;
+        }
 
         const upfront = dec(plan.setupFee).add(dec(plan.deposit));
         if (body.chargeSetup && upfront.gt(0)) {
@@ -380,110 +390,79 @@ export async function POST(req: Request) {
         if (!plan) return NextResponse.json({ error: "Plan not found or inactive" }, { status: 404 });
 
         const effectiveRent = body.monthlyRent ?? toNumber(dec(plan.monthlyRent));
-        const upfront = dec(plan.setupFee).add(dec(plan.deposit));
         const machineIds = Array.from(new Set(body.machineIds));
 
-        // Bulk-load machines and this user's existing active subs up-front so the
-        // loop does no redundant per-machine lookups.
+        // Resolve which of the requested machines actually exist and which the
+        // user is already subscribed to — two set-based queries, no per-machine
+        // round trips.
         const [machines, existingSubs] = await Promise.all([
           prisma.posMachine.findMany({
             where: { id: { in: machineIds } },
-            select: { id: true, serial: true },
+            select: { id: true },
           }),
           prisma.posSubscription.findMany({
             where: { machineId: { in: machineIds }, userId: targetUser.id, status: "ACTIVE" },
             select: { machineId: true },
           }),
         ]);
-        const machineById = new Map(machines.map((m) => [m.id, m]));
+        const validIds = new Set(machines.map((m) => m.id));
         const alreadySubbed = new Set(existingSubs.map((s) => s.machineId));
+        const notFound = machineIds.filter((id) => !validIds.has(id));
+        const toCreate = machineIds.filter((id) => validIds.has(id) && !alreadySubbed.has(id));
 
         let created = 0;
-        const createdIds: string[] = [];
-        const errors: Array<{ machineId: string; error: string }> = [];
+        if (toCreate.length) {
+          // Single INSERT for the whole batch. `skipDuplicates` relies on the
+          // partial unique index (machineId, userId WHERE status='ACTIVE') to
+          // race-safely drop any machine that gained an active sub concurrently.
+          const res = await prisma.posSubscription.createMany({
+            data: toCreate.map((machineId) => ({
+              machineId,
+              userId: targetUser.id,
+              planId: plan.id,
+              billingDay: body.billingDay,
+              monthlyRent: dec(effectiveRent),
+              commission: dec(body.commission),
+              includeGst: body.includeGst,
+              createdById: admin.id,
+            })),
+            skipDuplicates: true,
+          });
+          created = res.count;
 
-        for (const machineId of machineIds) {
-          const machine = machineById.get(machineId);
-          if (!machine) {
-            errors.push({ machineId, error: "machine not found" });
-            continue;
-          }
-          if (alreadySubbed.has(machineId)) {
-            errors.push({ machineId, error: "already has an active subscription" });
-            continue;
-          }
-          try {
-            const sub = await prisma.$transaction(async (tx) => {
-              const c = await tx.posSubscription.create({
-                data: {
-                  machineId,
-                  userId: targetUser.id,
-                  planId: plan.id,
-                  billingDay: body.billingDay,
-                  monthlyRent: dec(effectiveRent),
-                  commission: dec(body.commission),
-                  includeGst: body.includeGst,
-                  createdById: admin.id,
-                },
-              });
-              const downstreamSubs = await tx.posSubscription.findMany({
-                where: { machineId, createdById: targetUser.id, status: "ACTIVE" },
-                select: { id: true, monthlyRent: true, plan: { select: { monthlyRent: true } } },
-              });
-              for (const ds of downstreamSubs) {
-                const dsRent = toNumber(dec(ds.monthlyRent ?? ds.plan.monthlyRent));
-                const newCommission = Math.max(0, Math.round((dsRent - effectiveRent) * 100) / 100);
-                await tx.posSubscription.update({
-                  where: { id: ds.id },
-                  data: { commission: dec(newCommission) },
-                });
-              }
-              return c;
+          // Recalculate commission on any downstream subscriptions this user
+          // created for the machines we just placed above them in the chain.
+          const downstreamSubs = await prisma.posSubscription.findMany({
+            where: { machineId: { in: toCreate }, createdById: targetUser.id, status: "ACTIVE" },
+            select: { id: true, monthlyRent: true, plan: { select: { monthlyRent: true } } },
+          });
+          for (const ds of downstreamSubs) {
+            const dsRent = toNumber(dec(ds.monthlyRent ?? ds.plan.monthlyRent));
+            const newCommission = Math.max(0, Math.round((dsRent - effectiveRent) * 100) / 100);
+            await prisma.posSubscription.update({
+              where: { id: ds.id },
+              data: { commission: dec(newCommission) },
             });
-
-            if (body.chargeSetup && upfront.gt(0)) {
-              try {
-                await debitWallet({
-                  userId: targetUser.id,
-                  amount: upfront,
-                  reason: "RENTAL",
-                  refType: "PosSubscription",
-                  refId: sub.id,
-                  note: `POS setup+deposit · ${plan.name} · ${machine.serial ?? machine.id}`,
-                  idempotencyKey: `possetup:${sub.id}`,
-                });
-              } catch (e) {
-                await prisma.posSubscription.delete({ where: { id: sub.id } });
-                errors.push({
-                  machineId,
-                  error:
-                    e instanceof LedgerError && e.code === "INSUFFICIENT_FUNDS"
-                      ? `wallet cannot cover ₹${toNumber(upfront)} setup + deposit`
-                      : "setup charge failed",
-                });
-                continue;
-              }
-            }
-
-            created++;
-            createdIds.push(sub.id);
-          } catch (e) {
-            console.error("[admin/pos/rental] batch subscribe error:", e);
-            errors.push({ machineId, error: "could not create subscription" });
           }
         }
 
+        const skipped = machineIds.length - created;
         await audit("pos.subscription_batch_created", {
           userId: targetUser.id,
           planId: plan.id,
           requested: machineIds.length,
           created,
-          failed: errors.length,
+          skipped,
+          alreadySubscribed: alreadySubbed.size,
+          notFound: notFound.length,
           monthlyRent: effectiveRent,
           commission: body.commission,
           includeGst: body.includeGst,
         });
-        return NextResponse.json({ ok: true, created, failed: errors.length, errors, createdIds }, { status: 201 });
+        return NextResponse.json(
+          { ok: true, created, failed: skipped, alreadySubscribed: alreadySubbed.size, notFound: notFound.length },
+          { status: 201 }
+        );
       }
 
       case "cancel_subscription": {

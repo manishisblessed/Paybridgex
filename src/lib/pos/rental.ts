@@ -365,7 +365,7 @@ export async function runPosRentalBilling(now = new Date()): Promise<{
 
 /** Rental revenue rollup for the admin billing view. */
 export async function rentalBillingSummary(periodKey = istPeriodKey()) {
-  const [byStatus, activeSubs] = await Promise.all([
+  const [byStatus, activeSubs, activeRent] = await Promise.all([
     prisma.posRentalInvoice.groupBy({
       by: ["status"],
       where: { periodKey },
@@ -373,11 +373,21 @@ export async function rentalBillingSummary(periodKey = istPeriodKey()) {
       _sum: { amount: true, gstAmount: true, totalAmount: true, commissionAmount: true },
     }),
     prisma.posSubscription.count({ where: { status: "ACTIVE" } }),
+    // Total contracted base rent across ALL active subscriptions (not just the
+    // current invoice page). Uses the per-sub override when set, else the plan
+    // rate. GST is excluded — this is the recurring revenue figure.
+    prisma.$queryRaw<{ sum: string | null }[]>`
+      SELECT COALESCE(SUM(COALESCE(s."monthlyRent", p."monthlyRent")), 0)::text AS sum
+      FROM "PosSubscription" s
+      JOIN "PosRentalPlan" p ON p.id = s."planId"
+      WHERE s.status = 'ACTIVE'
+    `,
   ]);
   const get = (s: string) => byStatus.find((b) => b.status === s);
   return {
     periodKey,
     activeSubscriptions: activeSubs,
+    activeMonthlyRent: toNumber(dec(activeRent[0]?.sum ?? 0)),
     paidCount: get("PAID")?._count ?? 0,
     paidAmount: toNumber(dec(get("PAID")?._sum.totalAmount ?? 0)),
     paidGst: toNumber(dec(get("PAID")?._sum.gstAmount ?? 0)),

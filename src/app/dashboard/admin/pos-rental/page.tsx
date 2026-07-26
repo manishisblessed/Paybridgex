@@ -62,6 +62,7 @@ type Overview = {
   summary: {
     periodKey: string;
     activeSubscriptions: number;
+    activeMonthlyRent: number;
     paidCount: number;
     paidAmount: number;
     paidGst: number;
@@ -282,6 +283,8 @@ export default function PosRentalPage() {
           busy={busy}
           act={act}
           plans={(data?.plans ?? []).filter((p) => p.active)}
+          activeCount={data?.summary.activeSubscriptions ?? 0}
+          activeMonthlyRent={data?.summary.activeMonthlyRent ?? 0}
         />
       )}
       {tab === "invoices" && <InvoicesTab invoices={data?.invoices ?? []} loading={loading} busy={busy} act={act} />}
@@ -642,7 +645,7 @@ const ROLE_TABS = [
 ] as const;
 
 function SubscriptionsTab({
-  subs, total, page, pageSize, setPage, loading, busy, act, plans,
+  subs, total, page, pageSize, setPage, loading, busy, act, plans, activeCount, activeMonthlyRent,
 }: {
   subs: Sub[];
   total: number;
@@ -653,6 +656,8 @@ function SubscriptionsTab({
   busy: boolean;
   act: (b: Record<string, unknown>, m?: string) => Promise<boolean>;
   plans: Plan[];
+  activeCount: number;
+  activeMonthlyRent: number;
 }) {
   // User search + selection (any network user, not just super-distributors)
   const [userQuery, setUserQuery] = useState("");
@@ -691,25 +696,17 @@ function SubscriptionsTab({
     return () => clearTimeout(t);
   }, [userQuery, roleFilter]);
 
-  // Fetch machines for the selected user (includes machines in their downline)
+  // Fetch the selected user's full fleet (own + downline) with per-machine
+  // subscription status resolved server-side — un-paginated, so it always
+  // agrees with the batch endpoint's duplicate check.
   useEffect(() => {
     if (!selectedUserId) { setSdMachines([]); return; }
     setMachLoading(true);
     setSelectedMachines(new Set());
-    fetch(`/api/admin/pos/machines?assignee=${selectedUserId}&includeDownline=true&pageSize=200`)
+    fetch(`/api/admin/pos/rental/eligible-machines?userId=${selectedUserId}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then(async (d) => {
-        const machines = (d?.data ?? []) as Array<{ id: string; serial: string | null; tid: string | null; model: string | null; status: string }>;
-        // Check which machines already have an active subscription for this user
-        const subRes = await fetch(`/api/admin/pos/rental`).then((r) => r.ok ? r.json() : null).catch(() => null);
-        const userActiveSubs = new Set(
-          ((subRes?.subscriptions ?? []) as Sub[])
-            .filter((s) => s.status === "ACTIVE" && s.user.id === selectedUserId)
-            .map((s) => s.machine.id)
-        );
-        setSdMachines(machines.map((m) => ({ ...m, hasSub: userActiveSubs.has(m.id) })));
-      })
-      .catch(() => {})
+      .then((d) => setSdMachines((d?.machines ?? []) as SDMachine[]))
+      .catch(() => setSdMachines([]))
       .finally(() => setMachLoading(false));
   }, [selectedUserId]);
 
@@ -755,7 +752,6 @@ function SubscriptionsTab({
       monthlyRent: baseRent,
       commission: 0,
       includeGst,
-      chargeSetup: false,
     });
     if (ok) {
       setSelectedMachines(new Set());
@@ -764,8 +760,6 @@ function SubscriptionsTab({
     }
   };
 
-  const activeSubs = subs.filter((s) => s.status === "ACTIVE");
-  const totalActiveRent = activeSubs.reduce((sum, s) => sum + s.effectiveRent, 0);
 
   const columns: Column<Sub>[] = [
     {
@@ -1064,7 +1058,7 @@ function SubscriptionsTab({
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Active</p>
-            <p className="text-sm font-bold text-ink-900">{activeSubs.length} subscription{activeSubs.length !== 1 ? "s" : ""}</p>
+            <p className="text-sm font-bold text-ink-900">{formatNumber(activeCount)} subscription{activeCount !== 1 ? "s" : ""}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -1073,7 +1067,7 @@ function SubscriptionsTab({
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Monthly Revenue</p>
-            <p className="text-sm font-bold text-ink-900">{formatINR(totalActiveRent)}</p>
+            <p className="text-sm font-bold text-ink-900">{formatINR(activeMonthlyRent)}</p>
           </div>
         </div>
       </div>
