@@ -1093,6 +1093,23 @@ function MdrRateModal({
     setPosLock({ locked: true, missing: false });
   }, [serviceKind, company, paymentMode, cardType, brandType, classification, showClassification, brandRatesByCompany]);
 
+  // POS MDR can only be scoped to a company whose brand already has approved
+  // rates defined (in Brands & MDR). Companies without any BrandMdrRate are not
+  // offered for POS. Non-POS rails keep the full company list (company is
+  // optional there).
+  const posEligibleCompanies = companies.filter((c) => (brandRatesByCompany[c]?.length ?? 0) > 0);
+  const companyOptions = serviceKind === "POS" ? posEligibleCompanies : companies;
+
+  // If the rail switches to POS while a company without approved rates is
+  // selected, clear it (the option is no longer available). Keep the company of
+  // the slab being edited so its existing scope stays visible.
+  useEffect(() => {
+    if (serviceKind !== "POS") return;
+    if (company && company !== editing?.company && !(brandRatesByCompany[company]?.length ?? 0)) {
+      setCompany("");
+    }
+  }, [serviceKind, company, brandRatesByCompany, editing?.company]);
+
   function toStored(type: RateType, raw: string): number {
     const n = Number(raw);
     if (!isFinite(n) || n < 0) return 0;
@@ -1211,17 +1228,26 @@ function MdrRateModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Company</Label>
-              <Select value={company} onChange={(e) => setCompany(e.target.value)}>
-                <option value="">All Companies</option>
-                {companies.map((c) => (
+              <Select
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                disabled={serviceKind === "POS" && posEligibleCompanies.length === 0}
+              >
+                <option value="">{serviceKind === "POS" ? "Select a company…" : "All Companies"}</option>
+                {companyOptions.map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>
                 ))}
-                {editing?.company && !companies.includes(editing.company) && (
+                {editing?.company && !companyOptions.includes(editing.company) && (
                   <option value={editing.company}>{editing.company}</option>
                 )}
               </Select>
+              {serviceKind === "POS" && posEligibleCompanies.length === 0 && (
+                <p className="mt-1 text-[11px] text-rose-600">
+                  No company has approved brand rates yet. Define rates in Brands &amp; MDR before setting POS MDR.
+                </p>
+              )}
             </div>
             <div>
               <Label>Mode</Label>

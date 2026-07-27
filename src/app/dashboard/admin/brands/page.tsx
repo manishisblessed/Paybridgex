@@ -17,7 +17,23 @@ import {
   dimsToInstrument,
   instrumentIsCard,
 } from "@/lib/mdr/cardOptions";
-import { Tag, Plus, RefreshCw, Trash2, X, Zap, Clock, ArrowLeftRight, ShieldCheck } from "lucide-react";
+import {
+  Tag,
+  Plus,
+  RefreshCw,
+  Trash2,
+  X,
+  Zap,
+  Clock,
+  ArrowLeftRight,
+  ShieldCheck,
+  Pencil,
+  Check,
+  Power,
+  CreditCard,
+  Layers,
+  Sparkles,
+} from "lucide-react";
 
 type Brand = {
   id: string;
@@ -63,6 +79,27 @@ const inputCls =
 function fmtRate(type: string, value: number) {
   return type === "PERCENT" ? `${(value * 100).toFixed(2)}%` : formatINR(value);
 }
+
+/**
+ * Best-effort guess of the acquiring provider from a brand's name so the rate
+ * form can pre-fill it. "Sameday-AXIS" → "AXIS", "Sameday-Lagoon (Paytm)" →
+ * "PAYTM". Falls back to "*" (any) when nothing sensible can be derived.
+ */
+function deriveProvider(name: string): string {
+  const paren = name.match(/\(([^)]+)\)/);
+  const base = paren ? paren[1] : name.split(/[-–—]/).pop() ?? name;
+  return base.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "") || "*";
+}
+
+/** Stored fraction (0.01) → human percent (1) for editing existing rates. */
+function fromStored(v: number, type: string): string {
+  const human = type === "PERCENT" ? v * 100 : v;
+  return String(Number(human.toFixed(4)));
+}
+
+const INSTRUMENT_LABEL = (paymentMode: string, cardType: string | null) =>
+  CARD_INSTRUMENTS.find((i) => i.value === dimsToInstrument(paymentMode, cardType))?.label ??
+  (paymentMode === "*" ? "Any" : paymentMode);
 
 export default function BrandsPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -293,7 +330,7 @@ function RateEditor({
   onChanged: () => void;
   onNotice: (text: string, ok: boolean) => void;
 }) {
-  const [form, setForm] = useState({
+  const emptyForm = {
     provider: "*",
     instrument: "",
     brandType: "",
@@ -303,11 +340,27 @@ function RateEditor({
     mdrType: "PERCENT",
     mdrValue: "1",
     mdrValueT0: "0",
-  });
+  };
+  const [form, setForm] = useState(emptyForm);
   const isCard = instrumentIsCard(form.instrument);
   const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Rate | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Pre-fill the provider from the brand name and reset the form whenever a
+  // different brand is opened (keeps the editor in sync with the selection).
+  const defaultProvider = detail ? deriveProvider(detail.name) : "*";
+  useEffect(() => {
+    setForm({ ...emptyForm, provider: detail ? deriveProvider(detail.name) : "*" });
+    setEditingId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id]);
+
+  // Provider suggestions: derived default + any providers already on this brand.
+  const providerOptions = Array.from(
+    new Set([defaultProvider, ...(detail?.rates.map((r) => r.provider) ?? [])].filter((p) => p && p !== "*"))
+  );
 
   const set =
     (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -317,34 +370,79 @@ function RateEditor({
   // fractions (0.01).
   const toFraction = (v: string, type: string) => (type === "PERCENT" ? Number(v) / 100 : Number(v));
 
-  const addRate = async () => {
+  const resetForm = () => {
+    setForm({ ...emptyForm, provider: defaultProvider });
+    setEditingId(null);
+  };
+
+  const startEdit = (r: Rate) => {
+    setEditingId(r.id);
+    setForm({
+      provider: r.provider,
+      instrument: dimsToInstrument(r.paymentMode, r.cardType),
+      brandType: r.brandType ?? "",
+      classification: r.classification ?? "",
+      minAmount: String(r.minAmount),
+      maxAmount: String(r.maxAmount),
+      mdrType: r.mdrType,
+      mdrValue: fromStored(r.mdrValue, r.mdrType),
+      mdrValueT0: fromStored(r.mdrValueT0, r.mdrType),
+    });
+    if (typeof document !== "undefined") {
+      document.getElementById("brand-rate-form")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  };
+
+  const saveRate = async () => {
     setBusy(true);
     try {
       const { paymentMode, cardType } = instrumentToDims(form.instrument);
+      const payload = {
+        provider: form.provider.trim() || "*",
+        paymentMode,
+        cardType,
+        brandType: isCard ? form.brandType || null : null,
+        classification: isCard && showClassification ? form.classification || null : null,
+        minAmount: Number(form.minAmount),
+        maxAmount: Number(form.maxAmount),
+        mdrType: form.mdrType,
+        mdrValue: toFraction(form.mdrValue, form.mdrType),
+        mdrValueT0: toFraction(form.mdrValueT0, form.mdrType),
+      };
       const res = await fetch(`/api/admin/brands/${brandId}/rates`, {
-        method: "POST",
+        method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: form.provider.trim() || "*",
-          paymentMode,
-          cardType,
-          brandType: isCard ? form.brandType || null : null,
-          classification: isCard && showClassification ? form.classification || null : null,
-          minAmount: Number(form.minAmount),
-          maxAmount: Number(form.maxAmount),
-          mdrType: form.mdrType,
-          mdrValue: toFraction(form.mdrValue, form.mdrType),
-          mdrValueT0: toFraction(form.mdrValueT0, form.mdrType),
-        }),
+        body: JSON.stringify(editingId ? { rateId: editingId, ...payload } : payload),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "Failed to add rate");
-      onNotice("Rate added.", true);
+      if (!res.ok)
+        throw new Error(typeof data?.error === "string" ? data.error : `Failed to ${editingId ? "update" : "add"} rate`);
+      onNotice(editingId ? "Rate updated." : "Rate added.", true);
+      resetForm();
       onChanged();
     } catch (e) {
-      onNotice(e instanceof Error ? e.message : "Failed to add rate", false);
+      onNotice(e instanceof Error ? e.message : "Failed to save rate", false);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const toggleActive = async (r: Rate) => {
+    try {
+      const res = await fetch(`/api/admin/brands/${brandId}/rates`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rateId: r.id, active: !r.active }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        onNotice(typeof data?.error === "string" ? data.error : "Update failed", false);
+        return;
+      }
+      onNotice(r.active ? "Rate deactivated." : "Rate activated.", true);
+      onChanged();
+    } catch (e) {
+      onNotice(e instanceof Error ? e.message : "Update failed", false);
     }
   };
 
@@ -361,6 +459,7 @@ function RateEditor({
         onNotice(typeof data?.error === "string" ? data.error : "Delete failed", false);
         return;
       }
+      if (editingId === rateId) resetForm();
       onNotice("Rate deleted.", true);
       onChanged();
     } finally {
@@ -368,91 +467,205 @@ function RateEditor({
     }
   };
 
+  const editing = editingId !== null;
+
   return (
-    <div className="rounded-2xl border border-brand-200 bg-white p-5">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-bold text-ink-900">
-          <Tag className="h-4 w-4 text-brand-600" />
-          {detail ? `MDR rates — ${detail.name}` : "Loading brand…"}
-        </h3>
-        <button onClick={onClose} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100">
+    <div className="overflow-hidden rounded-2xl border border-brand-200 bg-white shadow-soft">
+      {/* Header band */}
+      <div className="flex items-start justify-between gap-4 border-b border-brand-100 bg-gradient-to-r from-brand-50 via-white to-white px-5 py-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-600 to-brand-400 text-white shadow-sm">
+            <Tag className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-ink-900">
+              {detail ? detail.name : "Loading brand…"}
+            </h3>
+            {detail && (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-500">
+                <span className="font-mono">{detail.key}</span>
+                <span className="text-ink-300">·</span>
+                <span className="inline-flex items-center gap-1">
+                  <Layers className="h-3 w-3" /> {detail.rates.length} rate{detail.rates.length === 1 ? "" : "s"}
+                </span>
+                <span className="text-ink-300">·</span>
+                <span className="inline-flex items-center gap-1">
+                  <CreditCard className="h-3 w-3" /> {detail.machines} machine{detail.machines === 1 ? "" : "s"}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded-lg p-1.5 text-ink-400 transition hover:bg-white hover:text-ink-700"
+          title="Close"
+        >
           <X className="h-4 w-4" />
         </button>
       </div>
 
       {detail && (
-        <>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-ink-100 text-[11px] uppercase tracking-wider text-ink-400">
-                  <th className="py-2 pr-3">Provider</th>
-                  <th className="py-2 pr-3">Instrument</th>
-                  <th className="py-2 pr-3">Network</th>
-                  {showClassification && <th className="py-2 pr-3">Classification</th>}
-                  <th className="py-2 pr-3">Band</th>
-                  <th className="py-2 pr-3">MDR (T+1)</th>
-                  <th className="py-2 pr-3">MDR (instant)</th>
-                  <th className="py-2 pr-3">Status</th>
-                  <th className="py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {detail.rates.map((r) => (
-                  <tr key={r.id} className="border-b border-ink-50">
-                    <td className="py-2.5 pr-3 font-semibold">{r.provider}</td>
-                    <td className="py-2.5 pr-3">
-                      {CARD_INSTRUMENTS.find((i) => i.value === dimsToInstrument(r.paymentMode, r.cardType))?.label ??
-                        (r.paymentMode === "*" ? "Any" : r.paymentMode)}
-                    </td>
-                    <td className="py-2.5 pr-3">{r.brandType ?? <span className="text-ink-300">Any</span>}</td>
-                    {showClassification && (
-                      <td className="py-2.5 pr-3">{r.classification ?? <span className="text-ink-300">Any</span>}</td>
-                    )}
-                    <td className="py-2.5 pr-3">
+        <div className="space-y-5 p-5">
+          {/* Rate cards */}
+          {detail.rates.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-ink-200 bg-ink-50/40 py-10 text-center">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-brand-600">
+                <Sparkles className="h-6 w-6" />
+              </div>
+              <p className="text-sm font-semibold text-ink-700">No rates yet</p>
+              <p className="mt-1 max-w-xs text-xs text-ink-400">
+                Add the first rate below. Captures can&apos;t settle without a matching rate.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {detail.rates.map((r) => {
+                const isEditing = editingId === r.id;
+                return (
+                  <div
+                    key={r.id}
+                    className={`group relative rounded-2xl border p-4 transition ${
+                      isEditing
+                        ? "border-brand-400 bg-brand-50/50 ring-2 ring-brand-100"
+                        : r.active
+                        ? "border-ink-100 bg-white hover:border-brand-200 hover:shadow-soft"
+                        : "border-ink-100 bg-ink-50/50 opacity-80"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="inline-flex items-center rounded-md bg-brand-600 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
+                          {r.provider === "*" ? "ANY" : r.provider}
+                        </span>
+                        <span className="rounded-md bg-ink-100 px-2 py-0.5 text-[11px] font-medium text-ink-600">
+                          {INSTRUMENT_LABEL(r.paymentMode, r.cardType)}
+                        </span>
+                        {r.brandType && (
+                          <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-600">
+                            {r.brandType}
+                          </span>
+                        )}
+                        {showClassification && r.classification && (
+                          <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-600">
+                            {r.classification}
+                          </span>
+                        )}
+                      </div>
+                      <span
+                        className={`mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full ${
+                          r.active ? "bg-emerald-500" : "bg-rose-400"
+                        }`}
+                        title={r.active ? "active" : "inactive"}
+                      />
+                    </div>
+
+                    <p className="mt-3 text-[11px] uppercase tracking-wider text-ink-400">Band</p>
+                    <p className="text-sm font-medium text-ink-800">
                       {formatINR(r.minAmount)} – {formatINR(r.maxAmount)}
-                    </td>
-                    <td className="py-2.5 pr-3 font-semibold text-brand-700">
-                      {fmtRate(r.mdrType, r.mdrValue)}
-                    </td>
-                    <td className="py-2.5 pr-3 text-ink-600">
-                      {r.mdrValueT0 > 0 ? fmtRate(r.mdrType, r.mdrValueT0) : "—"}
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      <Badge variant={r.active ? "success" : "danger"}>
-                        {r.active ? "active" : "inactive"}
-                      </Badge>
-                    </td>
-                    <td className="py-2.5 text-right">
+                    </p>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-xl bg-brand-50 px-3 py-2">
+                        <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-brand-500">
+                          <Clock className="h-3 w-3" /> T+1
+                        </p>
+                        <p className="text-base font-bold text-brand-700">{fmtRate(r.mdrType, r.mdrValue)}</p>
+                      </div>
+                      <div className="rounded-xl bg-ink-50 px-3 py-2">
+                        <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-ink-400">
+                          <Zap className="h-3 w-3" /> Instant
+                        </p>
+                        <p className="text-base font-bold text-ink-700">
+                          {r.mdrValueT0 > 0 ? fmtRate(r.mdrType, r.mdrValueT0) : "—"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-end gap-1 border-t border-ink-50 pt-3">
+                      <button
+                        onClick={() => startEdit(r)}
+                        className={`rounded-lg p-1.5 transition ${
+                          isEditing ? "bg-brand-100 text-brand-700" : "text-ink-400 hover:bg-brand-50 hover:text-brand-600"
+                        }`}
+                        title="Edit rate"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => toggleActive(r)}
+                        className={`rounded-lg p-1.5 transition ${
+                          r.active
+                            ? "text-emerald-500 hover:bg-emerald-50"
+                            : "text-ink-400 hover:bg-ink-100 hover:text-ink-600"
+                        }`}
+                        title={r.active ? "Deactivate" : "Activate"}
+                      >
+                        <Power className="h-4 w-4" />
+                      </button>
                       <button
                         onClick={() => setDeleteTarget(r)}
-                        className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50"
+                        className="rounded-lg p-1.5 text-rose-400 transition hover:bg-rose-50 hover:text-rose-600"
                         title="Delete rate"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
-                    </td>
-                  </tr>
-                ))}
-                {detail.rates.length === 0 && (
-                  <tr>
-                    <td colSpan={showClassification ? 9 : 8} className="py-6 text-center text-sm text-ink-400">
-                      No rates — add the first one below. Captures can&apos;t settle without a matching rate.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-          <div className="mt-5 rounded-xl bg-ink-50/60 p-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-500">
-              Add rate {form.mdrType === "PERCENT" && "(rates in %, e.g. 1 = 1%)"}
-            </p>
+          {/* Add / edit form */}
+          <div
+            id="brand-rate-form"
+            className={`rounded-2xl border p-4 transition ${
+              editing ? "border-brand-300 bg-brand-50/40" : "border-ink-100 bg-ink-50/60"
+            }`}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-600">
+                {editing ? (
+                  <>
+                    <Pencil className="h-3.5 w-3.5 text-brand-600" /> Edit rate
+                    <span className="rounded bg-brand-600 px-1.5 py-0.5 text-[10px] text-white">
+                      {form.provider || "ANY"}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-3.5 w-3.5 text-brand-600" /> Add rate
+                  </>
+                )}
+                {form.mdrType === "PERCENT" && (
+                  <span className="font-normal normal-case text-ink-400">(rates in %, e.g. 1 = 1%)</span>
+                )}
+              </p>
+              {editing && (
+                <button
+                  onClick={resetForm}
+                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-ink-500 transition hover:bg-white hover:text-ink-700"
+                >
+                  <X className="h-3 w-3" /> Cancel
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
               <label className="text-xs text-ink-500">
                 Provider (* = any)
-                <input className={`${inputCls} mt-1 w-full`} value={form.provider} onChange={set("provider")} placeholder="RAZORPAY" />
+                <input
+                  className={`${inputCls} mt-1 w-full`}
+                  value={form.provider}
+                  onChange={set("provider")}
+                  placeholder="RAZORPAY"
+                  list="brand-provider-options"
+                />
+                <datalist id="brand-provider-options">
+                  {providerOptions.map((p) => (
+                    <option key={p} value={p} />
+                  ))}
+                </datalist>
               </label>
               <label className="text-xs text-ink-500">
                 Card / Instrument
@@ -521,10 +734,23 @@ function RateEditor({
                 MDR (instant)
                 <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.mdrValueT0} onChange={set("mdrValueT0")} />
               </label>
-              <div className="flex items-end lg:col-span-8">
-                <Button size="sm" onClick={addRate} disabled={busy} isLoading={busy}>
-                  Add rate
+              <div className="flex items-end gap-2 lg:col-span-8">
+                <Button size="sm" onClick={saveRate} disabled={busy} isLoading={busy}>
+                  {editing ? (
+                    <>
+                      <Check className="mr-1.5 h-4 w-4" /> Update rate
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="mr-1.5 h-4 w-4" /> Add rate
+                    </>
+                  )}
                 </Button>
+                {editing && (
+                  <Button size="sm" variant="outline" onClick={resetForm} disabled={busy}>
+                    Cancel
+                  </Button>
+                )}
               </div>
             </div>
             <p className="mt-3 text-[11px] text-ink-400">
@@ -532,7 +758,7 @@ function RateEditor({
               instruments — e.g. Credit · Visa{showClassification ? " · Platinum" : ""}. Instant MDR is optional — leave 0 to reuse the T+1 rate.
             </p>
           </div>
-        </>
+        </div>
       )}
 
       <ConfirmDialog
