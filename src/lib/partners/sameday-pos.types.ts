@@ -121,12 +121,26 @@ export interface PosTransactionsSummary {
   terminal_count: number;
 }
 
+/**
+ * Diagnostics about server-side enrichment of the feed. Currently flags when
+ * card-classification backfill was degraded because the BIN provider (eKYC Hub)
+ * rejected lookups — most often an empty API wallet — so the UI can prompt an
+ * admin to top up instead of silently showing fallback labels.
+ */
+export interface PosEnrichmentMeta {
+  classificationDegraded: boolean;
+  reason?: "BIN_PROVIDER_LOW_BALANCE";
+  /** Whether the Classification column should be shown (admin `showInUi` toggle). */
+  showClassification?: boolean;
+}
+
 export interface PosTransactionsResponse {
   success: boolean;
   company: string;
   data: PosTransaction[];
   pagination: PosTransactionsPagination;
   summary: PosTransactionsSummary;
+  enrichment?: PosEnrichmentMeta;
 }
 
 export interface PosMachine {

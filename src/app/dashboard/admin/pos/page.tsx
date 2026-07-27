@@ -35,6 +35,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn, formatINR } from "@/lib/utils";
+import { posClassificationLabel } from "@/lib/pos/classification";
 import { type ReportColumn } from "@/lib/reports";
 import { ReportActions } from "@/components/dashboard/ReportActions";
 import type {
@@ -948,8 +949,10 @@ function TransactionsTab() {
   const transactions = data?.data ?? [];
   const summary = data?.summary;
   const pagination = data?.pagination;
+  // Admin "show/hide card classification" toggle (from platform settings).
+  const showClassification = data?.enrichment?.showClassification ?? false;
 
-  const exportCols: ReportColumn<PosTransaction>[] = [
+  const exportColsAll: ReportColumn<PosTransaction>[] = [
     { key: "txn_time", header: "Time", render: (r) => r.txn_time ? new Date(r.txn_time).toLocaleString("en-IN") : "" },
     { key: "terminal_id", header: "TID" },
     { key: "retailer", header: "Retailer", render: (r) => r.retailer?.shopName || r.retailer?.name || "" },
@@ -959,13 +962,14 @@ function TransactionsTab() {
     { key: "card_brand", header: "Card Brand" },
     { key: "card_type", header: "Card Type" },
     { key: "card_number", header: "Card No" },
-    { key: "card_classification", header: "Classification" },
+    { key: "card_classification", header: "Classification", render: (r) => posClassificationLabel(r) ?? "" },
     { key: "amount", header: "Amount (INR)" },
     { key: "status", header: "Status" },
     { key: "rrn", header: "RRN" },
     { key: "auth_code", header: "Auth Code" },
     { key: "mid", header: "MID" },
   ];
+  const exportCols = exportColsAll.filter((c) => showClassification || c.key !== "card_classification");
 
   // Fetches EVERY transaction matching the APPLIED filters (server paginates the
   // partner feed) so CSV / PDF / ZIP downloads are complete, not just this page.
@@ -1000,7 +1004,7 @@ function TransactionsTab() {
     (applied.mode ? ` · ${applied.mode}` : "") +
     (applied.terminal ? ` · TID ${applied.terminal}` : "");
 
-  const cols: Column<PosTransaction>[] = [
+  const colsAll: Column<PosTransaction>[] = [
     { key: "txn_time", header: "Time", render: (r) => <span className="text-xs">{fmtTime(r.txn_time)}</span> },
     { key: "terminal_id", header: "TID", render: (r) => <span className="font-mono text-xs font-semibold">{r.terminal_id}</span> },
     { key: "retailer", header: "Retailer", render: (r) => r.retailer ? (
@@ -1011,7 +1015,7 @@ function TransactionsTab() {
     ) : <span className="text-xs text-ink-400">—</span> },
     { key: "payment_mode", header: "Mode", render: (r) => <Badge variant="default">{r.payment_mode}</Badge> },
     { key: "card_brand", header: "Card", render: (r) => r.payment_mode === "CARD" ? `${r.card_brand} ${r.card_type}` : "—" },
-    { key: "card_classification", header: "Classification", render: (r) => r.card_classification ? <Badge variant="accent">{r.card_classification}</Badge> : "—" },
+    { key: "card_classification", header: "Classification", render: (r) => { const label = posClassificationLabel(r); return label ? <Badge variant="accent">{label}</Badge> : "—"; } },
     { key: "amount", header: "Amount", align: "right", render: (r) => <span className="font-semibold text-ink-900">{formatINR(parseFloat(r.amount))}</span> },
     { key: "status", header: "Status", render: (r) => statusBadge(r.status) },
     { key: "customer_name", header: "Customer", render: (r) => <span className="max-w-[140px] truncate block text-xs">{cleanName(r.customer_name)}</span> },
@@ -1024,6 +1028,7 @@ function TransactionsTab() {
       </button>
     )},
   ];
+  const cols = colsAll.filter((c) => showClassification || c.key !== "card_classification");
 
   return (
     <div className="min-w-0 space-y-6">
@@ -1111,6 +1116,16 @@ function TransactionsTab() {
         </div>
       </div>
 
+      {/* Degraded enrichment notice — BIN provider (eKYC Hub) out of balance */}
+      {data?.enrichment?.classificationDegraded && (
+        <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            <strong className="font-semibold">Card classification is degraded.</strong> The card BIN provider (eKYC Hub) rejected lookups — usually an empty API wallet. Cards without a tier from the acquirer are showing a network fallback (e.g. <em>VISA CREDIT</em>). Top up the eKYC Hub balance to restore exact tiers.
+          </span>
+        </div>
+      )}
+
       {/* Table */}
       {error ? (
         <ErrorBanner message={error instanceof Error ? error.message : "Failed to load transactions."} />
@@ -1145,7 +1160,7 @@ function TransactionsTab() {
       )}
 
       {/* Transaction Slip Drawer */}
-      {slipTxn && <TxnSlipDrawer txn={slipTxn} onClose={() => setSlipTxn(null)} />}
+      {slipTxn && <TxnSlipDrawer txn={slipTxn} showClassification={showClassification} onClose={() => setSlipTxn(null)} />}
     </div>
   );
 }
@@ -1154,12 +1169,12 @@ function TransactionsTab() {
 // TRANSACTION SLIP DRAWER
 // ═══════════════════════════════════════════════════════════════════════
 
-function TxnSlipDrawer({ txn, onClose }: { txn: PosTransaction; onClose: () => void }) {
+function TxnSlipDrawer({ txn, showClassification, onClose }: { txn: PosTransaction; showClassification: boolean; onClose: () => void }) {
   const retailerLabel = txn.retailer
     ? `${txn.retailer.shopName || txn.retailer.name}${txn.retailer.userCode ? ` (${txn.retailer.userCode})` : ""}`
     : null;
 
-  const rows: [string, string | null][] = [
+  const rowsAll: [string, string | null][] = [
     ["Transaction ID", txn.razorpay_txn_id],
     ["External Ref", txn.external_ref],
     ["Terminal ID", txn.terminal_id],
@@ -1171,7 +1186,7 @@ function TxnSlipDrawer({ txn, onClose }: { txn: PosTransaction; onClose: () => v
     ["Payment Mode", txn.payment_mode],
     ["Card Brand", txn.card_brand],
     ["Card Type", txn.card_type],
-    ["Card Classification", txn.card_classification],
+    ["Card Classification", posClassificationLabel(txn)],
     ["Card Number", txn.card_number],
     ["Issuing Bank", txn.issuing_bank],
     ["Acquiring Bank", txn.acquiring_bank],
@@ -1182,6 +1197,7 @@ function TxnSlipDrawer({ txn, onClose }: { txn: PosTransaction; onClose: () => v
     ["Transaction Time", new Date(txn.txn_time).toLocaleString("en-IN")],
     ["Posting Date", txn.posting_date ? new Date(txn.posting_date).toLocaleDateString("en-IN") : null],
   ];
+  const rows = rowsAll.filter(([label]) => showClassification || label !== "Card Classification");
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">

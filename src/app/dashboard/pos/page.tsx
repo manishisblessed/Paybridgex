@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn, formatINR } from "@/lib/utils";
+import { posClassificationLabel } from "@/lib/pos/classification";
 import { type ReportColumn } from "@/lib/reports";
 import { ReportActions } from "@/components/dashboard/ReportActions";
 import type {
@@ -662,8 +663,10 @@ function TransactionsTab() {
   const transactions = data?.data ?? [];
   const summary = data?.summary;
   const pagination = data?.pagination;
+  // Platform "show/hide card classification" toggle.
+  const showClassification = data?.enrichment?.showClassification ?? false;
 
-  const posExportCols: ReportColumn<PosTransaction>[] = [
+  const posExportColsAll: ReportColumn<PosTransaction>[] = [
     { key: "txn_time", header: "Time", render: (r) => r.txn_time ? new Date(r.txn_time).toLocaleString("en-IN") : "" },
     { key: "terminal_id", header: "TID" },
     { key: "customer_name", header: "Customer" },
@@ -671,12 +674,13 @@ function TransactionsTab() {
     { key: "card_brand", header: "Card Brand" },
     { key: "card_type", header: "Card Type" },
     { key: "card_number", header: "Card No" },
-    { key: "card_classification", header: "Classification" },
+    { key: "card_classification", header: "Classification", render: (r) => posClassificationLabel(r) ?? "" },
     { key: "amount", header: "Amount (INR)" },
     { key: "status", header: "Status" },
     { key: "rrn", header: "RRN" },
     { key: "auth_code", header: "Auth Code" },
   ];
+  const posExportCols = posExportColsAll.filter((c) => showClassification || c.key !== "card_classification");
 
   // Fetches EVERY transaction matching the current filters so downloads are
   // complete (the server paginates the partner feed), not just this page.
@@ -710,7 +714,7 @@ function TransactionsTab() {
     (statusFilter ? ` · ${statusFilter}` : "") +
     (activeTerminal ? ` · TID ${activeTerminal}` : "");
 
-  const cols: Column<PosTransaction>[] = [
+  const colsAll: Column<PosTransaction>[] = [
     { key: "txn_time", header: "Time", render: (r) => <span className="text-xs">{fmtTime(r.txn_time)}</span> },
     { key: "terminal_id", header: "TID", render: (r) => <span className="font-mono text-xs font-semibold">{r.terminal_id}</span> },
     { key: "retailer", header: "Retailer", render: (r) => r.retailer ? (
@@ -721,13 +725,14 @@ function TransactionsTab() {
     ) : <span className="text-xs text-ink-400">—</span> },
     { key: "payment_mode", header: "Mode", render: (r) => <Badge variant="default">{r.payment_mode}</Badge> },
     { key: "card_brand", header: "Card", render: (r) => r.payment_mode === "CARD" ? `${r.card_brand} ${r.card_type}` : "—" },
-    { key: "card_classification", header: "Classification", render: (r) => r.card_classification ? <Badge variant="accent">{r.card_classification}</Badge> : "—" },
+    { key: "card_classification", header: "Classification", render: (r) => { const label = posClassificationLabel(r); return label ? <Badge variant="accent">{label}</Badge> : "—"; } },
     { key: "amount", header: "Amount", align: "right", render: (r) => <span className="font-semibold text-ink-900">{formatINR(parseFloat(r.amount))}</span> },
     { key: "status", header: "Status", render: (r) => statusBadge(r.status) },
     { key: "customer_name", header: "Customer", render: (r) => <span className="max-w-[140px] truncate block text-xs">{cleanName(r.customer_name)}</span> },
     { key: "card_number", header: "Card No.", render: (r) => r.card_number ? <span className="font-mono text-xs">{r.card_number}</span> : "—" },
     { key: "rrn", header: "RRN", render: (r) => <span className="font-mono text-xs">{r.rrn}</span> },
   ];
+  const cols = colsAll.filter((c) => showClassification || c.key !== "card_classification");
 
   return (
     <>

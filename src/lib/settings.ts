@@ -122,6 +122,21 @@ const SETTING_SCHEMAS = {
     /** Safety cap on pages fetched per run (page_size 100). */
     maxPages: z.number().int().min(1).max(200).default(50),
   }),
+
+  /**
+   * Card CLASSIFICATION (card tier — PLATINUM / SIGNATURE / VISA REWARDS …).
+   * Ships OFF: MDR is priced on Card CATEGORY (Credit/Debit/Prepaid) instead of
+   * the tier. When disabled, the MDR resolver and brand rate picker ignore the
+   * `classification` dimension (tier-pinned slabs stay in place but dormant),
+   * the scheme/brand editors hide the Classification field, and the eKYC Hub
+   * BIN checker stops running (no lookups, no balance spend). `showInUi`
+   * independently controls whether the Classification column is shown in POS
+   * transaction views.
+   */
+  "pos.card_classification": z.object({
+    enabled: z.boolean().default(false),
+    showInUi: z.boolean().default(false),
+  }),
 } as const;
 
 export type SettingKey = keyof typeof SETTING_SCHEMAS;
@@ -158,6 +173,34 @@ export async function setSetting<K extends SettingKey>(
     create: { key, value: parsed as object, updatedById },
   });
   return parsed;
+}
+
+// ---------------------------------------------------------------------------
+// Hot-path cached accessor for card classification.
+//
+// The MDR resolver, brand rate picker and BIN-lookup callers consult this on
+// every priced transaction, so a DB read per call would be wasteful. Cache the
+// value process-wide for a short TTL — a control toggle takes at most this long
+// to propagate, which is fine for a pricing/display knob.
+// ---------------------------------------------------------------------------
+type CardClassificationSetting = SettingValue<"pos.card_classification">;
+let _cardClassificationCache: { at: number; value: CardClassificationSetting } | null = null;
+const CARD_CLASSIFICATION_TTL_MS = 30_000;
+
+/** Card classification setting (enabled / showInUi), cached for {@link CARD_CLASSIFICATION_TTL_MS}. */
+export async function getCardClassificationSetting(): Promise<CardClassificationSetting> {
+  const now = Date.now();
+  if (_cardClassificationCache && now - _cardClassificationCache.at < CARD_CLASSIFICATION_TTL_MS) {
+    return _cardClassificationCache.value;
+  }
+  const value = await getSetting("pos.card_classification");
+  _cardClassificationCache = { at: now, value };
+  return value;
+}
+
+/** True when card classification (tier) is active for pricing + enrichment. */
+export async function isCardClassificationEnabled(): Promise<boolean> {
+  return (await getCardClassificationSetting()).enabled;
 }
 
 /** All settings with their current (or default) values — for the admin UI. */

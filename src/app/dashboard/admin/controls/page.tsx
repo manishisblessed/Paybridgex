@@ -39,10 +39,16 @@ const LABELS: Record<string, { title: string; description: string }> = {
     title: "Default settlement limits",
     description: "Daily / per-transfer settlement caps for users without a custom limit.",
   },
+  "pos.card_classification": {
+    title: "Card classification (tier)",
+    description:
+      "When OFF, MDR is priced on Card Category (Credit/Debit/Prepaid) instead of the card tier — the tier dimension is ignored in scheme/brand rates, tier-pinned slabs go dormant, and the BIN checker stops running. 'Show in UI' controls whether the Classification column appears in POS transactions.",
+  },
 };
 
 const FIELD_LABELS: Record<string, string> = {
   enabled: "Enabled",
+  showInUi: "Show in UI",
   paused: "Paused",
   amount: "Amount (₹)",
   hour: "Run hour (IST, 0–23)",

@@ -66,6 +66,7 @@ function fmtRate(type: string, value: number) {
 
 export default function BrandsPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
+  const [cardClassificationEnabled, setCardClassificationEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const notify = useCallback((text: string, ok: boolean) => {
     if (ok) toast.success(text);
@@ -84,6 +85,7 @@ export default function BrandsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "Failed to load brands");
       setBrands(data.brands);
+      setCardClassificationEnabled(Boolean(data.cardClassificationEnabled));
     } catch (e) {
       notify(e instanceof Error ? e.message : "Load failed", false);
     } finally {
@@ -241,6 +243,7 @@ export default function BrandsPage() {
             <RateEditor
               brandId={selected}
               detail={detail}
+              showClassification={cardClassificationEnabled}
               onClose={() => {
                 setSelected(null);
                 setDetail(null);
@@ -278,12 +281,14 @@ export default function BrandsPage() {
 function RateEditor({
   brandId,
   detail,
+  showClassification,
   onClose,
   onChanged,
   onNotice,
 }: {
   brandId: string;
   detail: BrandDetail | null;
+  showClassification: boolean;
   onClose: () => void;
   onChanged: () => void;
   onNotice: (text: string, ok: boolean) => void;
@@ -324,7 +329,7 @@ function RateEditor({
           paymentMode,
           cardType,
           brandType: isCard ? form.brandType || null : null,
-          classification: isCard ? form.classification || null : null,
+          classification: isCard && showClassification ? form.classification || null : null,
           minAmount: Number(form.minAmount),
           maxAmount: Number(form.maxAmount),
           mdrType: form.mdrType,
@@ -384,7 +389,7 @@ function RateEditor({
                   <th className="py-2 pr-3">Provider</th>
                   <th className="py-2 pr-3">Instrument</th>
                   <th className="py-2 pr-3">Network</th>
-                  <th className="py-2 pr-3">Classification</th>
+                  {showClassification && <th className="py-2 pr-3">Classification</th>}
                   <th className="py-2 pr-3">Band</th>
                   <th className="py-2 pr-3">MDR (T+1)</th>
                   <th className="py-2 pr-3">MDR (instant)</th>
@@ -401,7 +406,9 @@ function RateEditor({
                         (r.paymentMode === "*" ? "Any" : r.paymentMode)}
                     </td>
                     <td className="py-2.5 pr-3">{r.brandType ?? <span className="text-ink-300">Any</span>}</td>
-                    <td className="py-2.5 pr-3">{r.classification ?? <span className="text-ink-300">Any</span>}</td>
+                    {showClassification && (
+                      <td className="py-2.5 pr-3">{r.classification ?? <span className="text-ink-300">Any</span>}</td>
+                    )}
                     <td className="py-2.5 pr-3">
                       {formatINR(r.minAmount)} – {formatINR(r.maxAmount)}
                     </td>
@@ -429,7 +436,7 @@ function RateEditor({
                 ))}
                 {detail.rates.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="py-6 text-center text-sm text-ink-400">
+                    <td colSpan={showClassification ? 9 : 8} className="py-6 text-center text-sm text-ink-400">
                       No rates — add the first one below. Captures can&apos;t settle without a matching rate.
                     </td>
                   </tr>
@@ -473,22 +480,24 @@ function RateEditor({
                   ))}
                 </select>
               </label>
-              <label className="text-xs text-ink-500">
-                Classification
-                <select
-                  className={`${inputCls} mt-1 w-full disabled:opacity-50`}
-                  value={form.classification}
-                  onChange={set("classification")}
-                  disabled={!isCard}
-                >
-                  <option value="">Any</option>
-                  {CARD_CLASSIFICATIONS.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {showClassification && (
+                <label className="text-xs text-ink-500">
+                  Classification
+                  <select
+                    className={`${inputCls} mt-1 w-full disabled:opacity-50`}
+                    value={form.classification}
+                    onChange={set("classification")}
+                    disabled={!isCard}
+                  >
+                    <option value="">Any</option>
+                    {CARD_CLASSIFICATIONS.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="text-xs text-ink-500">
                 Min ₹
                 <input type="number" className={`${inputCls} mt-1 w-full`} value={form.minAmount} onChange={set("minAmount")} />
@@ -519,8 +528,8 @@ function RateEditor({
               </div>
             </div>
             <p className="mt-3 text-[11px] text-ink-400">
-              Pick the instrument (Debit / Credit / UPI); Network &amp; Classification apply to card instruments — e.g.
-              Credit · Visa · Platinum. Instant MDR is optional — leave 0 to reuse the T+1 rate.
+              Pick the instrument (Debit / Credit / UPI); {showClassification ? "Network & Classification apply" : "Network applies"} to card
+              instruments — e.g. Credit · Visa{showClassification ? " · Platinum" : ""}. Instant MDR is optional — leave 0 to reuse the T+1 rate.
             </p>
           </div>
         </>

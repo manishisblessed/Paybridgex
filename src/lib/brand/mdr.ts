@@ -2,6 +2,7 @@ import type { BrandMdrRate, RateType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { dec, gte, lte, mul, round, type Money } from "@/lib/money";
 import { canonicalCardLevel, canonicalNetwork } from "@/lib/pos/binLookup";
+import { isCardClassificationEnabled } from "@/lib/settings";
 
 /**
  * Brand MDR engine — resolves the merchant discount rate for a POS capture
@@ -63,7 +64,7 @@ function rateValue(rate: BrandMdrRate, settlementType: "T0" | "T1"): Money {
  * "MASTERCARD") and classification on its canonical card tier ("VISA PLATINUM"
  * == "PLATINUM"); other dimensions compare after case/space normalization.
  */
-function rateScore(rate: BrandMdrRate, dims: BrandRateDims): number {
+function rateScore(rate: BrandMdrRate, dims: BrandRateDims, useClassification: boolean): number {
   let score = 0;
   const pairs: Array<[
     string | null,
@@ -74,8 +75,12 @@ function rateScore(rate: BrandMdrRate, dims: BrandRateDims): number {
     [rate.paymentMode, dims.paymentMode, norm],
     [rate.cardType, dims.cardType, norm],
     [rate.brandType, dims.brandType, canonicalNetwork],
-    [rate.classification, dims.classification, canonicalCardLevel],
   ];
+  // Tier dimension is dropped when card classification is disabled platform-wide
+  // (pricing falls to Card Category); tier-pinned rates then match as wildcards.
+  if (useClassification) {
+    pairs.push([rate.classification, dims.classification, canonicalCardLevel]);
+  }
   for (const [rateVal, txnVal, cmp] of pairs) {
     if (isWildcard(rateVal)) continue;
     if (isWildcard(txnVal) || cmp(rateVal) !== cmp(txnVal)) return -1;
@@ -85,12 +90,17 @@ function rateScore(rate: BrandMdrRate, dims: BrandRateDims): number {
 }
 
 /** Pick the most specific eligible rate whose band contains `amount`. */
-function pickRate(rates: BrandMdrRate[], amount: Money, dims: BrandRateDims): BrandMdrRate | null {
+function pickRate(
+  rates: BrandMdrRate[],
+  amount: Money,
+  dims: BrandRateDims,
+  useClassification: boolean
+): BrandMdrRate | null {
   const inBand = rates.filter((r) => gte(amount, r.minAmount) && lte(amount, r.maxAmount));
   let best: BrandMdrRate | null = null;
   let bestScore = -1;
   for (const rate of inBand) {
-    const score = rateScore(rate, dims);
+    const score = rateScore(rate, dims, useClassification);
     if (score > bestScore) {
       best = rate;
       bestScore = score;
@@ -119,7 +129,7 @@ export async function resolveBrandMdr(input: {
     where: { brandId: input.brandId, active: true },
     orderBy: { minAmount: "asc" },
   });
-  const rate = pickRate(rates, amt, input);
+  const rate = pickRate(rates, amt, input, await isCardClassificationEnabled());
   if (!rate) return null;
 
   return {
@@ -171,7 +181,7 @@ export async function findApprovedBrandRate(
     where: { brandId, active: true },
     orderBy: { minAmount: "asc" },
   });
-  return pickRate(rates, round(input.amount), input);
+  return pickRate(rates, round(input.amount), input, await isCardClassificationEnabled());
 }
 
 /**

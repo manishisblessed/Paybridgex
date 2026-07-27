@@ -112,6 +112,7 @@ type Meta = {
   providersByKind: Record<string, Array<{ provider: string; name: string }>>;
   posCompanies: string[];
   brandRatesByCompany: Record<string, BrandRate[]>;
+  cardClassificationEnabled: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -210,7 +211,7 @@ function fmtBand(min: number, max: number): string {
 
 export default function SchemeManagementPage() {
   const [schemes, setSchemes] = useState<Scheme[]>([]);
-  const [meta, setMeta] = useState<Meta>({ providersByKind: {}, posCompanies: [], brandRatesByCompany: {} });
+  const [meta, setMeta] = useState<Meta>({ providersByKind: {}, posCompanies: [], brandRatesByCompany: {}, cardClassificationEnabled: false });
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"active" | "all">("active");
@@ -237,6 +238,7 @@ export default function SchemeManagementPage() {
             providersByKind: metaData.providersByKind,
             posCompanies: metaData.posCompanies ?? [],
             brandRatesByCompany: metaData.brandRatesByCompany ?? {},
+            cardClassificationEnabled: Boolean(metaData.cardClassificationEnabled),
           });
       } else {
         notify("Failed to load dropdown metadata", false);
@@ -756,6 +758,7 @@ function SchemeCard({
           editing={mdrModal.editing}
           companies={meta.posCompanies}
           brandRatesByCompany={meta.brandRatesByCompany}
+          showClassification={meta.cardClassificationEnabled}
           onClose={() => setMdrModal(null)}
           onSaved={(msg) => {
             setMdrModal(null);
@@ -1003,6 +1006,7 @@ function MdrRateModal({
   editing,
   companies,
   brandRatesByCompany,
+  showClassification,
   onClose,
   onSaved,
 }: {
@@ -1010,6 +1014,7 @@ function MdrRateModal({
   editing: MdrSlab | null;
   companies: string[];
   brandRatesByCompany: Record<string, BrandRate[]>;
+  showClassification: boolean;
   onClose: () => void;
   onSaved: (msg: string) => void;
 }) {
@@ -1070,7 +1075,13 @@ function MdrRateModal({
     const rates = brandRatesByCompany[co];
     // Pick the most specific approved rate matching the slab's card dimensions
     // (instrument / network / classification), mirroring the server resolver.
-    const pick = pickBrandRate(rates, { paymentMode, cardType, brandType, classification });
+    // When classification is disabled platform-wide it's treated as a wildcard.
+    const pick = pickBrandRate(rates, {
+      paymentMode,
+      cardType,
+      brandType,
+      classification: showClassification ? classification : "",
+    });
     if (!pick) {
       setPosLock({ locked: false, missing: true });
       return;
@@ -1080,7 +1091,7 @@ function MdrRateModal({
     setVendorT1(String(isPercent ? Number(pick.mdrValue) * 100 : Number(pick.mdrValue)));
     setVendorT0(String(isPercent ? Number(pick.mdrValueT0) * 100 : Number(pick.mdrValueT0)));
     setPosLock({ locked: true, missing: false });
-  }, [serviceKind, company, paymentMode, cardType, brandType, classification, brandRatesByCompany]);
+  }, [serviceKind, company, paymentMode, cardType, brandType, classification, showClassification, brandRatesByCompany]);
 
   function toStored(type: RateType, raw: string): number {
     const n = Number(raw);
@@ -1097,7 +1108,7 @@ function MdrRateModal({
       company: company || null,
       cardType: cardType || null,
       brandType: brandType || null,
-      classification: classification || null,
+      classification: showClassification ? classification || null : null,
       mdrType,
       mdrValue: toStored(mdrType, mdrT1),
       mdrValueT0: toStored(mdrType, mdrT0),
@@ -1250,20 +1261,22 @@ function MdrRateModal({
                 )}
               </Select>
             </div>
-            <div>
-              <Label>Classification</Label>
-              <Select value={classification} onChange={(e) => setClassification(e.target.value)}>
-                <option value="">Any</option>
-                {CLASSIFICATIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-                {editing?.classification && !CLASSIFICATIONS.includes(editing.classification) && (
-                  <option value={editing.classification}>{editing.classification}</option>
-                )}
-              </Select>
-            </div>
+            {showClassification && (
+              <div>
+                <Label>Classification</Label>
+                <Select value={classification} onChange={(e) => setClassification(e.target.value)}>
+                  <option value="">Any</option>
+                  {CLASSIFICATIONS.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                  {editing?.classification && !CLASSIFICATIONS.includes(editing.classification) && (
+                    <option value={editing.classification}>{editing.classification}</option>
+                  )}
+                </Select>
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-orange-100 bg-orange-50/40 p-3">

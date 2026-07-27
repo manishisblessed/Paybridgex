@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/auth-server";
 import { getPosTransactions } from "@/lib/partners/sameday-pos";
 import { enrichPosTransactions } from "@/lib/pos/enrich";
+import { getBinLastLowBalanceAt } from "@/lib/pos/binLookup";
+import { getCardClassificationSetting } from "@/lib/settings";
 import { flags } from "@/lib/env";
 import { scopePosTerminals } from "@/lib/pos/assignments";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -93,9 +95,27 @@ export async function POST(req: Request) {
       );
     }
 
-    const enriched = await enrichPosTransactions(result.data.data);
+    // Capture before enrichment so we can tell if a low-balance BIN rejection
+    // happened during THIS request (vs. a stale one from an earlier request).
+    const enrichStartedAt = Date.now();
+    const [enriched, cardClassification] = await Promise.all([
+      enrichPosTransactions(result.data.data),
+      getCardClassificationSetting(),
+    ]);
+    // Only meaningful when classification is enabled — if the whole concept is
+    // off, the column is hidden regardless, so degradation is irrelevant.
+    const classificationDegraded =
+      cardClassification.enabled && getBinLastLowBalanceAt() >= enrichStartedAt;
 
-    return NextResponse.json({ ...result.data, data: enriched });
+    return NextResponse.json({
+      ...result.data,
+      data: enriched,
+      enrichment: {
+        classificationDegraded,
+        showClassification: cardClassification.showInUi,
+        ...(classificationDegraded ? { reason: "BIN_PROVIDER_LOW_BALANCE" as const } : {}),
+      },
+    });
   } catch (e) {
     return toErrorResponse(e);
   }

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
+import { isCardClassificationEnabled } from "@/lib/settings";
 import type { PosTransaction } from "@/lib/partners/sameday-pos.types";
 
 /**
@@ -109,11 +110,18 @@ export async function enrichPosTransactions(
   const binOf = (cardNumber: string | null | undefined) =>
     (cardNumber ?? "").replace(/\D/g, "").slice(0, 6);
 
+  // Card classification (tier) turned off platform-wide → skip BIN backfill
+  // entirely (no eKYC Hub lookups, no balance spend). Feed-provided values are
+  // left untouched; whether they're shown is governed by the `showInUi` flag.
+  const classificationEnabled = await isCardClassificationEnabled();
+
   const missingBins = new Set<string>();
-  for (const txn of enriched) {
-    if (!txn.card_classification && txn.payment_mode === "CARD") {
-      const bin = binOf(txn.card_number);
-      if (bin.length === 6) missingBins.add(bin);
+  if (classificationEnabled) {
+    for (const txn of enriched) {
+      if (!txn.card_classification && txn.payment_mode === "CARD") {
+        const bin = binOf(txn.card_number);
+        if (bin.length === 6) missingBins.add(bin);
+      }
     }
   }
 

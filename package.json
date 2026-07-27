@@ -10,6 +10,7 @@
     "worker": "tsx scripts/worker.ts",
     "force-logout": "tsx scripts/forceGlobalLogout.ts",
     "backfill:pos-company": "tsx scripts/backfill-pos-company.ts",
+    "audit:pos-classification": "tsx scripts/audit-pos-classification.ts",
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",

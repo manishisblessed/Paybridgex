@@ -1,96 +1,37 @@
 import { prisma } from "@/lib/db";
 import { checkCardBin, ekychubConfigured } from "@/lib/partners/ekychub";
 import { generateRefId } from "@/lib/utils";
+import { logger } from "@/lib/logger";
+import type { BinResult } from "@/lib/pos/classification";
 
-export interface BinResult {
-  bin: string;
-  cardNetwork: string;
-  cardType: string;
-  cardLevel: string;
-  country: string;
-  issuerBank: string;
-}
+// Pure, client-safe helpers now live in `classification.ts`. Re-exported here so
+// existing server-side importers (enrich, MDR resolver, ingest, ...) keep the
+// same `@/lib/pos/binLookup` import path.
+export type { BinResult } from "@/lib/pos/classification";
+export {
+  classificationFromBin,
+  CARD_LEVELS,
+  canonicalCardLevel,
+  canonicalNetwork,
+  posClassificationLabel,
+} from "@/lib/pos/classification";
 
-/**
- * Build a human-readable card classification label from a BIN lookup, used as a
- * fallback when the acquirer feed doesn't provide `card_classification`.
- * Prefers `network + level` (e.g. "VISA PLATINUM") to match the style of the
- * partner API's classification strings, falling back to level or type alone.
- * Returns undefined when there's nothing meaningful to show.
- */
-export function classificationFromBin(bin: BinResult): string | undefined {
-  const label = [bin.cardNetwork, bin.cardLevel]
-    .map((s) => (s ?? "").trim())
-    .filter(Boolean)
-    .join(" ")
-    .trim();
-  const fallback = label || bin.cardLevel.trim() || bin.cardType.trim();
-  return fallback ? fallback.toUpperCase() : undefined;
-}
+// The eKYC Hub BIN checker charges per call and rejects with "Low balance in
+// API" when the account is out of funds — which silently zeroes out card
+// classification enrichment. Throttle the alarm so a large batch of lookups
+// logs it once, not hundreds of times.
+let lastLowBalanceLogAt = 0;
+const LOW_BALANCE_LOG_INTERVAL_MS = 5 * 60 * 1000;
 
-/**
- * Known card-tier levels, ordered most-specific first so multi-word tiers match
- * before their single-word substrings (e.g. "WORLD ELITE" before "WORLD").
- */
-export const CARD_LEVELS = [
-  "WORLD ELITE",
-  "INFINITE",
-  "SIGNATURE",
-  "PLATINUM",
-  "TITANIUM",
-  "CORPORATE",
-  "COMMERCIAL",
-  "BUSINESS",
-  "PURCHASE",
-  "REWARDS",
-  "PREMIUM",
-  "WORLD",
-  "GOLD",
-  "CLASSIC",
-  "STANDARD",
-  "ELECTRON",
-  "MAESTRO",
-  "PREPAID",
-] as const;
+// Timestamp (ms) of the most recent low-balance rejection, updated on EVERY
+// occurrence (not throttled). Callers capture a `Date.now()` before a batch of
+// lookups and compare against this to tell whether THIS request hit a low
+// balance — used to surface a degraded-enrichment banner in the UI.
+let lastLowBalanceAt = 0;
 
-/**
- * Reduce any classification string to its canonical card tier for matching.
- *
- * Feeds and BIN lookups label the same tier inconsistently ("VISA PLATINUM",
- * "Visa Platinum", "PLATINUM MASTERCARD", "World Mastercard Card"), so an exact
- * string compare against an MDR slab pinned to a bare tier ("PLATINUM") would
- * never match. This collapses all of those to the underlying tier token so
- * pricing resolves regardless of the network prefix or word order. Strings with
- * no recognised tier are returned normalized (uppercased, single-spaced) so they
- * still compare exactly.
- */
-export function canonicalCardLevel(value: string | null | undefined): string {
-  const s = (value ?? "").trim().toUpperCase().replace(/\s+/g, " ");
-  if (!s) return "";
-  for (const level of CARD_LEVELS) {
-    if (s === level || s.includes(level)) return level;
-  }
-  return s;
-}
-
-/**
- * Reduce a card-network label to a canonical token so pricing matches
- * regardless of how the feed formats it. Acquirers send "MASTER_CARD",
- * "Master Card", "VISA CREDIT", "American Express", etc.; this collapses them
- * to VISA / MASTERCARD / RUPAY / AMEX / DINERS / MAESTRO. Unrecognised values
- * are returned upper-cased with non-letters stripped so they still compare
- * consistently.
- */
-export function canonicalNetwork(value: string | null | undefined): string {
-  const s = (value ?? "").toUpperCase().replace(/[^A-Z]/g, "");
-  if (!s) return "";
-  if (s.includes("MASTER")) return "MASTERCARD";
-  if (s.includes("VISA")) return "VISA";
-  if (s.includes("RUPAY")) return "RUPAY";
-  if (s.includes("AMEX") || s.includes("AMERICANEXPRESS")) return "AMEX";
-  if (s.includes("DINER")) return "DINERS";
-  if (s.includes("MAESTRO")) return "MAESTRO";
-  return s;
+/** Epoch ms of the last eKYC Hub low-balance BIN rejection (0 if never). */
+export function getBinLastLowBalanceAt(): number {
+  return lastLowBalanceAt;
 }
 
 /**
@@ -117,7 +58,25 @@ export async function lookupBin(cardNumber: string): Promise<BinResult | null> {
   if (!ekychubConfigured()) return null;
 
   const result = await checkCardBin({ card: bin, orderid: generateRefId("BIN") });
-  if (!result.ok) return null;
+  if (!result.ok) {
+    const message = result.message ?? "";
+    // Surface the actionable case — an empty eKYC Hub wallet blocks ALL
+    // classification enrichment until topped up — as a throttled warning.
+    if (/balance/i.test(message)) {
+      const now = Date.now();
+      lastLowBalanceAt = now;
+      if (now - lastLowBalanceLogAt > LOW_BALANCE_LOG_INTERVAL_MS) {
+        lastLowBalanceLogAt = now;
+        logger.warn(
+          { provider: "EKYCHUB", api: "bin", reason: message },
+          "Card BIN lookup blocked: eKYC Hub API balance is low — POS card classification cannot be enriched until the account is topped up"
+        );
+      }
+    } else {
+      logger.debug({ provider: "EKYCHUB", api: "bin", reason: message }, "Card BIN lookup failed");
+    }
+    return null;
+  }
 
   const data = result.data;
   const entry: BinResult = {

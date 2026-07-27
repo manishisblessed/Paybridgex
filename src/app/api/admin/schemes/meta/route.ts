@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole, AuthError } from "@/lib/auth-server";
 import { isAdminRole } from "@/lib/security/ownership";
 import { prisma } from "@/lib/db";
+import { getCardClassificationSetting } from "@/lib/settings";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export async function GET() {
     throw e;
   }
 
-  const [routes, companiesByField, brands] = await Promise.all([
+  const [routes, companiesByField, brands, cardClassification] = await Promise.all([
     prisma.serviceRoute.findMany({
       where: { type: "SERVICE", provider: { not: null } },
       select: { kind: true, provider: true, name: true },
@@ -58,6 +59,7 @@ export async function GET() {
         },
       },
     }),
+    getCardClassificationSetting(),
   ]);
 
   // De-duplicate providers per kind (multiple routes can share a provider).
@@ -121,5 +123,8 @@ export async function GET() {
     providersByKind,
     posCompanies: Array.from(companyNames).sort(),
     brandRatesByCompany,
+    // Whether card classification (tier) pricing is active. When false the
+    // scheme/brand editors hide the Classification field (MDR uses Card Category).
+    cardClassificationEnabled: cardClassification.enabled,
   });
 }

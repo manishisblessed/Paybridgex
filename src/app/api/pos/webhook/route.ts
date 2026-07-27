@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { handlePosCapture } from "@/lib/settlement/pos";
 import { prisma } from "@/lib/db";
 import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
+import { isCardClassificationEnabled } from "@/lib/settings";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
   // BIN enrichment: when the acquirer (e.g. Teachway/Razorpay) doesn't provide
   // card classification, look it up via eKYC Hub so MDR can be priced accurately.
   const cardNumber = String(txnData.card_number ?? txnData.cardNumber ?? "").replace(/\D/g, "");
-  if (!classification && cardNumber.length >= 6 && paymentMode === "CARD") {
+  if (!classification && cardNumber.length >= 6 && paymentMode === "CARD" && (await isCardClassificationEnabled())) {
     try {
       const binData = await lookupBin(cardNumber);
       if (binData) {

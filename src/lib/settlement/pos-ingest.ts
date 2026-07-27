@@ -1,5 +1,5 @@
 import { flags } from "@/lib/env";
-import { getSetting } from "@/lib/settings";
+import { getSetting, isCardClassificationEnabled } from "@/lib/settings";
 import { getPosTransactions } from "@/lib/partners/sameday-pos";
 import { handlePosCapture } from "@/lib/settlement/pos";
 import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
@@ -82,6 +82,10 @@ export async function runPosIngestSweep(opts?: {
   const dateTo = opts?.dateTo ?? new Date().toISOString();
   const maxPages = opts?.maxPages ?? cfg.maxPages;
 
+  // Card classification off → don't derive tiers from BIN (no eKYC spend); MDR
+  // prices on Card Category instead.
+  const classificationEnabled = await isCardClassificationEnabled();
+
   base.dateFrom = dateFrom;
   base.dateTo = dateTo;
 
@@ -113,7 +117,7 @@ export async function runPosIngestSweep(opts?: {
       // card number (e.g. Teachway terminals), derive it from the BIN so MDR is
       // priced on the same card dimension as feeds that do provide it.
       let classification = up(t.card_classification);
-      if (!classification && paymentMode === "CARD") {
+      if (classificationEnabled && !classification && paymentMode === "CARD") {
         const bin = (t.card_number ?? "").replace(/\D/g, "").slice(0, 6);
         if (bin.length === 6) {
           try {

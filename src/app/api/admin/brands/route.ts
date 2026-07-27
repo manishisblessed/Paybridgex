@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireRole, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
+import { getCardClassificationSetting } from "@/lib/settings";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -11,10 +12,13 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     await requireRole("MASTER_ADMIN", "ADMIN", "SUPPORT", "FINANCE");
-    const brands = await prisma.brand.findMany({
-      orderBy: [{ active: "desc" }, { name: "asc" }],
-      include: { _count: { select: { rates: true, machines: true } } },
-    });
+    const [brands, cardClassification] = await Promise.all([
+      prisma.brand.findMany({
+        orderBy: [{ active: "desc" }, { name: "asc" }],
+        include: { _count: { select: { rates: true, machines: true } } },
+      }),
+      getCardClassificationSetting(),
+    ]);
     return NextResponse.json({
       brands: brands.map((b) => ({
         id: b.id,
@@ -27,6 +31,9 @@ export async function GET() {
         machines: b._count.machines,
         createdAt: b.createdAt.toISOString(),
       })),
+      // Whether card classification (tier) pricing is active — the rate editor
+      // hides the Classification field when off (MDR uses Card Category).
+      cardClassificationEnabled: cardClassification.enabled,
     });
   } catch (e) {
     if (e instanceof AuthError)

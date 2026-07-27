@@ -34,6 +34,11 @@ vi.mock("@/lib/db", () => ({
       findFirst: async ({ where }: { where: Record<string, unknown> }) =>
         where.id === "s1" ? { id: "s1", name: "POS Plan" } : null,
     },
+    // Platform settings store — the MDR resolver reads pos.card_classification.
+    // Returning null makes getSetting() fall back to its schema default.
+    platformSetting: {
+      findUnique: async () => null,
+    },
     mdrSlab: {
       findMany: async ({ where }: { where: Record<string, unknown> }) =>
         state.slabs.filter(

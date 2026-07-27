@@ -2,6 +2,7 @@ import type { MdrServiceKind, MdrSlab, RateType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { dec, gte, lte, mul, round, type Money } from "@/lib/money";
 import { canonicalCardLevel } from "@/lib/pos/binLookup";
+import { isCardClassificationEnabled } from "@/lib/settings";
 
 /**
  * MDR engine — resolves the merchant discount rate + commission share for
@@ -80,19 +81,24 @@ const norm = (v: string | null | undefined) => (v ?? "").trim().toUpperCase();
  * dimension matches (higher = more specific). A null/"*" slab dimension is a
  * wildcard: eligible, but scores 0 for that dimension.
  */
-function slabScore(slab: MdrSlab, dims: MdrDimensions): number {
+function slabScore(slab: MdrSlab, dims: MdrDimensions, useClassification: boolean): number {
   let score = 0;
   // [slabValue, txnValue, comparator] — classification is matched on its
   // canonical card tier so a slab pinned to "PLATINUM" matches feed/BIN labels
   // like "VISA PLATINUM" or "PLATINUM MASTERCARD". Other dimensions compare
-  // exactly (after case/space normalization).
+  // exactly (after case/space normalization). When classification is disabled
+  // platform-wide, the tier dimension is dropped entirely — pricing resolves on
+  // Card Category (cardType) + network + company, and tier-pinned slabs match as
+  // if their tier were a wildcard.
   const pairs: Array<[string | null, string | null | undefined, (v: string | null | undefined) => string]> = [
     [slab.paymentMode === "*" ? null : slab.paymentMode, dims.paymentMode === "*" ? null : dims.paymentMode, norm],
     [slab.company, dims.company, norm],
     [slab.cardType, dims.cardType, norm],
     [slab.brandType, dims.brandType, norm],
-    [slab.classification, dims.classification, canonicalCardLevel],
   ];
+  if (useClassification) {
+    pairs.push([slab.classification, dims.classification, canonicalCardLevel]);
+  }
   for (const [slabVal, txnVal, cmp] of pairs) {
     if (slabVal == null || slabVal === "") continue; // wildcard slab dimension
     if (!txnVal || cmp(slabVal) !== cmp(txnVal)) return -1; // pinned mismatch
@@ -102,12 +108,12 @@ function slabScore(slab: MdrSlab, dims: MdrDimensions): number {
 }
 
 /** Pick the most specific eligible slab whose band contains `amount`. */
-function pickSlab(slabs: MdrSlab[], amount: Money, dims: MdrDimensions): MdrSlab | null {
+function pickSlab(slabs: MdrSlab[], amount: Money, dims: MdrDimensions, useClassification: boolean): MdrSlab | null {
   const inBand = slabs.filter((s) => gte(amount, s.minAmount) && lte(amount, s.maxAmount));
   let best: MdrSlab | null = null;
   let bestScore = -1;
   for (const slab of inBand) {
-    const score = slabScore(slab, dims);
+    const score = slabScore(slab, dims, useClassification);
     if (score > bestScore) {
       best = slab;
       bestScore = score;
@@ -132,13 +138,14 @@ async function resolveFromScheme(
   schemeId: string,
   serviceKind: MdrServiceKind,
   dims: MdrDimensions,
-  amount: Money
+  amount: Money,
+  useClassification: boolean
 ): Promise<MdrSlab | null> {
   const slabs = await prisma.mdrSlab.findMany({
     where: { schemeId, serviceKind, active: true },
     orderBy: { minAmount: "asc" },
   });
-  return pickSlab(slabs, amount, dims);
+  return pickSlab(slabs, amount, dims, useClassification);
 }
 
 export async function getEffectiveMdr(
@@ -190,7 +197,8 @@ export async function getEffectiveMdr(
       select: { id: true, name: true },
     });
     if (scheme) {
-      const slab = await resolveFromScheme(scheme.id, serviceKind, d, amt);
+      const useClassification = await isCardClassificationEnabled();
+      const slab = await resolveFromScheme(scheme.id, serviceKind, d, amt, useClassification);
       if (slab) return build(slab, scheme.id, scheme.name, "USER_SCHEME");
     }
   }
