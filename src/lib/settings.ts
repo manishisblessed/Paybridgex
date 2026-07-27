@@ -81,6 +81,22 @@ const SETTING_SCHEMAS = {
     minAmount: z.number().nonnegative().default(50),
   }),
 
+  /** PG acquirer settlement — instant mode (admin-toggled per user or global). */
+  "settlement.pg_instant": z.object({
+    /** Platform-wide default (overridden per-user by User.instantSettlement). */
+    defaultEnabled: z.boolean().default(false),
+    /** Pause the instant safety-net sweep (confirmation path is unaffected). */
+    paused: z.boolean().default(false),
+  }),
+
+  /** PG T+1 settlement cron (for non-instant collections). */
+  "settlement.pg_t1": z.object({
+    enabled: z.boolean().default(true),
+    hour: z.number().int().min(0).max(23).default(9),
+    paused: z.boolean().default(false),
+    minAmount: z.number().nonnegative().default(1),
+  }),
+
   /**
    * QR collection T+1 settlement cron. Approved (SETTLEABLE) claims that the
    * retailer didn't instant-settle are swept the next IST day, net of the
@@ -105,6 +121,8 @@ const SETTING_SCHEMAS = {
     posEnabled: z.boolean().default(false),
     /** Allow retailers to instant-settle approved QR claims (T0). */
     qrEnabled: z.boolean().default(false),
+    /** Allow retailers to instant-settle PG collections (T0). */
+    pgEnabled: z.boolean().default(false),
   }),
 
   /**

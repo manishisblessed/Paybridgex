@@ -76,6 +76,14 @@ export const QUEUES = {
   // retailer didn't instant-settle into their wallet the next IST day, net of
   // the scheme's T1 MDR. Scheduled hourly; fires only at the configured hour.
   QR_SETTLEMENT_T1: "qr.settlement.t1",
+  // PG acquirer T+1 settlement — sweeps PENDING PgSettlementEntries into
+  // retailer wallets daily at the configured IST hour, net of the scheme's T1
+  // MDR (acquirer cost re-verified against the live rail rate card).
+  PG_SETTLEMENT_T1: "pg.settlement.t1",
+  // PG acquirer instant-settlement safety net — retries any INSTANT-mode
+  // entries left PENDING (e.g. the confirmation credit failed mid-flight).
+  // Runs every few minutes; the primary instant path is the PG confirmation.
+  PG_SETTLEMENT_INSTANT: "pg.settlement.instant",
   // POS machine inventory sync — pulls the Same Day terminal inventory and
   // upserts the local `PosMachine` mirror (partition/multi-pass union +
   // reconcile guard). Scheduled every 10 min so the fleet stays current without

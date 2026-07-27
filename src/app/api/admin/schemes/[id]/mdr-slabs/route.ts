@@ -6,6 +6,7 @@ import { clientIp } from "@/lib/security/audit";
 import { validateMdrSlab } from "@/lib/mdr/resolver";
 import { validateMdrAgainstFloor } from "@/lib/mdr/floor";
 import { findApprovedBrandRate } from "@/lib/brand/mdr";
+import { findApprovedRailRate } from "@/lib/rail/mdr";
 
 /**
  * POS slabs are governed by the manually-approved brand rate card: the vendor
@@ -54,6 +55,63 @@ async function lockPosVendorToBrandRate(input: {
     return {
       ok: false,
       error: `MDR type must be ${approved.mdrType} to match the approved rate for ${company}.`,
+    };
+  }
+  return {
+    ok: true,
+    vendorCharge: Number(approved.mdrValue),
+    vendorChargeT0: Number(approved.mdrValueT0),
+  };
+}
+
+/**
+ * PG/QR slabs are governed by the provider's approved rail rate card (the direct
+ * analogue of the POS brand rate). The vendor cost is locked to it and the MDR
+ * can never be priced below it. The slab's `company` field carries the provider
+ * scope key (ServiceRoute.provider, e.g. "BULKPE") for these rails.
+ */
+async function lockRailVendorToRate(input: {
+  serviceKind: "PG" | "QR";
+  scopeKey: string | null | undefined;
+  paymentMode: string;
+  cardType?: string | null;
+  brandType?: string | null;
+  classification?: string | null;
+  mdrType: "FLAT" | "PERCENT";
+  minAmount: number;
+}): Promise<
+  | { ok: true; vendorCharge: number; vendorChargeT0: number }
+  | { ok: false; error: string }
+> {
+  const scopeKey = input.scopeKey?.trim();
+  if (!scopeKey || scopeKey === "*") {
+    return {
+      ok: false,
+      error: `${input.serviceKind} MDR must be scoped to a provider. Select a provider that has an approved rate in MDR & minimum charges.`,
+    };
+  }
+  const approved = await findApprovedRailRate({
+    serviceKind: input.serviceKind,
+    scopeKey,
+    paymentMode: input.paymentMode,
+    cardType: input.cardType ?? null,
+    brandType: input.brandType ?? null,
+    classification: input.classification ?? null,
+    amount: Math.max(input.minAmount, 1),
+  });
+  if (!approved) {
+    const dimLabel = [input.paymentMode, input.cardType, input.brandType, input.classification]
+      .filter((v) => v && v !== "*")
+      .join("/");
+    return {
+      ok: false,
+      error: `No approved ${input.serviceKind} rate exists for ${scopeKey} (${dimLabel || "*"}). Add it in MDR & minimum charges first.`,
+    };
+  }
+  if (input.mdrType !== approved.mdrType) {
+    return {
+      ok: false,
+      error: `MDR type must be ${approved.mdrType} to match the approved ${input.serviceKind} rate for ${scopeKey}.`,
     };
   }
   return {
@@ -163,6 +221,23 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (b.serviceKind === "POS") {
     const lock = await lockPosVendorToBrandRate({
       company: b.company,
+      paymentMode: b.paymentMode,
+      cardType: b.cardType,
+      brandType: b.brandType,
+      classification: b.classification,
+      mdrType: b.mdrType,
+      minAmount: b.minAmount,
+    });
+    if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
+    b.vendorCharge = lock.vendorCharge;
+    b.vendorChargeT0 = lock.vendorChargeT0;
+  }
+
+  // PG / QR: lock vendor to the provider-approved rail rate (blocks below-cost MDR).
+  if (b.serviceKind === "PG" || b.serviceKind === "QR") {
+    const lock = await lockRailVendorToRate({
+      serviceKind: b.serviceKind,
+      scopeKey: b.company,
       paymentMode: b.paymentMode,
       cardType: b.cardType,
       brandType: b.brandType,
@@ -355,6 +430,22 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (existing.serviceKind === "POS" && pricingTouched) {
     const lock = await lockPosVendorToBrandRate({
       company: next.company,
+      paymentMode: next.paymentMode,
+      cardType: next.cardType,
+      brandType: next.brandType,
+      classification: next.classification,
+      mdrType: b.mdrType ?? existing.mdrType,
+      minAmount: next.minAmount,
+    });
+    if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
+    b.vendorCharge = lock.vendorCharge;
+    b.vendorChargeT0 = lock.vendorChargeT0;
+  }
+
+  if ((existing.serviceKind === "PG" || existing.serviceKind === "QR") && pricingTouched) {
+    const lock = await lockRailVendorToRate({
+      serviceKind: existing.serviceKind,
+      scopeKey: next.company,
       paymentMode: next.paymentMode,
       cardType: next.cardType,
       brandType: next.brandType,

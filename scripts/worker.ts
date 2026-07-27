@@ -36,6 +36,7 @@ import { sweepDisputeSlas } from "@/lib/disputes/service";
 import { runSettlementAutosweep } from "@/lib/settlement/autosweep";
 import { runT1SettlementSweep } from "@/lib/settlement/t1";
 import { runPosT1SettlementSweep, runPosInstantSettlementSweep } from "@/lib/settlement/pos";
+import { runPgT1SettlementSweep, runPgInstantSettlementSweep } from "@/lib/settlement/pg";
 import { runQrT1SettlementSweep } from "@/lib/qr/claims";
 import { runPosIngestSweep } from "@/lib/settlement/pos-ingest";
 import { runPosRentalBilling } from "@/lib/pos/rental";
@@ -300,6 +301,45 @@ async function main() {
   });
   await boss.schedule(QUEUES.QR_SETTLEMENT_T1, "12 * * * *", {}, { tz: "Asia/Kolkata" });
 
+  // QUEUES.PG_SETTLEMENT_T1 — PG acquirer T+1 settlement. Scheduled hourly;
+  // fires only at the operator-configured IST hour (PlatformSetting
+  // "settlement.pg_t1"). Only entries captured before the current IST day are
+  // due (true T+1); each entry settles at most once via the pg-settle:<ref>
+  // ledger idempotency key, so duplicate fires are harmless.
+  await boss.work(QUEUES.PG_SETTLEMENT_T1, async () => {
+    const cfg = await getSetting("settlement.pg_t1");
+    const istHour = Number(
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        hour12: false,
+      }).format(new Date())
+    );
+    if (!cfg.enabled || cfg.paused || istHour !== cfg.hour) return;
+    const r = await runPgT1SettlementSweep();
+    if (r.processed > 0)
+      log(
+        `pg.settlement.t1: processed=${r.processed} settled=${r.settled} ` +
+          `failed=${r.failed} amount=₹${r.totalAmount}`
+      );
+  });
+  await boss.schedule(QUEUES.PG_SETTLEMENT_T1, "14 * * * *", {}, { tz: "Asia/Kolkata" });
+
+  // QUEUES.PG_SETTLEMENT_INSTANT — PG instant-settlement safety net. The primary
+  // instant path is the PG confirmation (credit happens on confirmation); this
+  // sweep retries any INSTANT-mode entries left PENDING (e.g. a wallet credit
+  // that failed mid-flight). Every 3 minutes; each entry settles at most once
+  // via the pg-settle:<ref> ledger idempotency key.
+  await boss.work(QUEUES.PG_SETTLEMENT_INSTANT, async () => {
+    const r = await runPgInstantSettlementSweep();
+    if (r.processed > 0)
+      log(
+        `pg.settlement.instant: processed=${r.processed} settled=${r.settled} ` +
+          `failed=${r.failed} amount=₹${r.totalAmount}`
+      );
+  });
+  await boss.schedule(QUEUES.PG_SETTLEMENT_INSTANT, "*/3 * * * *", {}, { tz: "Asia/Kolkata" });
+
   // QUEUES.POS_RENTAL_BILLING — admin console Phase 5. Runs every hour; only
   // fires billing when the current IST hour matches the admin-configured hour.
   // Idempotent per (subscription, YYYY-MM) via the unique invoice key.
@@ -386,7 +426,7 @@ async function main() {
   }
 
   log(
-    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.ingest (*/30 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pos.machines.sync (*/10 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
+    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.ingest (*/30 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
   );
 }
 

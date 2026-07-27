@@ -112,8 +112,14 @@ type Meta = {
   providersByKind: Record<string, Array<{ provider: string; name: string }>>;
   posCompanies: string[];
   brandRatesByCompany: Record<string, BrandRate[]>;
+  // PG/QR acquiring rate cards (the POS-brand analogue for the PG & QR rails).
+  railProvidersByKind: Record<"PG" | "QR", Array<{ scopeKey: string; label: string }>>;
+  railRatesByKind: Record<"PG" | "QR", Record<string, BrandRate[]>>;
   cardClassificationEnabled: boolean;
 };
+
+const EMPTY_RAIL_PROVIDERS: Meta["railProvidersByKind"] = { PG: [], QR: [] };
+const EMPTY_RAIL_RATES: Meta["railRatesByKind"] = { PG: {}, QR: {} };
 
 // ---------------------------------------------------------------------------
 // Family icon strip config
@@ -211,7 +217,14 @@ function fmtBand(min: number, max: number): string {
 
 export default function SchemeManagementPage() {
   const [schemes, setSchemes] = useState<Scheme[]>([]);
-  const [meta, setMeta] = useState<Meta>({ providersByKind: {}, posCompanies: [], brandRatesByCompany: {}, cardClassificationEnabled: false });
+  const [meta, setMeta] = useState<Meta>({
+    providersByKind: {},
+    posCompanies: [],
+    brandRatesByCompany: {},
+    railProvidersByKind: EMPTY_RAIL_PROVIDERS,
+    railRatesByKind: EMPTY_RAIL_RATES,
+    cardClassificationEnabled: false,
+  });
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"active" | "all">("active");
@@ -238,6 +251,8 @@ export default function SchemeManagementPage() {
             providersByKind: metaData.providersByKind,
             posCompanies: metaData.posCompanies ?? [],
             brandRatesByCompany: metaData.brandRatesByCompany ?? {},
+            railProvidersByKind: metaData.railProvidersByKind ?? EMPTY_RAIL_PROVIDERS,
+            railRatesByKind: metaData.railRatesByKind ?? EMPTY_RAIL_RATES,
             cardClassificationEnabled: Boolean(metaData.cardClassificationEnabled),
           });
       } else {
@@ -758,6 +773,8 @@ function SchemeCard({
           editing={mdrModal.editing}
           companies={meta.posCompanies}
           brandRatesByCompany={meta.brandRatesByCompany}
+          railProvidersByKind={meta.railProvidersByKind}
+          railRatesByKind={meta.railRatesByKind}
           showClassification={meta.cardClassificationEnabled}
           onClose={() => setMdrModal(null)}
           onSaved={(msg) => {
@@ -1006,6 +1023,8 @@ function MdrRateModal({
   editing,
   companies,
   brandRatesByCompany,
+  railProvidersByKind,
+  railRatesByKind,
   showClassification,
   onClose,
   onSaved,
@@ -1014,6 +1033,8 @@ function MdrRateModal({
   editing: MdrSlab | null;
   companies: string[];
   brandRatesByCompany: Record<string, BrandRate[]>;
+  railProvidersByKind: Record<"PG" | "QR", Array<{ scopeKey: string; label: string }>>;
+  railRatesByKind: Record<"PG" | "QR", Record<string, BrandRate[]>>;
   showClassification: boolean;
   onClose: () => void;
   onSaved: (msg: string) => void;
@@ -1053,17 +1074,33 @@ function MdrRateModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // POS vendor cost is LOCKED to the company-approved brand rate — never typed
-  // by hand — so the MDR can't be priced below the approved rate. `locked`
-  // means an approved rate was found and vendor is derived from it; `missing`
-  // means POS is selected without a resolvable approved rate (slab is blocked).
+  // POS / PG / QR vendor cost is LOCKED to the approved acquirer rate card —
+  // never typed by hand — so the MDR can't be priced below cost. `locked` means
+  // an approved rate was found and vendor is derived from it; `missing` means a
+  // locked rail is selected without a resolvable approved rate (slab is blocked).
+  // POS scopes by acquiring company (brand); PG/QR scope by the rail provider.
   const [posLock, setPosLock] = useState<{ locked: boolean; missing: boolean }>({
     locked: false,
     missing: false,
   });
 
+  // Rails whose vendor cost is locked to an approved rate card.
+  const isLockedRail = serviceKind === "POS" || serviceKind === "PG" || serviceKind === "QR";
+  const scopeNoun = serviceKind === "POS" ? "company" : serviceKind === "PG" ? "PG pipeline" : "QR provider";
+
+  // Resolve the rate card for the currently selected scope, per rail.
+  const ratesForScope = useCallback(
+    (scope: string): BrandRate[] | undefined => {
+      if (serviceKind === "POS") return brandRatesByCompany[scope];
+      if (serviceKind === "PG") return railRatesByKind.PG?.[scope];
+      if (serviceKind === "QR") return railRatesByKind.QR?.[scope];
+      return undefined;
+    },
+    [serviceKind, brandRatesByCompany, railRatesByKind]
+  );
+
   useEffect(() => {
-    if (serviceKind !== "POS") {
+    if (!isLockedRail) {
       setPosLock({ locked: false, missing: false });
       return;
     }
@@ -1072,11 +1109,10 @@ function MdrRateModal({
       setPosLock({ locked: false, missing: true });
       return;
     }
-    const rates = brandRatesByCompany[co];
     // Pick the most specific approved rate matching the slab's card dimensions
     // (instrument / network / classification), mirroring the server resolver.
     // When classification is disabled platform-wide it's treated as a wildcard.
-    const pick = pickBrandRate(rates, {
+    const pick = pickBrandRate(ratesForScope(co), {
       paymentMode,
       cardType,
       brandType,
@@ -1091,24 +1127,29 @@ function MdrRateModal({
     setVendorT1(String(isPercent ? Number(pick.mdrValue) * 100 : Number(pick.mdrValue)));
     setVendorT0(String(isPercent ? Number(pick.mdrValueT0) * 100 : Number(pick.mdrValueT0)));
     setPosLock({ locked: true, missing: false });
-  }, [serviceKind, company, paymentMode, cardType, brandType, classification, showClassification, brandRatesByCompany]);
+  }, [isLockedRail, serviceKind, company, paymentMode, cardType, brandType, classification, showClassification, ratesForScope]);
 
-  // POS MDR can only be scoped to a company whose brand already has approved
-  // rates defined (in Brands & MDR). Companies without any BrandMdrRate are not
-  // offered for POS. Non-POS rails keep the full company list (company is
-  // optional there).
-  const posEligibleCompanies = companies.filter((c) => (brandRatesByCompany[c]?.length ?? 0) > 0);
-  const companyOptions = serviceKind === "POS" ? posEligibleCompanies : companies;
+  // A locked rail can only be scoped to an entity that already has an approved
+  // rate card. POS → acquiring companies with brand rates; PG/QR → providers
+  // with rail rates. Other rails (UPI) keep the full company list (optional).
+  const lockedScopeOptions: Array<{ value: string; label: string }> =
+    serviceKind === "POS"
+      ? companies.filter((c) => (brandRatesByCompany[c]?.length ?? 0) > 0).map((c) => ({ value: c, label: c }))
+      : serviceKind === "PG"
+      ? railProvidersByKind.PG.map((p) => ({ value: p.scopeKey, label: p.label }))
+      : serviceKind === "QR"
+      ? railProvidersByKind.QR.map((p) => ({ value: p.scopeKey, label: p.label }))
+      : companies.map((c) => ({ value: c, label: c }));
 
-  // If the rail switches to POS while a company without approved rates is
-  // selected, clear it (the option is no longer available). Keep the company of
-  // the slab being edited so its existing scope stays visible.
+  // When the rail switches while a scope without an approved rate is selected,
+  // clear it (the option is no longer available). Keep the slab being edited so
+  // its existing scope stays visible.
   useEffect(() => {
-    if (serviceKind !== "POS") return;
-    if (company && company !== editing?.company && !(brandRatesByCompany[company]?.length ?? 0)) {
+    if (!isLockedRail) return;
+    if (company && company !== editing?.company && !(ratesForScope(company)?.length ?? 0)) {
       setCompany("");
     }
-  }, [serviceKind, company, brandRatesByCompany, editing?.company]);
+  }, [isLockedRail, company, ratesForScope, editing?.company]);
 
   function toStored(type: RateType, raw: string): number {
     const n = Number(raw);
@@ -1227,25 +1268,31 @@ function MdrRateModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Company</Label>
+              <Label>{serviceKind === "POS" ? "Company" : isLockedRail ? "Provider" : "Company"}</Label>
               <Select
                 value={company}
                 onChange={(e) => setCompany(e.target.value)}
-                disabled={serviceKind === "POS" && posEligibleCompanies.length === 0}
+                disabled={isLockedRail && lockedScopeOptions.length === 0}
               >
-                <option value="">{serviceKind === "POS" ? "Select a company…" : "All Companies"}</option>
-                {companyOptions.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                <option value="">
+                  {serviceKind === "POS"
+                    ? "Select a company…"
+                    : isLockedRail
+                    ? `Select a ${scopeNoun}…`
+                    : "All Companies"}
+                </option>
+                {lockedScopeOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
                   </option>
                 ))}
-                {editing?.company && !companyOptions.includes(editing.company) && (
+                {editing?.company && !lockedScopeOptions.some((o) => o.value === editing.company) && (
                   <option value={editing.company}>{editing.company}</option>
                 )}
               </Select>
-              {serviceKind === "POS" && posEligibleCompanies.length === 0 && (
+              {isLockedRail && lockedScopeOptions.length === 0 && (
                 <p className="mt-1 text-[11px] text-rose-600">
-                  No company has approved brand rates yet. Define rates in Brands &amp; MDR before setting POS MDR.
+                  No {scopeNoun} has approved {serviceKind} rates yet. Define them in MDR &amp; minimum charges first.
                 </p>
               )}
             </div>
@@ -1358,15 +1405,15 @@ function MdrRateModal({
             </p>
             {posLock.locked && (
               <p className="mt-2 rounded-lg bg-brand-50/60 p-2 text-[11px] text-brand-700">
-                Vendor cost is locked to the company-approved rate for{" "}
+                Vendor cost is locked to the approved {serviceKind} rate for{" "}
                 <span className="font-semibold">{company}</span>. The service charge (MDR) cannot be set below it.
               </p>
             )}
-            {serviceKind === "POS" && posLock.missing && (
+            {isLockedRail && posLock.missing && (
               <p className="mt-2 rounded-lg bg-rose-50 p-2 text-[11px] text-rose-600">
                 {company
-                  ? `No company-approved rate exists for ${company}${paymentMode ? ` (${paymentMode})` : ""}. Add it in Brands & MDR first.`
-                  : "Select a company. POS MDR must be scoped to a company with an approved brand rate."}
+                  ? `No approved ${serviceKind} rate exists for ${company}${paymentMode ? ` (${paymentMode})` : ""}. Add it in MDR & minimum charges first.`
+                  : `Select a ${scopeNoun}. ${serviceKind} MDR must be scoped to a ${scopeNoun} with an approved rate.`}
               </p>
             )}
           </div>
@@ -1405,7 +1452,7 @@ function MdrRateModal({
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving || (serviceKind === "POS" && posLock.missing)}>
+          <Button onClick={submit} disabled={saving || (isLockedRail && posLock.missing)}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Save configuration
           </Button>
         </div>

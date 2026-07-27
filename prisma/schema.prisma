@@ -187,6 +187,7 @@ model User {
   commissionCredits     CommissionCredit[]    @relation("CommissionCredits")
   tdsEntries            TdsLedgerEntry[]      @relation("TdsPayee")
   posSettlements        PosSettlementEntry[]  @relation("PosSettlements")
+  pgSettlements         PgSettlementEntry[]   @relation("PgSettlements")
   networkTransfersOut   NetworkWalletTransfer[] @relation("NetworkTransfersOut")
   networkTransfersIn    NetworkWalletTransfer[] @relation("NetworkTransfersIn")
   transfersAsSubject    HierarchyTransfer[]     @relation("TransferSubject")
@@ -2200,6 +2201,48 @@ model PosSettlementEntry {
   @@index([brandId])
 }
 
+// PG (payment gateway) acquirer settlement entry — the PG analogue of
+// PosSettlementEntry. A hosted-checkout / UPI-collect payment lands here on
+// confirmation; MDR is priced against the retailer's assigned Scheme (PG slab),
+// the acquirer cost is re-verified against the provider's live rail rate card
+// (RailMdrRate) at settlement, and the NET is credited to the retailer wallet
+// (instant at confirmation, or swept by the PG T+1 cron).
+model PgSettlementEntry {
+  id             String    @id @default(cuid())
+  transactionRef String    @unique // provider txn / order ref (idempotency key)
+  orderId        String? // provider order id (audit / support lookups)
+  userId         String // retailer who owns the collection
+  user           User      @relation("PgSettlements", fields: [userId], references: [id])
+  grossAmount    Decimal   @db.Decimal(14, 2) // full collected amount
+  mdrAmount      Decimal   @db.Decimal(14, 2) // scheme MDR deducted
+  netAmount      Decimal   @db.Decimal(14, 2) // credited to retailer
+  vendorAmount   Decimal?  @db.Decimal(14, 2) // live acquirer cost (RailMdrRate) at settle time
+  mode           String // INSTANT | T1
+  status         String    @default("PENDING") // PENDING | SETTLED | FAILED
+  settledAt      DateTime?
+  // How the entry was settled (audit / reporting):
+  //   INSTANT_AUTO   — auto-instant at confirmation (per-user / global flag)
+  //   INSTANT_BUTTON — retailer pressed "Instant settle" on the dashboard (T0 rate)
+  //   T1_CRON        — swept by the next-day PG T+1 settlement cron (T1 rate)
+  settledVia     String?
+  walletTxnId    String? // ref to the credit WalletTxn
+  paymentMode    String? // UPI | CARD | NETBANKING | WALLET
+  provider       String? // rail scopeKey the acquirer cost was priced against (e.g. RAZORPAY / BULKPE)
+  // Scheme pricing context (audit / re-pricing at settlement).
+  schemeId       String?
+  slabId         String?
+  vendorRateId   String? // RailMdrRate the acquirer cost was resolved from (audit)
+  // When the customer actually paid (provider txn time). The T+1 sweep settles
+  // by capture date so a confirmation received late still settles on its correct
+  // IST day. Null on legacy rows → sweep falls back to createdAt.
+  capturedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([status, capturedAt])
+}
+
 // ---------- Brand-scoped MDR & settlement ----------
 // A Brand (e.g. teachway, lagoon, avika) groups POS machines under a common
 // acquiring identity. Each brand carries its own MDR rate card (BrandMdrRate,
@@ -2362,6 +2405,44 @@ model CompanyMdrFloor {
   updatedAt   DateTime       @updatedAt
 
   @@index([serviceKind, paymentMode, active])
+  @@index([serviceKind, scopeKey, active])
+}
+
+// ---------- Rail MDR Rate (PG / QR) ----------
+// Per-provider acquiring rate card for the PG & QR rails — the direct analogue
+// of BrandMdrRate for POS. `scopeKey` is the ServiceRoute.provider that powers
+// the rail (e.g. "BULKPE"). A scheme's PG/QR MDR slab locks its vendor cost to
+// the most specific approved rate here, so no scheme can be priced below the
+// acquirer cost. Dimension/band matching mirrors BrandMdrRate exactly.
+model RailMdrRate {
+  id          String         @id @default(cuid())
+  serviceKind MdrServiceKind // PG | QR
+  scopeKey    String // ServiceRoute.provider (pipeline / QR provider), e.g. "BULKPE"
+  scopeLabel  String? // human label for display
+
+  // Dimensions. "*" (or null) = wildcard; an exact match beats a wildcard.
+  provider    String @default("*") // upstream sub-provider label, or *
+  paymentMode String @default("*") // CARD | UPI | NETBANKING | WALLET | *
+
+  // Card dimensions (mirror BrandMdrRate). QR (UPI) leaves these null; PG can
+  // price per instrument / network / tier. null = any.
+  cardType       String?
+  brandType      String?
+  classification String?
+
+  minAmount Decimal @db.Decimal(14, 2)
+  maxAmount Decimal @db.Decimal(14, 2)
+
+  // Vendor/acquirer cost for this band. mdrValue is T+1; mdrValueT0 is instant
+  // (T+0) and falls back to mdrValue when unset. PERCENT stored as a fraction.
+  mdrType    RateType @default(PERCENT)
+  mdrValue   Decimal  @default(0) @db.Decimal(14, 4)
+  mdrValueT0 Decimal  @default(0) @db.Decimal(14, 4)
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([serviceKind, scopeKey, active])
 }
 

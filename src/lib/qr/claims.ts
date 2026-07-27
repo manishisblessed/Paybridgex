@@ -16,7 +16,7 @@
  * match APPROVED claims against the provider's settlement file and claw back
  * anything that never settled.
  */
-import { Prisma, type QrClaimStatus } from "@prisma/client";
+import { Prisma, type QrClaimStatus, type ServiceCode } from "@prisma/client";
 import { createHash } from "crypto";
 import { prisma } from "../db";
 import { creditWallet, debitWallet } from "../ledger";
@@ -24,6 +24,7 @@ import { round, toNumber } from "../money";
 import { getSetting } from "../settings";
 import { priceSchemeSettlement, startOfTodayIst, SETTLED_VIA } from "../settlement/engine";
 import { railScopeKey } from "../mdr/floor";
+import { distributeMdrCommission } from "../commission/distribute";
 
 export class QrClaimError extends Error {
   public statusCode: number;
@@ -368,6 +369,8 @@ async function settleClaim(
           gross: Number(claim.amount),
           mdr: toNumber(price.mdrAmount),
           net: toNumber(price.netAmount),
+          // Live acquirer cost re-verified against the provider rail rate card.
+          vendor: price.vendorAmount ? toNumber(price.vendorAmount) : null,
           utr: claim.utr,
           via,
         },
@@ -376,7 +379,45 @@ async function settleClaim(
     credited = toNumber(price.netAmount);
   });
 
+  // Distribute upline MDR-margin commission once the settlement credit has
+  // committed (mirrors POS). Only when THIS call performed the settlement
+  // (credited !== null) — a concurrent writer that lost the status race must not
+  // double-distribute. Idempotent regardless via the synthetic Transaction refId
+  // and the per-payee commission:<txn>:<user> ledger keys.
+  if (credited !== null) {
+    await distributeCommissionForQr(claim.id, claim.userId, Number(claim.amount));
+  }
+
   return credited;
+}
+
+/**
+ * QR commission distribution (chain model): the company MDR margin
+ * (serviceCharge − vendorCharge) funds upline commissions net of 2% TDS, exactly
+ * like POS. Creates a placeholder Transaction for the CommissionCredit FK (there
+ * is no ServiceCode for QR settlement — reuse WALLET_TOPUP as POS does), then
+ * distributes via the MDR chain. Idempotent per claim via the unique refId.
+ */
+async function distributeCommissionForQr(claimId: string, userId: string, grossAmount: number) {
+  const refId = `QR${claimId.slice(-10).toUpperCase()}`;
+  let txn = await prisma.transaction.findUnique({ where: { refId } });
+  if (!txn) {
+    txn = await prisma.transaction.create({
+      data: {
+        refId,
+        userId,
+        service: "WALLET_TOPUP" as ServiceCode, // QR settlement has no ServiceCode; placeholder (matches POS)
+        amount: new Prisma.Decimal(grossAmount),
+        status: "SUCCESS",
+        partner: "STATIC_QR",
+        partnerTxnId: claimId,
+      },
+    });
+  }
+
+  await distributeMdrCommission(txn.id, userId, "QR", grossAmount, txn.service, {
+    paymentMode: "UPI",
+  });
 }
 
 export type QrSettleResult = {

@@ -41,7 +41,7 @@ vi.mock("@/lib/settlement/engine", async () => {
       const rate = new Prisma.Decimal(settlementType === "T0" ? "0.03" : "0.02");
       const mdrAmount = gross.mul(rate).toDecimalPlaces(2);
       const netAmount = gross.sub(mdrAmount).toDecimalPlaces(2);
-      return { mdrAmount, netAmount, schemeId: "scheme1", slabId: "slab1" };
+      return { mdrAmount, netAmount, schemeId: "scheme1", slabId: "slab1", vendorAmount: null, vendorRateId: null };
     },
   };
 });

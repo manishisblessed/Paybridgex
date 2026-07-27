@@ -1,6 +1,7 @@
 import type { MdrServiceKind } from "@prisma/client";
 import { getEffectiveMdr } from "@/lib/mdr/resolver";
 import { isAboveMdrFloor } from "@/lib/mdr/floor";
+import { resolveRailMdr } from "@/lib/rail/mdr";
 import { dec, gt, round, sub, type Money } from "@/lib/money";
 import { getSetting } from "@/lib/settings";
 
@@ -42,6 +43,16 @@ export type SchemeSettlementPrice = {
   netAmount: Money;
   schemeId: string | null;
   slabId: string | null;
+  /**
+   * Live acquirer (vendor) cost resolved from the provider's rail rate card
+   * (RailMdrRate) at settlement time, if one applies. This is what the platform
+   * pays the acquirer; the company margin for the settlement = mdrAmount −
+   * vendorAmount. null when the rail has no matching rate (older/unconfigured
+   * providers) — the scheme MDR then settles as-is.
+   */
+  vendorAmount: Money | null;
+  /** The RailMdrRate id backing vendorAmount (for audit), if any. */
+  vendorRateId: string | null;
 };
 
 /**
@@ -88,10 +99,42 @@ export async function priceSchemeSettlement(args: {
   );
   if (!aboveFloor) return null;
 
+  // Acquirer-cost guard — re-verify the scheme MDR against the provider's LIVE
+  // rail rate card (RailMdrRate) at settlement time. The slab's vendor charge is
+  // locked to the approved rail rate at config time, but the rate may have moved
+  // since; resolving it here is the runtime analogue of how POS re-prices branded
+  // captures against the current BrandMdrRate. If the live acquirer cost now
+  // exceeds the scheme MDR we'd be settling below cost — refuse and leave the row
+  // awaiting settlement so admin can re-price. No rail rate configured for the
+  // provider → no guard (backward compatible with existing QR settlements).
+  let vendorAmount: Money | null = null;
+  let vendorRateId: string | null = null;
+  if (args.scopeKey && (args.serviceKind === "PG" || args.serviceKind === "QR")) {
+    const railVendor = await resolveRailMdr({
+      serviceKind: args.serviceKind,
+      scopeKey: args.scopeKey,
+      amount: gross,
+      paymentMode,
+      settlementType: args.settlementType,
+    });
+    if (railVendor) {
+      vendorAmount = round(railVendor.mdr);
+      vendorRateId = railVendor.rateId;
+      if (gt(vendorAmount, mdrAmount)) return null;
+    }
+  }
+
   const netAmount = round(sub(gross, mdrAmount));
   if (!gt(netAmount, 0)) return null;
 
-  return { mdrAmount, netAmount, schemeId: mdr.schemeId, slabId: mdr.slabId };
+  return {
+    mdrAmount,
+    netAmount,
+    schemeId: mdr.schemeId,
+    slabId: mdr.slabId,
+    vendorAmount,
+    vendorRateId,
+  };
 }
 
 /** Start of the current IST calendar day, as a UTC Date (the T+1 cutoff). */
@@ -111,7 +154,9 @@ export function meetsMinimum(net: Money | string | number, minAmount: number): b
  * Admin-controlled via the `settlement.instant_button` platform setting. When
  * false, retailers can't instant-settle and everything auto-settles T+1.
  */
-export async function isInstantButtonEnabled(rail: "POS" | "QR"): Promise<boolean> {
+export async function isInstantButtonEnabled(rail: "POS" | "QR" | "PG"): Promise<boolean> {
   const cfg = await getSetting("settlement.instant_button");
-  return rail === "POS" ? cfg.posEnabled : cfg.qrEnabled;
+  if (rail === "POS") return cfg.posEnabled;
+  if (rail === "PG") return cfg.pgEnabled;
+  return cfg.qrEnabled;
 }

@@ -7,7 +7,7 @@ import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { CompanyMdrFloors } from "@/components/admin/CompanyMdrFloors";
+import { RailRatesManager } from "@/components/admin/RailRatesManager";
 import { formatINR } from "@/lib/utils";
 import {
   CARD_INSTRUMENTS,
@@ -26,13 +26,14 @@ import {
   Zap,
   Clock,
   ArrowLeftRight,
-  ShieldCheck,
   Pencil,
   Check,
   Power,
   CreditCard,
   Layers,
   Sparkles,
+  Store,
+  QrCode,
 } from "lucide-react";
 
 type Brand = {
@@ -113,7 +114,7 @@ export default function BrandsPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<BrandDetail | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [tab, setTab] = useState<"brands" | "floors">("brands");
+  const [tab, setTab] = useState<"pos" | "pg" | "qr">("pos");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -237,10 +238,10 @@ export default function BrandsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Brands & MDR"
-        description="Per-brand acquiring identities (teachway, lagoon, avika, …). Each brand carries its own MDR rate card (by provider &amp; payment mode) and a default settlement mode. Every POS settlement deducts MDR against the brand's current rate."
+        title="MDR & minimum charges"
+        description="Define the acquiring cost floor for each rail — POS (per-brand rate cards), PG, and QR. These are the company minimums: every scheme MDR is validated against them, so no scheme can ever be priced below the rail's charge."
         actions={
-          tab === "brands" ? (
+          tab === "pos" ? (
             <div className="flex gap-2">
               <Button variant="outline" onClick={load}>
                 <RefreshCw className="mr-2 h-4 w-4" /> Refresh
@@ -255,24 +256,32 @@ export default function BrandsPage() {
 
       <div className="flex gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
         <button
-          onClick={() => setTab("brands")}
+          onClick={() => setTab("pos")}
           className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-            tab === "brands" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
+            tab === "pos" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
           }`}
         >
-          <Tag className="h-4 w-4" /> Brands &amp; rates
+          <Store className="h-4 w-4" /> POS
         </button>
         <button
-          onClick={() => setTab("floors")}
+          onClick={() => setTab("pg")}
           className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-            tab === "floors" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
+            tab === "pg" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
           }`}
         >
-          <ShieldCheck className="h-4 w-4" /> Company charges
+          <CreditCard className="h-4 w-4" /> PG
+        </button>
+        <button
+          onClick={() => setTab("qr")}
+          className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+            tab === "qr" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
+          }`}
+        >
+          <QrCode className="h-4 w-4" /> QR
         </button>
       </div>
 
-      {tab === "brands" && (
+      {tab === "pos" && (
         <>
           <DataTable columns={columns} data={brands} loading={loading} />
 
@@ -308,7 +317,9 @@ export default function BrandsPage() {
         </>
       )}
 
-      {tab === "floors" && <CompanyMdrFloors />}
+      {tab === "pg" && <RailRatesManager serviceKind="PG" />}
+
+      {tab === "qr" && <RailRatesManager serviceKind="QR" />}
     </div>
   );
 }
