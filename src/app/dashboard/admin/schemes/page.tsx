@@ -1205,6 +1205,24 @@ function MdrRateModal({
     }
   }
 
+  // Live guardrail: the service charge (MDR) can never be set below the vendor
+  // cost — that would mean the company pays the acquirer more than it collects
+  // per transaction (a loss). This mirrors the server rule (no rate below MDR)
+  // and the T+0 fallback (an unset T+0 rate uses the T+1 value).
+  const numOf = (s: string) => {
+    const n = Number(s);
+    return isFinite(n) && n >= 0 ? n : 0;
+  };
+  const svcT1Val = numOf(mdrT1);
+  const svcT0Val = numOf(mdrT0) > 0 ? numOf(mdrT0) : svcT1Val;
+  const venT1Val = numOf(vendorT1);
+  const venT0Val = numOf(vendorT0) > 0 ? numOf(vendorT0) : venT1Val;
+  const COST_EPS = 1e-9;
+  const belowCostT1 = venT1Val - svcT1Val > COST_EPS;
+  const belowCostT0 = venT0Val - svcT0Val > COST_EPS;
+  const belowCost = (venT1Val > 0 || venT0Val > 0) && (belowCostT1 || belowCostT0);
+  const rateUnit = (v: number) => (mdrType === "PERCENT" ? `${v.toFixed(2)}%` : `₹${v.toFixed(2)}`);
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
       <div
@@ -1409,6 +1427,17 @@ function MdrRateModal({
                 <span className="font-semibold">{company}</span>. The service charge (MDR) cannot be set below it.
               </p>
             )}
+            {belowCost && (
+              <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-700">
+                <span className="font-semibold">Rate too low — not allowed.</span> The service charge (MDR) can
+                never be set below the vendor cost of{" "}
+                {belowCostT1 && <span className="font-semibold">{rateUnit(venT1Val)} (T+1)</span>}
+                {belowCostT1 && belowCostT0 && " and "}
+                {belowCostT0 && <span className="font-semibold">{rateUnit(venT0Val)} (T+0)</span>}. Doing so means the
+                company pays the acquirer more than it collects on every transaction (a guaranteed loss), so no
+                retailer can be given a rate below MDR. Raise the service charge to at least the vendor cost.
+              </p>
+            )}
             {isLockedRail && posLock.missing && (
               <p className="mt-2 rounded-lg bg-rose-50 p-2 text-[11px] text-rose-600">
                 {company
@@ -1452,7 +1481,7 @@ function MdrRateModal({
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving || (isLockedRail && posLock.missing)}>
+          <Button onClick={submit} disabled={saving || (isLockedRail && posLock.missing) || belowCost}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Save configuration
           </Button>
         </div>

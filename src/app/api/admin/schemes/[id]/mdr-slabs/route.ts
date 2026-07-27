@@ -185,7 +185,8 @@ function validateMarginVsCommission(b: {
 
   // T+1 margin
   const marginT1 = abs(b.mdrType, b.mdrValue) - abs(b.mdrType, b.vendorCharge);
-  if (marginT1 < -EPS) return "Vendor charge cannot exceed the MDR (service charge).";
+  if (marginT1 < -EPS)
+    return "Rate too low: the service charge (MDR) cannot be set below the vendor cost. That would make the company pay the acquirer more than it collects on every transaction (a loss), so no rate below MDR is allowed. Raise the service charge to at least the vendor cost.";
   if (commissionSum - marginT1 > EPS)
     return "Total DT+MD+SD commission exceeds the company margin (MDR − vendor charge). Reduce commissions or adjust the MDR / vendor charge.";
 
@@ -193,7 +194,8 @@ function validateMarginVsCommission(b: {
   const mdrT0 = b.mdrValueT0 > 0 ? b.mdrValueT0 : b.mdrValue;
   const vendorT0 = b.vendorChargeT0 > 0 ? b.vendorChargeT0 : b.vendorCharge;
   const marginT0 = abs(b.mdrType, mdrT0) - abs(b.mdrType, vendorT0);
-  if (marginT0 < -EPS) return "T+0 vendor charge cannot exceed the T+0 MDR.";
+  if (marginT0 < -EPS)
+    return "Rate too low: the T+0 (instant) service charge cannot be set below the T+0 vendor cost. No rate below MDR is allowed. Raise the T+0 service charge to at least the T+0 vendor cost.";
   if (commissionSum - marginT0 > EPS)
     return "Total DT+MD+SD commission exceeds the T+0 company margin.";
 
