@@ -279,7 +279,7 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
       },
     });
 
-    await distributeCommissionForPos(input.transactionRef, userId, input.grossAmount, paymentMode, dims);
+    await distributeCommissionForPos(input.transactionRef, userId, input.grossAmount, paymentMode, dims, settlementType);
 
     return {
       status: wtxnId ? "SETTLED" : "QUEUED",
@@ -313,7 +313,7 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   });
 
   // Commission still distributes instantly even in T+1 mode.
-  await distributeCommissionForPos(input.transactionRef, userId, input.grossAmount, paymentMode, dims);
+  await distributeCommissionForPos(input.transactionRef, userId, input.grossAmount, paymentMode, dims, settlementType);
 
   return {
     status: "QUEUED",
@@ -334,7 +334,8 @@ async function distributeCommissionForPos(
   userId: string,
   grossAmount: number,
   paymentMode?: string,
-  dims?: Omit<MdrDimensions, "paymentMode" | "settlementType">
+  dims?: Omit<MdrDimensions, "paymentMode" | "settlementType">,
+  settlementType: "T0" | "T1" = "T1"
 ) {
   // We need a Transaction row for the CommissionCredit FK. Create a synthetic
   // settlement-type entry. Idempotent per capture via the unique refId.
@@ -366,6 +367,7 @@ async function distributeCommissionForPos(
       cardType: dims?.cardType ?? null,
       brandType: dims?.brandType ?? null,
       classification: dims?.classification ?? null,
+      settlementType,
     }
   );
 }

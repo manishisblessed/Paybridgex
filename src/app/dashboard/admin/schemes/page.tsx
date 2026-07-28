@@ -85,6 +85,9 @@ type MdrSlab = {
   commissionDistributor: number;
   commissionMaster: number;
   commissionSuperDistributor: number;
+  commissionDistributorT0: number;
+  commissionMasterT0: number;
+  commissionSuperDistributorT0: number;
   active: boolean;
 };
 
@@ -1070,6 +1073,16 @@ function MdrRateModal({
   const [commSuper, setCommSuper] = useState(
     String(editing ? (editing.commissionType === "PERCENT" ? editing.commissionSuperDistributor * 100 : editing.commissionSuperDistributor) : 0)
   );
+  // Instant (T+0) commission per tier — 0 means "use the T+1 value".
+  const [commDistT0, setCommDistT0] = useState(
+    String(editing ? (editing.commissionType === "PERCENT" ? editing.commissionDistributorT0 * 100 : editing.commissionDistributorT0) : 0)
+  );
+  const [commMasterT0, setCommMasterT0] = useState(
+    String(editing ? (editing.commissionType === "PERCENT" ? editing.commissionMasterT0 * 100 : editing.commissionMasterT0) : 0)
+  );
+  const [commSuperT0, setCommSuperT0] = useState(
+    String(editing ? (editing.commissionType === "PERCENT" ? editing.commissionSuperDistributorT0 * 100 : editing.commissionSuperDistributorT0) : 0)
+  );
   const [applyScope, setApplyScope] = useState<"single" | "global">("single");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1176,6 +1189,9 @@ function MdrRateModal({
       commissionDistributor: toStored(commissionType, commDist),
       commissionMaster: toStored(commissionType, commMaster),
       commissionSuperDistributor: toStored(commissionType, commSuper),
+      commissionDistributorT0: toStored(commissionType, commDistT0),
+      commissionMasterT0: toStored(commissionType, commMasterT0),
+      commissionSuperDistributorT0: toStored(commissionType, commSuperT0),
     };
 
     try {
@@ -1458,22 +1474,41 @@ function MdrRateModal({
                 </Select>
               </div>
               <div>
-                <Label>DIST</Label>
+                <Label>DIST (T+1)</Label>
                 <Input type="number" min={0} step="0.0001" value={commDist} onChange={(e) => setCommDist(e.target.value)} />
               </div>
               <div>
-                <Label>M.DIST</Label>
+                <Label>M.DIST (T+1)</Label>
                 <Input type="number" min={0} step="0.0001" value={commMaster} onChange={(e) => setCommMaster(e.target.value)} />
               </div>
               <div>
-                <Label>S.DIST</Label>
+                <Label>S.DIST (T+1)</Label>
                 <Input type="number" min={0} step="0.0001" value={commSuper} onChange={(e) => setCommSuper(e.target.value)} />
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-4 gap-3">
+              <div className="flex items-end pb-2 text-[11px] font-semibold uppercase tracking-widest text-ink-400">
+                Instant (T+0)
+              </div>
+              <div>
+                <Label>DIST (T+0)</Label>
+                <Input type="number" min={0} step="0.0001" value={commDistT0} onChange={(e) => setCommDistT0(e.target.value)} />
+              </div>
+              <div>
+                <Label>M.DIST (T+0)</Label>
+                <Input type="number" min={0} step="0.0001" value={commMasterT0} onChange={(e) => setCommMasterT0(e.target.value)} />
+              </div>
+              <div>
+                <Label>S.DIST (T+0)</Label>
+                <Input type="number" min={0} step="0.0001" value={commSuperT0} onChange={(e) => setCommSuperT0(e.target.value)} />
               </div>
             </div>
             <p className="mt-2 text-xs text-ink-500">
               Commission paid up the chain per transaction — DIST → distributor, M.DIST → master distributor,
               S.DIST → super distributor. Paid out of the Revenue Wallet, net of 2% TDS. Total must not exceed the
-              company margin (service − vendor). The transacting retailer earns no commission.
+              company margin (service − vendor). The transacting retailer earns no commission. The T+1 row applies
+              to standard settlement; the T+0 (instant) row applies to instant settlement and falls back to the
+              matching T+1 value when left 0.
             </p>
           </div>
         </div>

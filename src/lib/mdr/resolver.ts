@@ -134,6 +134,30 @@ function slabVendorValue(slab: MdrSlab, settlementType?: "T0" | "T1") {
   return slab.vendorCharge;
 }
 
+/**
+ * Effective per-tier commission for a slab under a settlement type. Instant
+ * (T0) settlement uses the dedicated *T0 columns; each falls back to its T+1
+ * value when zero/unset — mirroring the MDR/vendor T0 fallback.
+ */
+function slabCommissionValue(
+  slab: MdrSlab,
+  tier: "distributor" | "master" | "superDistributor",
+  settlementType?: "T0" | "T1"
+) {
+  const t1 = {
+    distributor: slab.commissionDistributor,
+    master: slab.commissionMaster,
+    superDistributor: slab.commissionSuperDistributor,
+  }[tier];
+  if (settlementType !== "T0") return t1;
+  const t0 = {
+    distributor: slab.commissionDistributorT0,
+    master: slab.commissionMasterT0,
+    superDistributor: slab.commissionSuperDistributorT0,
+  }[tier];
+  return Number(t0) > 0 ? t0 : t1;
+}
+
 async function resolveFromScheme(
   schemeId: string,
   serviceKind: MdrServiceKind,
@@ -184,9 +208,9 @@ export async function getEffectiveMdr(
     mdrType: slab.mdrType,
     commission: {
       retailer: applyRate(amt, slab.commissionType, slab.commissionRetailer),
-      distributor: applyRate(amt, slab.commissionType, slab.commissionDistributor),
-      master: applyRate(amt, slab.commissionType, slab.commissionMaster),
-      superDistributor: applyRate(amt, slab.commissionType, slab.commissionSuperDistributor),
+      distributor: applyRate(amt, slab.commissionType, slabCommissionValue(slab, "distributor", d.settlementType)),
+      master: applyRate(amt, slab.commissionType, slabCommissionValue(slab, "master", d.settlementType)),
+      superDistributor: applyRate(amt, slab.commissionType, slabCommissionValue(slab, "superDistributor", d.settlementType)),
     },
     };
   };

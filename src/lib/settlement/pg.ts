@@ -150,7 +150,7 @@ export async function handlePgCapture(input: PgCaptureInput): Promise<PgCaptureR
       },
     });
 
-    await distributeCommissionForPg(input.transactionRef, input.userId, input.grossAmount, paymentMode);
+    await distributeCommissionForPg(input.transactionRef, input.userId, input.grossAmount, paymentMode, settlementType);
 
     return {
       status: wtxnId ? "SETTLED" : "QUEUED",
@@ -181,7 +181,7 @@ export async function handlePgCapture(input: PgCaptureInput): Promise<PgCaptureR
     },
   });
 
-  await distributeCommissionForPg(input.transactionRef, input.userId, input.grossAmount, paymentMode);
+  await distributeCommissionForPg(input.transactionRef, input.userId, input.grossAmount, paymentMode, settlementType);
 
   return {
     status: "QUEUED",
@@ -202,7 +202,8 @@ async function distributeCommissionForPg(
   transactionRef: string,
   userId: string,
   grossAmount: number,
-  paymentMode: string
+  paymentMode: string,
+  settlementType: "T0" | "T1" = "T1"
 ) {
   const refId = `PG${transactionRef.slice(-10).toUpperCase()}`;
   let txn = await prisma.transaction.findUnique({ where: { refId } });
@@ -222,6 +223,7 @@ async function distributeCommissionForPg(
 
   await distributeMdrCommission(txn.id, userId, "PG" as MdrServiceKind, grossAmount, txn.service, {
     paymentMode,
+    settlementType,
   });
 }
 

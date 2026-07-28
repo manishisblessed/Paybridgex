@@ -146,10 +146,14 @@ const SlabBody = z.object({
   vendorCharge: z.number().nonnegative().default(0),
   vendorChargeT0: z.number().nonnegative().default(0),
   // Commission distributed up the chain (DT/MD/SD). Retailer earns none.
+  // Base = T+1 (standard). *T0 = instant settlement (falls back to T+1 when 0).
   commissionType: z.enum(["FLAT", "PERCENT"]).default("PERCENT"),
   commissionDistributor: z.number().nonnegative().default(0),
   commissionMaster: z.number().nonnegative().default(0),
   commissionSuperDistributor: z.number().nonnegative().default(0),
+  commissionDistributorT0: z.number().nonnegative().default(0),
+  commissionMasterT0: z.number().nonnegative().default(0),
+  commissionSuperDistributorT0: z.number().nonnegative().default(0),
   // When true, the slab is created across ALL active schemes (not just this one).
   global: z.boolean().default(false),
 });
@@ -174,21 +178,30 @@ function validateMarginVsCommission(b: {
   commissionDistributor: number;
   commissionMaster: number;
   commissionSuperDistributor: number;
+  commissionDistributorT0: number;
+  commissionMasterT0: number;
+  commissionSuperDistributorT0: number;
 }): string | null {
   const abs = (type: "FLAT" | "PERCENT", val: number) =>
     type === "FLAT" ? val : MARGIN_REF_AMOUNT * val;
   const EPS = 1e-6;
 
-  const commissionSum = abs(b.commissionType, b.commissionDistributor)
+  const commissionSumT1 = abs(b.commissionType, b.commissionDistributor)
     + abs(b.commissionType, b.commissionMaster)
     + abs(b.commissionType, b.commissionSuperDistributor);
+
+  // T+0 commission falls back to the T+1 value per tier when unset (0).
+  const commissionSumT0 =
+    abs(b.commissionType, b.commissionDistributorT0 > 0 ? b.commissionDistributorT0 : b.commissionDistributor)
+    + abs(b.commissionType, b.commissionMasterT0 > 0 ? b.commissionMasterT0 : b.commissionMaster)
+    + abs(b.commissionType, b.commissionSuperDistributorT0 > 0 ? b.commissionSuperDistributorT0 : b.commissionSuperDistributor);
 
   // T+1 margin
   const marginT1 = abs(b.mdrType, b.mdrValue) - abs(b.mdrType, b.vendorCharge);
   if (marginT1 < -EPS)
     return "Rate too low: the service charge (MDR) cannot be set below the vendor cost. That would make the company pay the acquirer more than it collects on every transaction (a loss), so no rate below MDR is allowed. Raise the service charge to at least the vendor cost.";
-  if (commissionSum - marginT1 > EPS)
-    return "Total DT+MD+SD commission exceeds the company margin (MDR − vendor charge). Reduce commissions or adjust the MDR / vendor charge.";
+  if (commissionSumT1 - marginT1 > EPS)
+    return "Total DT+MD+SD commission (T+1) exceeds the company margin (MDR − vendor charge). Reduce commissions or adjust the MDR / vendor charge.";
 
   // T+0 margin (fall back to T+1 values when a T+0 value is unset).
   const mdrT0 = b.mdrValueT0 > 0 ? b.mdrValueT0 : b.mdrValue;
@@ -196,8 +209,8 @@ function validateMarginVsCommission(b: {
   const marginT0 = abs(b.mdrType, mdrT0) - abs(b.mdrType, vendorT0);
   if (marginT0 < -EPS)
     return "Rate too low: the T+0 (instant) service charge cannot be set below the T+0 vendor cost. No rate below MDR is allowed. Raise the T+0 service charge to at least the T+0 vendor cost.";
-  if (commissionSum - marginT0 > EPS)
-    return "Total DT+MD+SD commission exceeds the T+0 company margin.";
+  if (commissionSumT0 - marginT0 > EPS)
+    return "Total DT+MD+SD commission (T+0 instant) exceeds the T+0 company margin. Reduce the instant commissions or adjust the T+0 MDR / vendor charge.";
 
   return null;
 }
@@ -372,6 +385,9 @@ const UpdateBody = z.object({
   commissionDistributor: z.number().nonnegative().optional(),
   commissionMaster: z.number().nonnegative().optional(),
   commissionSuperDistributor: z.number().nonnegative().optional(),
+  commissionDistributorT0: z.number().nonnegative().optional(),
+  commissionMasterT0: z.number().nonnegative().optional(),
+  commissionSuperDistributorT0: z.number().nonnegative().optional(),
   active: z.boolean().optional(),
 });
 
@@ -483,6 +499,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     commissionMaster: b.commissionMaster ?? Number(existing.commissionMaster),
     commissionSuperDistributor:
       b.commissionSuperDistributor ?? Number(existing.commissionSuperDistributor),
+    commissionDistributorT0: b.commissionDistributorT0 ?? Number(existing.commissionDistributorT0),
+    commissionMasterT0: b.commissionMasterT0 ?? Number(existing.commissionMasterT0),
+    commissionSuperDistributorT0:
+      b.commissionSuperDistributorT0 ?? Number(existing.commissionSuperDistributorT0),
   });
   if (marginErr) return NextResponse.json({ error: marginErr }, { status: 400 });
 
@@ -500,6 +520,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       ...(b.commissionMaster !== undefined ? { commissionMaster: b.commissionMaster } : {}),
       ...(b.commissionSuperDistributor !== undefined
         ? { commissionSuperDistributor: b.commissionSuperDistributor }
+        : {}),
+      ...(b.commissionDistributorT0 !== undefined ? { commissionDistributorT0: b.commissionDistributorT0 } : {}),
+      ...(b.commissionMasterT0 !== undefined ? { commissionMasterT0: b.commissionMasterT0 } : {}),
+      ...(b.commissionSuperDistributorT0 !== undefined
+        ? { commissionSuperDistributorT0: b.commissionSuperDistributorT0 }
         : {}),
       ...(b.active !== undefined ? { active: b.active } : {}),
     },

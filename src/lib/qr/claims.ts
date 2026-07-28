@@ -385,7 +385,7 @@ async function settleClaim(
   // double-distribute. Idempotent regardless via the synthetic Transaction refId
   // and the per-payee commission:<txn>:<user> ledger keys.
   if (credited !== null) {
-    await distributeCommissionForQr(claim.id, claim.userId, Number(claim.amount));
+    await distributeCommissionForQr(claim.id, claim.userId, Number(claim.amount), settlementType);
   }
 
   return credited;
@@ -398,7 +398,12 @@ async function settleClaim(
  * is no ServiceCode for QR settlement — reuse WALLET_TOPUP as POS does), then
  * distributes via the MDR chain. Idempotent per claim via the unique refId.
  */
-async function distributeCommissionForQr(claimId: string, userId: string, grossAmount: number) {
+async function distributeCommissionForQr(
+  claimId: string,
+  userId: string,
+  grossAmount: number,
+  settlementType: "T0" | "T1" = "T1"
+) {
   const refId = `QR${claimId.slice(-10).toUpperCase()}`;
   let txn = await prisma.transaction.findUnique({ where: { refId } });
   if (!txn) {
@@ -417,6 +422,7 @@ async function distributeCommissionForQr(claimId: string, userId: string, grossA
 
   await distributeMdrCommission(txn.id, userId, "QR", grossAmount, txn.service, {
     paymentMode: "UPI",
+    settlementType,
   });
 }
 

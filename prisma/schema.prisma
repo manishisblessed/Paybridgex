@@ -1654,11 +1654,17 @@ model MdrSlab {
   vendorChargeT0 Decimal @default(0) @db.Decimal(14, 4)
 
   // Commission share distributed up the chain (same RateType semantics).
+  // The base columns are the T+1 (standard settlement) commission. The *T0
+  // columns apply to instant (T+0) settlement and fall back to the T+1 value
+  // when zero/unset — mirroring mdrValueT0 / vendorChargeT0.
   commissionType             RateType @default(PERCENT)
   commissionRetailer         Decimal  @default(0) @db.Decimal(14, 4)
   commissionDistributor      Decimal  @default(0) @db.Decimal(14, 4)
   commissionMaster           Decimal  @default(0) @db.Decimal(14, 4)
   commissionSuperDistributor Decimal  @default(0) @db.Decimal(14, 4)
+  commissionDistributorT0      Decimal @default(0) @db.Decimal(14, 4)
+  commissionMasterT0           Decimal @default(0) @db.Decimal(14, 4)
+  commissionSuperDistributorT0 Decimal @default(0) @db.Decimal(14, 4)
 
   // Cascade model: link back to the parent-scheme slab this one was derived
   // from (bands + types locked to the parent; only mdrValue changes).
