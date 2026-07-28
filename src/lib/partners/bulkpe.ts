@@ -89,9 +89,13 @@ export async function bulkpeGet<T>(path: string, params?: Record<string, string>
 }
 
 type BulkpeBalance = {
+  // BulkPe's /fetchBalance returns the spendable float under "Balance"
+  // (capital B); the others are kept for forward/backward compatibility.
+  Balance?: number | string;
   balance?: number | string;
   availableBalance?: number | string;
   amount?: number | string;
+  yetToSettle?: number | string;
 };
 
 /** Map BulkPe lifecycle strings to our coarse terminal/in-flight states. */
@@ -178,7 +182,7 @@ export const bulkpePayout: PayoutProvider = {
     const r = await bulkpeGet<BulkpeBalance>("/fetchBalance");
     if (!r.ok) return r;
     const d = r.data ?? {};
-    const raw = d.balance ?? d.availableBalance ?? d.amount ?? 0;
+    const raw = d.Balance ?? d.balance ?? d.availableBalance ?? d.amount ?? 0;
     const balance = typeof raw === "string" ? Number(raw) : raw;
     return { ok: true, data: Number.isFinite(balance) ? balance : 0, raw: r.raw };
   },
