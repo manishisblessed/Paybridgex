@@ -1,11 +1,136 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/lib/auth-server";
+import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { bumpTokenVersion } from "@/lib/security/session";
 import { toErrorResponse } from "@/lib/security/apiErrors";
+import { canAccessUser } from "@/lib/security/ownership";
+import { dec, toNumber } from "@/lib/money";
+
+const displayRole = (r: string) => {
+  const map: Record<string, string> = {
+    RETAILER: "retailer",
+    DISTRIBUTOR: "distributor",
+    MASTER_DISTRIBUTOR: "master-distributor",
+    SUPER_DISTRIBUTOR: "super-distributor",
+  };
+  return map[r] ?? r.toLowerCase();
+};
+
+const displayStatus = (s: string) => {
+  const map: Record<string, string> = {
+    ACTIVE: "Active",
+    PENDING_KYC: "Pending KYC",
+    SUSPENDED: "Suspended",
+    CLOSED: "Closed",
+  };
+  return map[s] ?? s;
+};
+
+/**
+ * GET — read-only detail for a network member the caller owns. A parent may
+ * inspect anyone in their downline (self + descendants); admins are
+ * unrestricted. Returns the member's business summary (wallet, MTD/lifetime
+ * turnover, commission earned, downline size) plus profile + scheme so a
+ * parent can supervise a child's business at a glance.
+ */
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  try {
+    const user = await requireAuth();
+
+    if (!(await canAccessUser(params.id, user))) {
+      return NextResponse.json(
+        { error: "This account is not in your network" },
+        { status: 403 }
+      );
+    }
+
+    const target = await prisma.user.findFirst({
+      where: { id: params.id, deletedAt: null },
+      select: {
+        id: true,
+        userCode: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        shopName: true,
+        city: true,
+        state: true,
+        walletBalance: true,
+        createdAt: true,
+        schemeId: true,
+        scheme: { select: { id: true, name: true } },
+        parent: { select: { id: true, name: true, role: true } },
+        _count: { select: { children: true } },
+      },
+    });
+    if (!target)
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const [mtd, today, lifetime, txnCount] = await Promise.all([
+      prisma.transaction.aggregate({
+        where: { userId: target.id, status: "SUCCESS", createdAt: { gte: monthStart } },
+        _sum: { amount: true, commission: true },
+      }),
+      prisma.transaction.aggregate({
+        where: { userId: target.id, status: "SUCCESS", createdAt: { gte: todayStart } },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: { userId: target.id, status: "SUCCESS" },
+        _sum: { amount: true, commission: true },
+      }),
+      prisma.transaction.count({ where: { userId: target.id } }),
+    ]);
+
+    return NextResponse.json({
+      user: {
+        id: target.id,
+        userCode: target.userCode,
+        name: target.name,
+        email: target.email,
+        phone: target.phone,
+        role: displayRole(target.role),
+        status: displayStatus(target.status),
+        shop: target.shopName ?? "—",
+        city: target.city ?? "—",
+        state: target.state ?? "—",
+        joined: target.createdAt.toLocaleDateString("en-IN", {
+          month: "short",
+          day: "2-digit",
+          year: "numeric",
+        }),
+        walletBalance: toNumber(dec(target.walletBalance)),
+        schemeId: target.schemeId,
+        schemeName: target.scheme?.name ?? null,
+        parent: target.parent
+          ? { id: target.parent.id, name: target.parent.name, role: displayRole(target.parent.role) }
+          : null,
+        downline: target._count.children,
+      },
+      stats: {
+        turnoverToday: toNumber(dec(today._sum.amount ?? 0)),
+        turnoverMtd: toNumber(dec(mtd._sum.amount ?? 0)),
+        turnoverLifetime: toNumber(dec(lifetime._sum.amount ?? 0)),
+        commissionMtd: toNumber(dec(mtd._sum.commission ?? 0)),
+        commissionLifetime: toNumber(dec(lifetime._sum.commission ?? 0)),
+        txnCount,
+      },
+    });
+  } catch (e) {
+    if (e instanceof AuthError)
+      return NextResponse.json({ error: e.message }, { status: e.statusCode });
+    return toErrorResponse(e);
+  }
+}
 
 /**
  * Network security switch: lets a distributor-tier parent suspend or

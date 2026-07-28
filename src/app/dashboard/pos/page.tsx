@@ -598,10 +598,12 @@ function TransactionsTab() {
     return allTerminals.filter((t) => t.ownerId && scopeIds.has(t.ownerId));
   }, [allTerminals, effectiveScope, members]);
 
-  // Auto-select when exactly one terminal matches.
+  // Auto-select when exactly one terminal matches. With several available and
+  // none chosen, we show an aggregated "all terminals" feed by default —
+  // selecting a terminal simply narrows it.
   const activeTerminal = terminalFilter || (filteredTerminals.length === 1 ? filteredTerminals[0].tid : "");
   const hasNoTerminals = treeData != null && allTerminals.length === 0;
-  const needsTerminalSelection = !hasNoTerminals && filteredTerminals.length > 1 && !activeTerminal;
+  const showingAllTerminals = !hasNoTerminals && filteredTerminals.length > 1 && !activeTerminal;
 
   // Earliest visible date for the selected terminal (assignment time).
   const activeTerminalData = activeTerminal
@@ -624,16 +626,18 @@ function TransactionsTab() {
     page_size: 50,
   };
 
-  // Only fetch transactions when we have tree data loaded and a terminal selected.
-  const canFetchTxn = treeData != null && !!activeTerminal && !needsTerminalSelection;
+  // Fetch once the tree has loaded and the caller owns at least one terminal.
+  // No specific terminal → aggregated "all terminals" feed.
+  const canFetchTxn = treeData != null && !hasNoTerminals;
 
   const { data, error, isLoading } = useSWR<PosTransactionsResponse>(
     canFetchTxn ? ["/api/pos/transactions", body] : null,
     postFetcher,
     {
-      // 5s keeps the feed feeling live without saturating the partner API —
-      // each poll is a full proxy round trip that competes with other requests.
-      refreshInterval: (latest) => (latest ? 5000 : 0),
+      // A single terminal is a cheap proxy round trip, so poll at 5s. The
+      // aggregated all-terminals feed crawls every terminal per poll, so ease
+      // off to 15s to stay well under the partner's rate limit.
+      refreshInterval: (latest) => (latest ? (activeTerminal ? 5000 : 15000) : 0),
       refreshWhenHidden: false,
       revalidateOnFocus: false,
       keepPreviousData: true,
@@ -778,7 +782,7 @@ function TransactionsTab() {
                   onChange={(e) => { setTerminalFilter(e.target.value); setPage(1); }}
                   className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
                 >
-                  <option value="">Select terminal</option>
+                  <option value="">All terminals</option>
                   {filteredTerminals.map((t) => (
                     <option key={t.tid} value={t.tid}>
                       {t.tid}{t.location ? ` — ${t.location}` : t.model ? ` — ${t.model}` : ""}
@@ -846,7 +850,7 @@ function TransactionsTab() {
               <label className="mb-1 block text-xs font-semibold text-ink-500">Terminal</label>
               <select value={terminalFilter} onChange={(e) => { setTerminalFilter(e.target.value); setPage(1); }}
                 className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
-                <option value="">Select terminal</option>
+                <option value="">All terminals</option>
                 {filteredTerminals.map((t) => (
                   <option key={t.tid} value={t.tid}>
                     {t.tid}{t.location ? ` — ${t.location}` : t.model ? ` — ${t.model}` : ""}
@@ -876,19 +880,14 @@ function TransactionsTab() {
           <AlertCircle className="h-4 w-4 shrink-0" />
           No POS terminals are assigned to your account yet.
         </div>
-      ) : needsTerminalSelection ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          Select one of your terminals to view its transactions.
-        </div>
       ) : error ? (
         <ErrorBanner message={error instanceof Error ? error.message : "Failed to load transactions."} />
       ) : (
         <DataTable
-          title="POS Transactions"
+          title={showingAllTerminals ? "POS Transactions · All terminals" : "POS Transactions"}
           description={
             pagination
-              ? `${pagination.total_records} total · page ${pagination.page} of ${pagination.total_pages}`
+              ? `${pagination.total_records} total · page ${pagination.page} of ${pagination.total_pages}${showingAllTerminals ? ` · ${filteredTerminals.length} terminals` : ""}`
               : isLoading
                 ? "Loading..."
                 : "No data yet"

@@ -6,6 +6,7 @@ import { enrichPosTransactions } from "@/lib/pos/enrich";
 import { prisma } from "@/lib/db";
 import { flags } from "@/lib/env";
 import { scopePosTerminals } from "@/lib/pos/assignments";
+import { crawlScopedTransactions } from "@/lib/pos/aggregate";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import type { PosTransaction } from "@/lib/partners/sameday-pos.types";
@@ -61,7 +62,10 @@ export async function POST(req: Request) {
   const filters = parsed.data;
 
   // Ownership: non-admins may only export their own terminals' transactions.
+  // With no terminal picked and several owned, we aggregate across all of them
+  // (an "all my terminals" report) instead of forcing a selection.
   const scope = await scopePosTerminals(user);
+  let aggregate = false;
   if (!scope.all) {
     if (scope.tids.length === 0)
       return NextResponse.json({ error: "No POS terminals are assigned to your account" }, { status: 403 });
@@ -71,19 +75,59 @@ export async function POST(req: Request) {
     } else if (scope.tids.length === 1) {
       filters.terminal_id = scope.tids[0];
     } else {
-      return NextResponse.json(
-        { error: "Select one of your terminals to export", terminals: scope.tids },
-        { status: 400 }
-      );
+      aggregate = true;
     }
 
     // Clamp date_from so exports only include transactions from after the
-    // terminal was assigned to this user/downline.
-    const match = scope.terminals.find((t) => t.tid === filters.terminal_id);
-    if (match?.assignedAt) {
-      const assignedIso = match.assignedAt.toISOString();
-      if (filters.date_from < assignedIso) filters.date_from = assignedIso;
+    // terminal was assigned to this user/downline. (Aggregation clamps
+    // per-terminal internally.)
+    if (!aggregate) {
+      const match = scope.terminals.find((t) => t.tid === filters.terminal_id);
+      if (match?.assignedAt) {
+        const assignedIso = match.assignedAt.toISOString();
+        if (filters.date_from < assignedIso) filters.date_from = assignedIso;
+      }
     }
+  }
+
+  // Aggregated multi-terminal export: crawl every owned terminal and merge.
+  if (aggregate) {
+    const { rows: merged, truncated } = await crawlScopedTransactions(
+      scope.terminals,
+      {
+        date_from: filters.date_from,
+        date_to: filters.date_to,
+        status: filters.status ?? null,
+        payment_mode: filters.payment_mode ?? null,
+      },
+      { maxTotalRows: MAX_ROWS }
+    );
+
+    const rows = await enrichPosTransactions(merged);
+
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "pos.export.download",
+        entity: "PosExport",
+        entityId: `${filters.date_from}_${filters.date_to}`,
+        meta: {
+          rows: rows.length,
+          truncated,
+          status: filters.status ?? null,
+          payment_mode: filters.payment_mode ?? null,
+          terminal_id: null,
+          aggregated: true,
+        },
+      },
+    }).catch(() => {});
+
+    return NextResponse.json({
+      rows,
+      total: rows.length,
+      returned: rows.length,
+      truncated,
+    });
   }
 
   // Paginate the partner feed until exhausted or the safety cap is hit.

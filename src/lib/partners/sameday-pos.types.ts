@@ -132,6 +132,8 @@ export interface PosEnrichmentMeta {
   reason?: "BIN_PROVIDER_LOW_BALANCE";
   /** Whether the Classification column should be shown (admin `showInUi` toggle). */
   showClassification?: boolean;
+  /** Set on the aggregated multi-terminal feed when a crawl cap was hit. */
+  truncated?: boolean;
 }
 
 export interface PosTransactionsResponse {

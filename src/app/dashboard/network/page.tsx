@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Search, Filter, PackagePlus, RefreshCw, ShieldCheck, ShieldOff, Loader2,
-  Wallet, ArrowUpDown, Monitor, Layers, X, Check, AlertCircle,
+  Wallet, ArrowUpDown, Monitor, Layers, X, Check, AlertCircle, Eye,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
@@ -153,10 +153,10 @@ export default function NetworkPage() {
       key: "name",
       header: meta.header,
       render: (r) => (
-        <div>
-          <div className="font-semibold text-ink-900">{r.name}</div>
+        <Link href={`/dashboard/network/${r.id}`} className="group block">
+          <div className="font-semibold text-ink-900 group-hover:text-brand-700 group-hover:underline">{r.name}</div>
           <div className="text-xs text-ink-500">{r.shop} · <span className="font-medium text-brand-600">{r.userCode ?? r.id.slice(0, 8)}</span></div>
-        </div>
+        </Link>
       ),
     },
     { key: "city", header: "Location", render: (r) => `${r.city}, ${r.state}` },
@@ -192,6 +192,13 @@ export default function NetworkPage() {
         if (r.status === "Closed") return null;
         return (
           <div className="flex items-center gap-1">
+            <Link
+              href={`/dashboard/network/${r.id}`}
+              title="View business, transactions & activity"
+              className="rounded-lg p-1.5 text-ink-500 hover:bg-brand-50 hover:text-brand-700"
+            >
+              <Eye className="h-4 w-4" />
+            </Link>
             <button
               onClick={() => setActionTarget({ user: r, action: "wallet" })}
               title="Push / Pull balance"

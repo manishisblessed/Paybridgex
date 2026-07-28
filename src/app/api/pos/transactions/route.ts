@@ -7,6 +7,7 @@ import { getBinLastLowBalanceAt } from "@/lib/pos/binLookup";
 import { getCardClassificationSetting } from "@/lib/settings";
 import { flags } from "@/lib/env";
 import { scopePosTerminals } from "@/lib/pos/assignments";
+import { crawlScopedTransactions } from "@/lib/pos/aggregate";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { assertServiceEnabled } from "@/lib/services/guard";
@@ -55,7 +56,13 @@ export async function POST(req: Request) {
 
   // Ownership: non-admins may only query terminals assigned to them/their
   // downline. Prevents pulling the tenant-wide partner transaction feed.
+  //
+  // When a non-admin owns several terminals and hasn't picked one, we default
+  // to an aggregated "all my terminals" view (crawl each, merge, paginate)
+  // rather than forcing a selection. A single terminal is still a direct
+  // partner query.
   const scope = await scopePosTerminals(user);
+  let aggregate = false;
   if (!scope.all) {
     if (scope.tids.length === 0)
       return NextResponse.json({ error: "No POS terminals are assigned to your account" }, { status: 403 });
@@ -65,21 +72,74 @@ export async function POST(req: Request) {
     } else if (scope.tids.length === 1) {
       parsed.data.terminal_id = scope.tids[0];
     } else {
-      return NextResponse.json(
-        { error: "Select one of your terminals to view its transactions", terminals: scope.tids },
-        { status: 400 }
-      );
+      aggregate = true;
     }
 
     // Clamp date_from so users only see transactions from after the terminal
     // was assigned to them (or their downline). Prevents viewing the previous
-    // holder's transactions.
-    const match = scope.terminals.find((t) => t.tid === parsed.data.terminal_id);
-    if (match?.assignedAt) {
-      const assignedIso = match.assignedAt.toISOString();
-      if (parsed.data.date_from < assignedIso) {
-        parsed.data.date_from = assignedIso;
+    // holder's transactions. (Aggregation clamps per-terminal internally.)
+    if (!aggregate) {
+      const match = scope.terminals.find((t) => t.tid === parsed.data.terminal_id);
+      if (match?.assignedAt) {
+        const assignedIso = match.assignedAt.toISOString();
+        if (parsed.data.date_from < assignedIso) {
+          parsed.data.date_from = assignedIso;
+        }
       }
+    }
+  }
+
+  // Aggregated multi-terminal path: crawl the caller's terminals, merge and
+  // paginate in-memory, and enrich only the page we return.
+  if (aggregate) {
+    try {
+      const { rows, summary, truncated } = await crawlScopedTransactions(
+        scope.terminals,
+        {
+          date_from: parsed.data.date_from,
+          date_to: parsed.data.date_to,
+          status: parsed.data.status ?? null,
+          payment_mode: parsed.data.payment_mode ?? null,
+        }
+      );
+
+      const page = parsed.data.page;
+      const pageSize = parsed.data.page_size;
+      const totalRecords = rows.length;
+      const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+      const start = (page - 1) * pageSize;
+      const pageRows = rows.slice(start, start + pageSize);
+
+      const enrichStartedAt = Date.now();
+      const [enriched, cardClassification] = await Promise.all([
+        enrichPosTransactions(pageRows),
+        getCardClassificationSetting(),
+      ]);
+      const classificationDegraded =
+        cardClassification.enabled && getBinLastLowBalanceAt() >= enrichStartedAt;
+
+      return NextResponse.json({
+        success: true,
+        company: "",
+        data: enriched,
+        pagination: {
+          page,
+          page_size: pageSize,
+          total_records: totalRecords,
+          total_pages: totalPages,
+          has_next: page < totalPages,
+          has_prev: page > 1,
+        },
+        summary,
+        enrichment: {
+          classificationDegraded,
+          showClassification: cardClassification.showInUi,
+          truncated,
+          ...(classificationDegraded ? { reason: "BIN_PROVIDER_LOW_BALANCE" as const } : {}),
+        },
+      });
+    } catch (e) {
+      return toErrorResponse(e);
     }
   }
 

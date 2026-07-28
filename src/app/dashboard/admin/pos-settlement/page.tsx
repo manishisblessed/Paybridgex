@@ -49,6 +49,49 @@ function statusVariant(s: string): "success" | "warning" | "danger" | "default" 
   return "default";
 }
 
+function ToggleRow({
+  label,
+  hint,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-ink-100 bg-white px-4 py-3">
+      <div>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-ink-800">{label}</p>
+          <Badge variant={checked ? "success" : "default"}>{checked ? "ON" : "OFF"}</Badge>
+        </div>
+        <p className="mt-0.5 text-[11px] text-ink-400">{hint}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          checked ? "bg-brand-600" : "bg-ink-200"
+        }`}
+      >
+        <span
+          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+            checked ? "translate-x-5" : "translate-x-0.5"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
 export default function PosSettlementPage() {
   const [data, setData] = useState<ApiData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -233,6 +276,46 @@ export default function PosSettlementPage() {
         }
       />
 
+      {/* Instant settlement — prominent, retailer-controlled control */}
+      <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="max-w-2xl">
+            <h3 className="mb-1 flex items-center gap-2 text-base font-bold text-ink-900">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-600/10">
+                <Zap className="h-4 w-4 text-brand-600" />
+              </span>
+              Instant settlement (retailer-controlled)
+            </h3>
+            <p className="text-xs text-ink-500">
+              When <strong>ON</strong>, retailers see an <strong>&quot;Instant settle&quot;</strong> action and can
+              hand-pick individual transactions to settle now at the T0 rate. Anything they don&apos;t pick
+              auto-settles on the next-day T+1 sweep. When <strong>OFF</strong>, every transaction simply settles T+1.
+            </p>
+          </div>
+          {savingButton && (
+            <span className="flex items-center gap-1.5 text-xs text-ink-400">
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Saving…
+            </span>
+          )}
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <ToggleRow
+            label="POS instant settle"
+            hint="Retailers can instant-settle selected POS captures"
+            checked={instantButton.posEnabled}
+            disabled={savingButton}
+            onChange={(v) => saveButton({ ...instantButton, posEnabled: v })}
+          />
+          <ToggleRow
+            label="QR instant settle"
+            hint="Retailers can instant-settle approved QR claims"
+            checked={instantButton.qrEnabled}
+            disabled={savingButton}
+            onChange={(v) => saveButton({ ...instantButton, qrEnabled: v })}
+          />
+        </div>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-2">
         {/* T+1 time config */}
         <div className="rounded-2xl border border-ink-100 bg-white p-5">
@@ -377,38 +460,6 @@ export default function PosSettlementPage() {
             </div>
             <p className="mt-2 text-[11px] text-ink-400">Leave dates empty to use the configured lookback window.</p>
           </div>
-        </div>
-      </div>
-
-      {/* Retailer-facing instant settlement button (admin-controlled per rail) */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5">
-        <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-ink-900">
-          <Zap className="h-4 w-4 text-brand-600" /> Instant settlement button
-        </h3>
-        <p className="mb-4 text-[11px] text-ink-400">
-          Controls whether retailers see the &quot;Instant settle&quot; action on their POS and QR dashboards. When a
-          rail is off, retailers can&apos;t settle at the T0 rate — those transactions simply auto-settle on the next-day
-          T+1 sweep.
-        </p>
-        <div className="flex flex-wrap gap-6">
-          <label className="flex items-center gap-2 text-sm text-ink-700">
-            <input
-              type="checkbox"
-              disabled={savingButton}
-              checked={instantButton.posEnabled}
-              onChange={(e) => saveButton({ ...instantButton, posEnabled: e.target.checked })}
-            />
-            POS instant settle enabled
-          </label>
-          <label className="flex items-center gap-2 text-sm text-ink-700">
-            <input
-              type="checkbox"
-              disabled={savingButton}
-              checked={instantButton.qrEnabled}
-              onChange={(e) => saveButton({ ...instantButton, qrEnabled: e.target.checked })}
-            />
-            QR instant settle enabled
-          </label>
         </div>
       </div>
 
