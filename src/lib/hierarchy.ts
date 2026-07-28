@@ -38,6 +38,42 @@ export const NETWORK_TIERS: DbRole[] = [
   "SUPER_DISTRIBUTOR",
 ];
 
+/**
+ * Kebab-case display slugs for the four network roles. These match the `role`
+ * query param accepted by `GET /api/admin/users` and the display role returned
+ * by that endpoint.
+ */
+export type NetworkRoleSlug =
+  | "retailer"
+  | "distributor"
+  | "master-distributor"
+  | "super-distributor";
+
+/** Role filter value used by the shared user picker (`all` = every tier). */
+export type RoleTabValue = "all" | NetworkRoleSlug;
+
+/**
+ * Role filter tabs for user pickers — the single source of truth for the
+ * "select a role, then pick a user" UX used across the app (POS terminal
+ * assignment, scheme assignment, POS rental, etc.). `value` maps directly to
+ * the `/api/admin/users` `role` param.
+ */
+export const ROLE_TABS: readonly { value: RoleTabValue; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "super-distributor", label: "SD" },
+  { value: "master-distributor", label: "MD" },
+  { value: "distributor", label: "DT" },
+  { value: "retailer", label: "RT" },
+] as const;
+
+/** Short badge label (RT/DT/MD/SD) for a kebab-case display role. */
+export const ROLE_SHORT_LABEL: Record<string, string> = {
+  retailer: "RT",
+  distributor: "DT",
+  "master-distributor": "MD",
+  "super-distributor": "SD",
+};
+
 /** Staff/admin roles (not part of the onboarding chain). */
 export const STAFF_ROLES: DbRole[] = ["SUPPORT", "ADMIN", "MASTER_ADMIN"];
 

@@ -14,6 +14,10 @@ import {
 } from "@/lib/hierarchy";
 import { env } from "@/lib/env";
 import { renderInviteEmail } from "@/lib/email/templates";
+import { getAdminInviteScope } from "@/lib/security/ownership";
+
+// How long an onboarding invite link stays valid after it is created.
+const INVITE_EXPIRY_DAYS = 15;
 
 const CreateBody = z.object({
   phone: z.string().min(10).max(15),
@@ -114,7 +118,7 @@ export async function POST(req: Request) {
       role,
       parentId,
       invitedById: user.id,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
     },
   });
 
@@ -187,8 +191,13 @@ export async function GET(req: Request) {
     throw e;
   }
 
-  // Only admin roles can list all invites (user data protection)
-  if (!["MASTER_ADMIN", "ADMIN"].includes(user.role)) {
+  // Master admin sees every invite. A plain admin can only see invites when a
+  // master admin has granted the "invites" tab, and even then their view is
+  // scoped to their own hierarchy (the SDs they onboarded + downline).
+  const isMasterAdmin = user.role === "MASTER_ADMIN";
+  const isPermittedAdmin =
+    user.role === "ADMIN" && (user.allowedTabs ?? []).includes("invites");
+  if (!isMasterAdmin && !isPermittedAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -197,7 +206,19 @@ export async function GET(req: Request) {
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
   const limit = Math.min(100, parseInt(searchParams.get("limit") ?? "20"));
 
-  const where = status ? { status: status as any } : {};
+  const statusWhere = status ? { status: status as any } : {};
+  let where: any = statusWhere;
+  if (!isMasterAdmin) {
+    const { actorIds, treeIds } = await getAdminInviteScope(user);
+    // Visible if the admin (or someone in their tree) created the invite, or
+    // the invite targets a user in their tree (registered userId / pending
+    // parentId). actorIds always contains the admin's own id.
+    const scopeOr: any[] = [{ invitedById: { in: actorIds } }];
+    if (treeIds.length) {
+      scopeOr.push({ userId: { in: treeIds } }, { parentId: { in: treeIds } });
+    }
+    where = { ...statusWhere, OR: scopeOr };
+  }
 
   const [invites, total] = await Promise.all([
     prisma.invite.findMany({
@@ -215,7 +236,7 @@ export async function GET(req: Request) {
   const anchorIds = [
     ...new Set(
       invites
-        .flatMap((i) => [i.userId, i.parentId])
+        .flatMap((i) => [i.userId, i.parentId, i.invitedById])
         .filter((id): id is string => Boolean(id))
     ),
   ];
@@ -283,9 +304,21 @@ export async function GET(req: Request) {
       if (regUser) registeredUserCode = regUser.userCode ?? null;
     }
 
+    // Who shared/created this invite (any user in the network or staff).
+    const inviter = inv.invitedById ? anchorMap.get(inv.invitedById) : null;
+
     return {
       ...inv,
       userCode: registeredUserCode,
+      invitedBy: inviter
+        ? {
+            id: inviter.id,
+            name: inviter.name,
+            role: inviter.role,
+            userCode: inviter.userCode ?? null,
+          }
+        : null,
+      onboardingLink: `${env.NEXT_PUBLIC_APP_URL}/onboard?token=${inv.token}`,
       upline: upline.map((n) => ({
         role: n.role,
         name: n.name,

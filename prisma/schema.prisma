@@ -2297,11 +2297,22 @@ model BrandMdrRate {
   minAmount Decimal @db.Decimal(14, 2)
   maxAmount Decimal @db.Decimal(14, 2)
 
-  // MDR charged for this band. mdrValue is the T+1 (standard) rate; mdrValueT0
-  // applies to instant (T+0) settlement and falls back to mdrValue when unset.
+  // Vendor/acquirer cost the company pays upstream for this band. mdrValue is
+  // the T+1 (standard) rate; mdrValueT0 applies to instant (T+0) settlement and
+  // falls back to mdrValue when unset.
   mdrType    RateType @default(PERCENT)
   mdrValue   Decimal  @default(0) @db.Decimal(14, 4)
   mdrValueT0 Decimal  @default(0) @db.Decimal(14, 4)
+
+  // Minimum MDR the company will offer downstream — vendor cost PLUS the
+  // company's own guaranteed margin. A scheme's POS service charge can never be
+  // set below this, so the company never books a loss (company margin =
+  // minMdrValue − mdrValue). The commission pool distributed to the chain is
+  // whatever the scheme prices ABOVE this minimum (service − minMdr). Same
+  // RateType as mdrValue. minMdrValueT0 applies to instant settlement and falls
+  // back to minMdrValue when unset.
+  minMdrValue   Decimal @default(0) @db.Decimal(14, 4)
+  minMdrValueT0 Decimal @default(0) @db.Decimal(14, 4)
 
   active    Boolean  @default(true)
   createdAt DateTime @default(now())

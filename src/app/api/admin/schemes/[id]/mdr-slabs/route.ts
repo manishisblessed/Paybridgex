@@ -23,7 +23,7 @@ async function lockPosVendorToBrandRate(input: {
   mdrType: "FLAT" | "PERCENT";
   minAmount: number;
 }): Promise<
-  | { ok: true; vendorCharge: number; vendorChargeT0: number }
+  | { ok: true; vendorCharge: number; vendorChargeT0: number; minMdr: number; minMdrT0: number }
   | { ok: false; error: string }
 > {
   const company = input.company?.trim();
@@ -57,10 +57,18 @@ async function lockPosVendorToBrandRate(input: {
       error: `MDR type must be ${approved.mdrType} to match the approved rate for ${company}.`,
     };
   }
+  const vendorCharge = Number(approved.mdrValue);
+  // Minimum MDR is the floor offered downstream (vendor + company margin). When
+  // a brand hasn't set one yet it defaults to the vendor cost (zero company
+  // margin), preserving the legacy "service ≥ vendor" behavior.
+  const minMdr = Number(approved.minMdrValue) > 0 ? Number(approved.minMdrValue) : vendorCharge;
+  const minMdrT0 = Number(approved.minMdrValueT0) > 0 ? Number(approved.minMdrValueT0) : minMdr;
   return {
     ok: true,
-    vendorCharge: Number(approved.mdrValue),
+    vendorCharge,
     vendorChargeT0: Number(approved.mdrValueT0),
+    minMdr,
+    minMdrT0,
   };
 }
 
@@ -215,6 +223,69 @@ function validateMarginVsCommission(b: {
   return null;
 }
 
+const pct = (frac: number) => `${(frac * 100).toFixed(2)}%`;
+
+/**
+ * POS-specific pricing rule (Brands "Minimum MDR" model):
+ *   - Service charge (MDR) can never be below the brand's Minimum MDR, so the
+ *     company always keeps its guaranteed margin (Minimum MDR − vendor cost).
+ *   - The commission pool distributed to DT/MD/SD is exactly what the scheme
+ *     prices ABOVE the minimum: pool = Service − Minimum MDR. The three tiers
+ *     must sum to it EXACTLY (per leg). T+0 uses its own service/minimum; an
+ *     unset T+0 service falls back to T+1 (mirrors the rate resolver), but T+0
+ *     commissions do NOT fall back — they must be explicit to balance the pool.
+ * All POS values are percentages (fractions); enforced Percent-only upstream.
+ */
+function validatePosCommissionEquality(
+  b: {
+    mdrType: "FLAT" | "PERCENT";
+    mdrValue: number;
+    mdrValueT0: number;
+    commissionType: "FLAT" | "PERCENT";
+    commissionDistributor: number;
+    commissionMaster: number;
+    commissionSuperDistributor: number;
+    commissionDistributorT0: number;
+    commissionMasterT0: number;
+    commissionSuperDistributorT0: number;
+  },
+  minMdr: number,
+  minMdrT0: number
+): string | null {
+  const EPS = 1e-6;
+  if (b.mdrType !== "PERCENT")
+    return "POS MDR must be a percentage.";
+  if (b.commissionType !== "PERCENT")
+    return "POS commission must be a percentage (to match the MDR).";
+
+  const svcT1 = b.mdrValue;
+  const svcT0 = b.mdrValueT0 > 0 ? b.mdrValueT0 : b.mdrValue;
+  const minT1 = minMdr;
+  const minT0 = minMdrT0 > 0 ? minMdrT0 : minMdr;
+
+  // Floor: service charge can never be below the brand's Minimum MDR.
+  if (svcT1 - minT1 < -EPS)
+    return `Service charge ${pct(svcT1)} is below the brand's Minimum MDR of ${pct(minT1)}. No retailer can be given a rate below the Minimum MDR — raise the service charge to at least ${pct(minT1)}.`;
+  if (svcT0 - minT0 < -EPS)
+    return `T+0 (instant) service charge ${pct(svcT0)} is below the T+0 Minimum MDR of ${pct(minT0)}. Raise it to at least ${pct(minT0)}.`;
+
+  // Commission pool = service − minimum; the chain must consume it exactly.
+  const poolT1 = svcT1 - minT1;
+  const poolT0 = svcT0 - minT0;
+  const sumT1 = b.commissionDistributor + b.commissionMaster + b.commissionSuperDistributor;
+  const sumT0 = b.commissionDistributorT0 + b.commissionMasterT0 + b.commissionSuperDistributorT0;
+
+  if (Math.abs(sumT1 - poolT1) > EPS) {
+    const diff = sumT1 - poolT1;
+    return `Total DT+MD+SD commission (T+1) must equal the commission pool of ${pct(poolT1)} (Service ${pct(svcT1)} − Min MDR ${pct(minT1)}). It's currently ${pct(sumT1)} — ${diff > 0 ? "over" : "short"} by ${pct(Math.abs(diff))}.`;
+  }
+  if (Math.abs(sumT0 - poolT0) > EPS) {
+    const diff = sumT0 - poolT0;
+    return `Total DT+MD+SD commission (T+0 instant) must equal the T+0 commission pool of ${pct(poolT0)} (Service ${pct(svcT0)} − Min MDR ${pct(minT0)}). It's currently ${pct(sumT0)} — ${diff > 0 ? "over" : "short"} by ${pct(Math.abs(diff))}.`;
+  }
+  return null;
+}
+
 /** POST — add an MDR slab to a scheme (band-overlap validated). */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   let admin;
@@ -232,7 +303,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const b = parsed.data;
 
-  // POS: lock vendor to the company-approved brand rate (blocks below-cost MDR).
+  // POS pricing is always a percentage of the transaction.
+  if (b.serviceKind === "POS" && (b.mdrType !== "PERCENT" || b.commissionType !== "PERCENT"))
+    return NextResponse.json(
+      { error: "POS MDR and commission must both be percentages." },
+      { status: 400 }
+    );
+
+  // POS: lock vendor to the company-approved brand rate and capture the brand's
+  // Minimum MDR (the downstream floor) for the commission-pool equality check.
+  let posMinMdr = 0;
+  let posMinMdrT0 = 0;
   if (b.serviceKind === "POS") {
     const lock = await lockPosVendorToBrandRate({
       company: b.company,
@@ -246,6 +327,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
     b.vendorCharge = lock.vendorCharge;
     b.vendorChargeT0 = lock.vendorChargeT0;
+    posMinMdr = lock.minMdr;
+    posMinMdrT0 = lock.minMdrT0;
   }
 
   // PG / QR: lock vendor to the provider-approved rail rate (blocks below-cost MDR).
@@ -296,7 +379,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   );
   if (floorErr) return NextResponse.json({ error: floorErr }, { status: 400 });
 
-  const marginErr = validateMarginVsCommission(b);
+  // POS uses the Minimum-MDR pool equality; other rails use the ≤-margin guard.
+  const marginErr =
+    b.serviceKind === "POS"
+      ? validatePosCommissionEquality(b, posMinMdr, posMinMdrT0)
+      : validateMarginVsCommission(b);
   if (marginErr) return NextResponse.json({ error: marginErr }, { status: 400 });
 
   // Validate overlap and create for each target scheme.
@@ -435,9 +522,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   );
   if (overlap) return NextResponse.json({ error: overlap }, { status: 400 });
 
-  // POS: re-lock vendor to the approved brand rate when a pricing/dimension
-  // field changes. Partial edits (e.g. toggling `active`) skip this so they
-  // aren't blocked by legacy slabs.
+  // POS: re-lock vendor to the approved brand rate when a pricing/dimension OR
+  // commission field changes. Partial edits (e.g. toggling `active`) skip this
+  // so they aren't blocked by legacy slabs.
   const pricingTouched =
     b.mdrValue !== undefined ||
     b.mdrValueT0 !== undefined ||
@@ -445,7 +532,20 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     b.vendorCharge !== undefined ||
     b.company !== undefined ||
     b.paymentMode !== undefined;
-  if (existing.serviceKind === "POS" && pricingTouched) {
+  const commissionTouched =
+    b.commissionType !== undefined ||
+    b.commissionDistributor !== undefined ||
+    b.commissionMaster !== undefined ||
+    b.commissionSuperDistributor !== undefined ||
+    b.commissionDistributorT0 !== undefined ||
+    b.commissionMasterT0 !== undefined ||
+    b.commissionSuperDistributorT0 !== undefined;
+  let posMinMdr = 0;
+  let posMinMdrT0 = 0;
+  const posRevalidate = existing.serviceKind === "POS" && (pricingTouched || commissionTouched);
+  if (posRevalidate) {
+    if ((b.mdrType ?? existing.mdrType) !== "PERCENT" || (b.commissionType ?? existing.commissionType) !== "PERCENT")
+      return NextResponse.json({ error: "POS MDR and commission must both be percentages." }, { status: 400 });
     const lock = await lockPosVendorToBrandRate({
       company: next.company,
       paymentMode: next.paymentMode,
@@ -458,6 +558,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
     b.vendorCharge = lock.vendorCharge;
     b.vendorChargeT0 = lock.vendorChargeT0;
+    posMinMdr = lock.minMdr;
+    posMinMdrT0 = lock.minMdrT0;
   }
 
   if ((existing.serviceKind === "PG" || existing.serviceKind === "QR") && pricingTouched) {
@@ -488,7 +590,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   );
   if (floorErr) return NextResponse.json({ error: floorErr }, { status: 400 });
 
-  const marginErr = validateMarginVsCommission({
+  const mergedForCheck = {
     mdrType: b.mdrType ?? existing.mdrType,
     mdrValue: b.mdrValue ?? Number(existing.mdrValue),
     mdrValueT0: b.mdrValueT0 ?? Number(existing.mdrValueT0),
@@ -503,7 +605,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     commissionMasterT0: b.commissionMasterT0 ?? Number(existing.commissionMasterT0),
     commissionSuperDistributorT0:
       b.commissionSuperDistributorT0 ?? Number(existing.commissionSuperDistributorT0),
-  });
+  };
+
+  // POS (when pricing/commission changed): enforce the Minimum-MDR pool
+  // equality. Other rails keep the ≤-margin guard. Untouched POS edits (e.g.
+  // active toggle) skip revalidation so legacy slabs aren't blocked.
+  const marginErr = posRevalidate
+    ? validatePosCommissionEquality(mergedForCheck, posMinMdr, posMinMdrT0)
+    : existing.serviceKind === "POS"
+    ? null
+    : validateMarginVsCommission(mergedForCheck);
   if (marginErr) return NextResponse.json({ error: marginErr }, { status: 400 });
 
   const updated = await prisma.mdrSlab.update({

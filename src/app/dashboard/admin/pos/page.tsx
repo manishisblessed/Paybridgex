@@ -34,6 +34,7 @@ import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { AssignUserPicker, type PickerUser } from "@/components/ui/AssignUserPicker";
 import { cn, formatINR } from "@/lib/utils";
 import { posClassificationLabel } from "@/lib/pos/classification";
 import { type ReportColumn } from "@/lib/reports";
@@ -686,8 +687,6 @@ function MachinesTab() {
 // ── Assign modal: search a user and assign the machine ──
 // Rental plans & subscriptions are managed exclusively in the POS Rental tab.
 
-type UserSearchResult = { id: string; name: string; role: string; city: string; shop: string };
-
 function AssignModal({
   machines,
   onClose,
@@ -697,20 +696,11 @@ function AssignModal({
   onClose: () => void;
   onAssigned: () => void;
 }) {
-  const [q, setQ] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [selectedUser, setSelectedUser] = useState<UserSearchResult | null>(null);
+  const [selectedUser, setSelectedUser] = useState<PickerUser | null>(null);
 
   const single = machines.length === 1 ? machines[0] : null;
-
-  const { data, isLoading } = useSWR<{ users: UserSearchResult[] }>(
-    `/api/admin/users?role=all&q=${encodeURIComponent(q)}&pageSize=10`,
-    fetcher,
-    { revalidateOnFocus: false, keepPreviousData: true }
-  );
-
-  const users = data?.users ?? [];
 
   const assign = useCallback(async () => {
     if (!selectedUser) return;
@@ -782,19 +772,8 @@ function AssignModal({
           {!selectedUser ? (
             <>
               <p className="mb-3 text-xs text-ink-500">
-                Assign to any network user — <span className="font-semibold text-brand-700">Retailer, Distributor, Master-Distributor or Super-Distributor</span>. The terminal (and its transactions) stays visible up the chain to their uplines, and the assignee&apos;s scheme drives MDR &amp; the commission split.
+                Pick a role, then select the user — <span className="font-semibold text-brand-700">Retailer, Distributor, Master-Distributor or Super-Distributor</span>. The terminal (and its transactions) stays visible up the chain to their uplines, and the assignee&apos;s scheme drives MDR &amp; the commission split.
               </p>
-              <div className="relative mb-3">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
-                <input
-                  autoFocus
-                  type="text"
-                  placeholder="Search users by name, shop, city, code..."
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  className="w-full rounded-lg border border-ink-200 py-2 pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-                />
-              </div>
 
               {err && (
                 <div className="mb-3 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
@@ -802,37 +781,11 @@ function AssignModal({
                 </div>
               )}
 
-              <div className="max-h-72 divide-y divide-ink-100 overflow-y-auto rounded-lg border border-ink-100">
-                {isLoading && users.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-sm text-ink-500">Loading users…</div>
-                ) : users.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-sm text-ink-500">No users found.</div>
-                ) : (
-                  users.map((u) => {
-                    const isCurrent = single ? u.id === single.assignedUserId : false;
-                    return (
-                      <button
-                        key={u.id}
-                        disabled={isCurrent}
-                        onClick={() => setSelectedUser(u)}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-brand-50/50 disabled:opacity-50"
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-ink-900">{u.name}</div>
-                          <div className="truncate text-xs text-ink-500">
-                            {u.role} · {u.shop !== "—" ? u.shop : u.city}
-                          </div>
-                        </div>
-                        {isCurrent ? (
-                          <Badge variant="success"><Check className="h-3 w-3" /> Current</Badge>
-                        ) : (
-                          <UserPlus className="h-4 w-4 shrink-0 text-brand-600" />
-                        )}
-                      </button>
-                    );
-                  })
-                )}
-              </div>
+              <AssignUserPicker
+                autoFocus
+                currentUserId={single?.assignedUserId ?? null}
+                onSelect={(u) => setSelectedUser(u)}
+              />
             </>
           ) : (
             <>

@@ -6,6 +6,12 @@ import { clientIp } from "@/lib/security/audit";
 import { getPartner } from "@/lib/partners";
 import { env } from "@/lib/env";
 import { renderInviteEmail, renderAccountApprovedEmail } from "@/lib/email/templates";
+import { adminInviteInScope } from "@/lib/security/ownership";
+
+// A plain admin needs the master-admin-granted "invites" tab to touch invites.
+function adminLacksInvitePermission(user: { role: string; allowedTabs?: string[] }): boolean {
+  return user.role === "ADMIN" && !(user.allowedTabs ?? []).includes("invites");
+}
 
 const PatchBody = z.object({
   action: z.enum(["approve", "reject", "resend", "update"]),
@@ -34,6 +40,9 @@ export async function PATCH(
   if (!["MASTER_ADMIN", "ADMIN", "SUPPORT"].includes(user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  if (adminLacksInvitePermission(user)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const { id } = await params;
   const parsed = PatchBody.safeParse(await req.json());
@@ -43,6 +52,11 @@ export async function PATCH(
   const invite = await prisma.invite.findUnique({ where: { id } });
   if (!invite) {
     return NextResponse.json({ error: "Invite not found" }, { status: 404 });
+  }
+
+  // An admin may only act on invites within their own hierarchy scope.
+  if (!(await adminInviteInScope(user, invite))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   if (parsed.data.action === "update") {
@@ -364,11 +378,19 @@ export async function GET(
   if (!["MASTER_ADMIN", "ADMIN", "SUPPORT"].includes(user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  if (adminLacksInvitePermission(user)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const { id } = await params;
   const invite = await prisma.invite.findUnique({ where: { id } });
   if (!invite) {
     return NextResponse.json({ error: "Invite not found" }, { status: 404 });
+  }
+
+  // An admin may only view invites within their own hierarchy scope.
+  if (!(await adminInviteInScope(user, invite))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const allResults = await prisma.verificationResult.findMany({
@@ -420,6 +442,16 @@ export async function GET(
     });
   }
 
+  // Who shared/created this invite (network distributor or staff member).
+  const invitedBy = invite.invitedById
+    ? await prisma.user.findUnique({
+        where: { id: invite.invitedById },
+        select: { id: true, name: true, role: true, userCode: true },
+      })
+    : null;
+
+  const onboardingLink = `${env.NEXT_PUBLIC_APP_URL}/onboard?token=${invite.token}`;
+
   // Successor (upline) responsibility declaration approvals for this invite,
   // so admins can audit who approved the subordinate and see the evidence.
   const declarationApprovalRows = await prisma.declarationApproval.findMany({
@@ -458,6 +490,8 @@ export async function GET(
 
   return NextResponse.json({
     invite,
+    invitedBy,
+    onboardingLink,
     verifications,
     documents,
     registeredUser,

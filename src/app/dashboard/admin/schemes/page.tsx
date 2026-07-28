@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label, Select } from "@/components/ui/Input";
+import { AssignUserPicker, type PickerUser } from "@/components/ui/AssignUserPicker";
 import { SERVICE_FAMILIES, familyOf, type ServiceFamily } from "@/lib/scheme/constants";
 import {
   RefreshCw,
@@ -107,6 +108,8 @@ type BrandRate = {
   mdrType: string;
   mdrValue: number;
   mdrValueT0: number;
+  minMdrValue?: number;
+  minMdrValueT0?: number;
   minAmount: number;
   maxAmount: number;
 };
@@ -1092,9 +1095,18 @@ function MdrRateModal({
   // an approved rate was found and vendor is derived from it; `missing` means a
   // locked rail is selected without a resolvable approved rate (slab is blocked).
   // POS scopes by acquiring company (brand); PG/QR scope by the rail provider.
-  const [posLock, setPosLock] = useState<{ locked: boolean; missing: boolean }>({
+  // `minMdr`/`minMdrT0` are the brand's Minimum MDR (human %), the floor a POS
+  // service charge can never go below; used for the live commission-pool guard.
+  const [posLock, setPosLock] = useState<{
+    locked: boolean;
+    missing: boolean;
+    minMdr: number;
+    minMdrT0: number;
+  }>({
     locked: false,
     missing: false,
+    minMdr: 0,
+    minMdrT0: 0,
   });
 
   // Rails whose vendor cost is locked to an approved rate card.
@@ -1114,12 +1126,12 @@ function MdrRateModal({
 
   useEffect(() => {
     if (!isLockedRail) {
-      setPosLock({ locked: false, missing: false });
+      setPosLock({ locked: false, missing: false, minMdr: 0, minMdrT0: 0 });
       return;
     }
     const co = company.trim();
     if (!co) {
-      setPosLock({ locked: false, missing: true });
+      setPosLock({ locked: false, missing: true, minMdr: 0, minMdrT0: 0 });
       return;
     }
     // Pick the most specific approved rate matching the slab's card dimensions
@@ -1132,15 +1144,29 @@ function MdrRateModal({
       classification: showClassification ? classification : "",
     });
     if (!pick) {
-      setPosLock({ locked: false, missing: true });
+      setPosLock({ locked: false, missing: true, minMdr: 0, minMdrT0: 0 });
       return;
     }
     const isPercent = pick.mdrType === "PERCENT";
     setMdrType(pick.mdrType as RateType);
     setVendorT1(String(isPercent ? Number(pick.mdrValue) * 100 : Number(pick.mdrValue)));
     setVendorT0(String(isPercent ? Number(pick.mdrValueT0) * 100 : Number(pick.mdrValueT0)));
-    setPosLock({ locked: true, missing: false });
+    // Minimum MDR (human %). Defaults to the vendor cost when the brand hasn't
+    // set one (zero company margin), mirroring the server.
+    const toHuman = (v: number) => (isPercent ? v * 100 : v);
+    const minMdr = Number(pick.minMdrValue) > 0 ? Number(pick.minMdrValue) : Number(pick.mdrValue);
+    const minMdrT0 = Number(pick.minMdrValueT0) > 0 ? Number(pick.minMdrValueT0) : minMdr;
+    setPosLock({ locked: true, missing: false, minMdr: toHuman(minMdr), minMdrT0: toHuman(minMdrT0) });
   }, [isLockedRail, serviceKind, company, paymentMode, cardType, brandType, classification, showClassification, ratesForScope]);
+
+  // POS pricing is percentage-only (MDR + commission), so keep both types in
+  // sync with the rail selection.
+  useEffect(() => {
+    if (serviceKind === "POS") {
+      setMdrType("PERCENT");
+      setCommissionType("PERCENT");
+    }
+  }, [serviceKind]);
 
   // A locked rail can only be scoped to an entity that already has an approved
   // rate card. POS → acquiring companies with brand rates; PG/QR → providers
@@ -1238,6 +1264,26 @@ function MdrRateModal({
   const belowCostT0 = venT0Val - svcT0Val > COST_EPS;
   const belowCost = (venT1Val > 0 || venT0Val > 0) && (belowCostT1 || belowCostT0);
   const rateUnit = (v: number) => (mdrType === "PERCENT" ? `${v.toFixed(2)}%` : `₹${v.toFixed(2)}`);
+
+  // POS commission-pool model: the company keeps (Min MDR − Vendor) and the
+  // chain gets exactly (Service − Min MDR). Everything here is in human % units.
+  const isPos = serviceKind === "POS";
+  const POOL_EPS = 1e-6;
+  const minT1 = posLock.minMdr;
+  const minT0 = posLock.minMdrT0 > 0 ? posLock.minMdrT0 : minT1;
+  const companyMarginT1 = minT1 - venT1Val;
+  const companyMarginT0 = minT0 - venT0Val;
+  const poolT1 = svcT1Val - minT1;
+  const poolT0 = svcT0Val - minT0;
+  const allocT1 = numOf(commDist) + numOf(commMaster) + numOf(commSuper);
+  const allocT0 = numOf(commDistT0) + numOf(commMasterT0) + numOf(commSuperT0);
+  const remainingT1 = poolT1 - allocT1;
+  const remainingT0 = poolT0 - allocT0;
+  const belowMinT1 = isPos && posLock.locked && minT1 - svcT1Val > POOL_EPS;
+  const belowMinT0 = isPos && posLock.locked && minT0 - svcT0Val > POOL_EPS;
+  const unbalancedT1 = isPos && posLock.locked && !belowMinT1 && Math.abs(remainingT1) > POOL_EPS;
+  const unbalancedT0 = isPos && posLock.locked && !belowMinT0 && Math.abs(remainingT0) > POOL_EPS;
+  const posInvalid = belowMinT1 || belowMinT0 || unbalancedT1 || unbalancedT0;
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -1391,9 +1437,9 @@ function MdrRateModal({
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label>Type</Label>
-                <Select value={mdrType} onChange={(e) => setMdrType(e.target.value as RateType)}>
+                <Select value={mdrType} onChange={(e) => setMdrType(e.target.value as RateType)} disabled={isPos}>
                   <option value="PERCENT">Percent (%)</option>
-                  <option value="FLAT">Flat (₹)</option>
+                  {!isPos && <option value="FLAT">Flat (₹)</option>}
                 </Select>
               </div>
               <div>
@@ -1437,13 +1483,32 @@ function MdrRateModal({
               is the acquirer cost the company pays upstream. Company revenue per txn = service − vendor, credited to
               the Revenue Wallet. T+0 applies to instant settlement; leave 0 to use the T+1 rate.
             </p>
-            {posLock.locked && (
+            {posLock.locked && !isPos && (
               <p className="mt-2 rounded-lg bg-brand-50/60 p-2 text-[11px] text-brand-700">
                 Vendor cost is locked to the approved {serviceKind} rate for{" "}
                 <span className="font-semibold">{company}</span>. The service charge (MDR) cannot be set below it.
               </p>
             )}
-            {belowCost && (
+            {posLock.locked && isPos && (
+              <p className="mt-2 rounded-lg bg-brand-50/60 p-2 text-[11px] text-brand-700">
+                Vendor cost is locked to the approved rate for{" "}
+                <span className="font-semibold">{company}</span>. The service charge (MDR) can never be set below the
+                brand's <span className="font-semibold">Minimum MDR of {rateUnit(minT1)} (T+1)</span>
+                {minT0 !== minT1 && <> / <span className="font-semibold">{rateUnit(minT0)} (T+0)</span></>}. The company
+                keeps {rateUnit(Math.max(0, companyMarginT1))} margin; anything above the minimum is the commission pool.
+              </p>
+            )}
+            {(belowMinT1 || belowMinT0) && (
+              <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-700">
+                <span className="font-semibold">Rate too low — not allowed.</span> The service charge (MDR) can never be
+                below the brand's Minimum MDR of{" "}
+                {belowMinT1 && <span className="font-semibold">{rateUnit(minT1)} (T+1)</span>}
+                {belowMinT1 && belowMinT0 && " and "}
+                {belowMinT0 && <span className="font-semibold">{rateUnit(minT0)} (T+0)</span>}. Raise the service charge
+                to at least the Minimum MDR.
+              </p>
+            )}
+            {belowCost && !isPos && (
               <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-700">
                 <span className="font-semibold">Rate too low — not allowed.</span> The service charge (MDR) can
                 never be set below the vendor cost of{" "}
@@ -1468,9 +1533,9 @@ function MdrRateModal({
             <div className="grid grid-cols-4 gap-3">
               <div>
                 <Label>Type</Label>
-                <Select value={commissionType} onChange={(e) => setCommissionType(e.target.value as RateType)}>
+                <Select value={commissionType} onChange={(e) => setCommissionType(e.target.value as RateType)} disabled={isPos}>
                   <option value="PERCENT">Percent (%)</option>
-                  <option value="FLAT">Flat (₹)</option>
+                  {!isPos && <option value="FLAT">Flat (₹)</option>}
                 </Select>
               </div>
               <div>
@@ -1503,12 +1568,45 @@ function MdrRateModal({
                 <Input type="number" min={0} step="0.0001" value={commSuperT0} onChange={(e) => setCommSuperT0(e.target.value)} />
               </div>
             </div>
+            {isPos && posLock.locked && (
+              <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                {([
+                  { leg: "T+1", pool: poolT1, alloc: allocT1, remaining: remainingT1, below: belowMinT1, unbalanced: unbalancedT1 },
+                  { leg: "T+0", pool: poolT0, alloc: allocT0, remaining: remainingT0, below: belowMinT0, unbalanced: unbalancedT0 },
+                ] as const).map((l) => (
+                  <div
+                    key={l.leg}
+                    className={`rounded-lg border p-2 ${
+                      l.below || l.unbalanced
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    }`}
+                  >
+                    <p className="font-semibold uppercase tracking-wider">{l.leg} commission pool</p>
+                    <p className="mt-0.5">Pool (Service − Min MDR): <span className="font-semibold">{rateUnit(Math.max(0, l.pool))}</span></p>
+                    <p>Allocated: <span className="font-semibold">{rateUnit(l.alloc)}</span></p>
+                    {l.below ? (
+                      <p className="font-semibold">Service is below the Minimum MDR.</p>
+                    ) : (
+                      <p>
+                        {Math.abs(l.remaining) < 1e-6
+                          ? "Balanced ✓"
+                          : l.remaining > 0
+                          ? `Short by ${rateUnit(l.remaining)} — allocate more.`
+                          : `Over by ${rateUnit(-l.remaining)} — reduce.`}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             <p className="mt-2 text-xs text-ink-500">
               Commission paid up the chain per transaction — DIST → distributor, M.DIST → master distributor,
-              S.DIST → super distributor. Paid out of the Revenue Wallet, net of 2% TDS. Total must not exceed the
-              company margin (service − vendor). The transacting retailer earns no commission. The T+1 row applies
-              to standard settlement; the T+0 (instant) row applies to instant settlement and falls back to the
-              matching T+1 value when left 0.
+              S.DIST → super distributor. Paid out of the Revenue Wallet, net of 2% TDS.{" "}
+              {isPos
+                ? "For POS, the total of each leg must EQUAL that leg's commission pool (Service − Minimum MDR); the company keeps Minimum MDR − Vendor. Set T+0 values explicitly."
+                : "Total must not exceed the company margin (service − vendor). The T+0 row falls back to the matching T+1 value when left 0."}{" "}
+              The transacting retailer earns no commission.
             </p>
           </div>
         </div>
@@ -1516,7 +1614,7 @@ function MdrRateModal({
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving || (isLockedRail && posLock.missing) || belowCost}>
+          <Button onClick={submit} disabled={saving || (isLockedRail && posLock.missing) || (isPos ? posInvalid : belowCost)}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Save configuration
           </Button>
         </div>
@@ -1541,41 +1639,22 @@ function AssignModal({
   onError: (msg: string) => void;
 }) {
   const [assigning, setAssigning] = useState(false);
-  const [userList, setUserList] = useState<{ id: string; userCode: string | null; name: string; email: string; role: string; shopName: string | null }[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(true);
   const [assigned, setAssigned] = useState<{ id: string; name: string; email: string; role: string }[]>([]);
   const [loadingAssigned, setLoadingAssigned] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [visibleUsers, setVisibleUsers] = useState<PickerUser[]>([]);
 
-  const assignedIds = useMemo(() => new Set(assigned.map((u) => u.id)), [assigned]);
+  const assignedIds = useMemo(() => assigned.map((u) => u.id), [assigned]);
 
   const loadData = useCallback(async () => {
     setLoadingAssigned(true);
-    setLoadingUsers(true);
     try {
-      const [schemeRes, usersRes] = await Promise.all([
-        fetch(`/api/admin/schemes/${schemeId}`),
-        fetch("/api/admin/users?pageSize=500"),
-      ]);
+      const schemeRes = await fetch(`/api/admin/schemes/${schemeId}`);
       const schemeData = await schemeRes.json();
-      const usersData = await usersRes.json();
       if (schemeRes.ok) setAssigned(schemeData.assignedUsers ?? []);
-      if (usersRes.ok)
-        setUserList(
-          (usersData.users ?? []).map((u: { id: string; userCode: string | null; name: string; email: string; role: string; shopName: string | null }) => ({
-            id: u.id,
-            userCode: u.userCode,
-            name: u.name,
-            email: u.email,
-            role: u.role,
-            shopName: u.shopName,
-          }))
-        );
     } catch {
       /* silent */
     } finally {
       setLoadingAssigned(false);
-      setLoadingUsers(false);
     }
   }, [schemeId]);
 
@@ -1586,7 +1665,7 @@ function AssignModal({
   async function assignAll() {
     setAssigning(true);
     try {
-      const ids = unassigned.map((u) => u.id);
+      const ids = visibleUsers.map((u) => u.id);
       if (ids.length === 0) return;
       const res = await fetch("/api/admin/schemes/assign", {
         method: "POST",
@@ -1636,13 +1715,6 @@ function AssignModal({
     }
   }
 
-  const unassigned = useMemo(() => {
-    const list = userList.filter((u) => !assignedIds.has(u.id));
-    if (!searchQuery.trim()) return list;
-    const q = searchQuery.trim().toLowerCase();
-    return list.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.shopName ?? "").toLowerCase().includes(q));
-  }, [userList, assignedIds, searchQuery]);
-
   const ROLE_BADGE: Record<string, string> = {
     RETAILER: "RT",
     DISTRIBUTOR: "DT",
@@ -1666,51 +1738,29 @@ function AssignModal({
         </div>
         <div className="space-y-4 p-5">
           <p className="text-xs text-ink-400">
-            Assign this scheme to any user. The user will receive the charges and commission defined in this scheme.
+            Pick a role, then select the user to assign this scheme. The user will receive the charges and commission defined in this scheme.
           </p>
-
-          <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search users…" />
 
           {/* Available users */}
           <div>
             <div className="mb-2 flex items-center justify-between">
               <p className="text-xs font-bold uppercase tracking-widest text-ink-500">
-                Available users ({unassigned.length})
+                Available users
               </p>
-              {unassigned.length > 0 && unassigned.length <= 100 && (
+              {visibleUsers.length > 0 && (
                 <Button size="sm" onClick={assignAll} disabled={assigning}>
-                  {assigning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />} Assign all
+                  {assigning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />} Assign all ({visibleUsers.length})
                 </Button>
               )}
             </div>
-            {loadingUsers ? (
-              <p className="py-4 text-center text-sm text-ink-400">Loading…</p>
-            ) : unassigned.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-ink-200 px-3 py-4 text-center text-sm text-ink-500">
-                All users are assigned to this scheme.
-              </p>
-            ) : (
-              <ul className="max-h-48 divide-y divide-ink-100 overflow-y-auto rounded-xl border border-ink-100">
-                {unassigned.slice(0, 100).map((u) => (
-                  <li key={u.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium text-ink-900">
-                        {u.name}
-                        {u.userCode && <span className="ml-1.5 font-medium text-brand-600">{u.userCode}</span>}
-                        <span className="ml-1.5 inline-block rounded bg-ink-100 px-1 py-0.5 text-[10px] font-semibold text-ink-600">{ROLE_BADGE[u.role] ?? u.role}</span>
-                      </span>
-                      <span className="block truncate text-xs text-ink-400">{u.shopName ?? u.email}</span>
-                    </span>
-                    <button
-                      onClick={() => assignUser(u.id)}
-                      className="ml-2 shrink-0 text-xs font-semibold text-brand-700 hover:text-brand-800"
-                    >
-                      Assign
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <AssignUserPicker
+              autoFocus
+              excludeUserIds={assignedIds}
+              onSelect={(u) => assignUser(u.id)}
+              onVisibleUsersChange={setVisibleUsers}
+              listMaxHeightClass="max-h-48"
+              emptyLabel="All users are assigned to this scheme."
+            />
           </div>
 
           {/* Currently assigned */}

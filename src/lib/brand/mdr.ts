@@ -64,18 +64,29 @@ function rateValue(rate: BrandMdrRate, settlementType: "T0" | "T1"): Money {
  * "MASTERCARD") and classification on its canonical card tier ("VISA PLATINUM"
  * == "PLATINUM"); other dimensions compare after case/space normalization.
  */
-function rateScore(rate: BrandMdrRate, dims: BrandRateDims, useClassification: boolean): number {
+function rateScore(
+  rate: BrandMdrRate,
+  dims: BrandRateDims,
+  useClassification: boolean,
+  opts?: { ignoreProvider?: boolean }
+): number {
   let score = 0;
   const pairs: Array<[
     string | null,
     string | null | undefined,
     (v: string | null | undefined) => string
   ]> = [
-    [rate.provider, dims.provider, norm],
     [rate.paymentMode, dims.paymentMode, norm],
     [rate.cardType, dims.cardType, norm],
     [rate.brandType, dims.brandType, canonicalNetwork],
   ];
+  // Provider gates matching for a live capture (which carries a provider), but
+  // NOT when resolving the company-approved vendor cost for a scheme POS slab —
+  // a slab is provider-agnostic, so a provider-specific brand rate must still
+  // resolve (mirrors the client's pickBrandRate, which ignores provider).
+  if (!opts?.ignoreProvider) {
+    pairs.unshift([rate.provider, dims.provider, norm]);
+  }
   // Tier dimension is dropped when card classification is disabled platform-wide
   // (pricing falls to Card Category); tier-pinned rates then match as wildcards.
   if (useClassification) {
@@ -94,13 +105,14 @@ function pickRate(
   rates: BrandMdrRate[],
   amount: Money,
   dims: BrandRateDims,
-  useClassification: boolean
+  useClassification: boolean,
+  opts?: { ignoreProvider?: boolean }
 ): BrandMdrRate | null {
   const inBand = rates.filter((r) => gte(amount, r.minAmount) && lte(amount, r.maxAmount));
   let best: BrandMdrRate | null = null;
   let bestScore = -1;
   for (const rate of inBand) {
-    const score = rateScore(rate, dims, useClassification);
+    const score = rateScore(rate, dims, useClassification, opts);
     if (score > bestScore) {
       best = rate;
       bestScore = score;
@@ -181,7 +193,9 @@ export async function findApprovedBrandRate(
     where: { brandId, active: true },
     orderBy: { minAmount: "asc" },
   });
-  return pickRate(rates, round(input.amount), input, await isCardClassificationEnabled());
+  return pickRate(rates, round(input.amount), input, await isCardClassificationEnabled(), {
+    ignoreProvider: true,
+  });
 }
 
 /**

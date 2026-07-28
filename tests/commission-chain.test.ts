@@ -194,9 +194,10 @@ describe("distributeMdrCommission (chain, revenue-wallet funded)", () => {
 });
 
 describe("distributeMdrCommission — instant (T+0) commission leg", () => {
-  it("uses the T+0 commission for a tier when set, and falls back to T+1 when unset", async () => {
-    // DIST has a distinct instant rate (0.3%); MASTER/SUPER leave T+0 at 0
-    // (must fall back to their T+1 values of 0.1% / 0.05%).
+  it("uses the explicit T+0 commission per tier for POS (no fallback to T+1)", async () => {
+    // POS commission is priced explicitly per settlement leg (the T+0 pool
+    // differs from T+1), so an unset (0) T+0 rate does NOT fall back — that
+    // tier simply earns nothing on the instant leg.
     state.slabs = [
       mdrSlab({
         commissionDistributorT0: d(0.003), // 0.3% instant (vs 0.2% T+1)
@@ -217,9 +218,9 @@ describe("distributeMdrCommission — instant (T+0) commission leg", () => {
 
     // DIST uses the T+0 rate: ₹10,000 @ 0.3% = ₹30 gross.
     expect(byTier.DISTRIBUTOR.gross).toBeCloseTo(30);
-    // MASTER / SUPER fall back to T+1: 0.1% = ₹10, 0.05% = ₹5.
-    expect(byTier.MASTER.gross).toBeCloseTo(10);
-    expect(byTier.SUPER.gross).toBeCloseTo(5);
+    // MASTER / SUPER have no T+0 rate → not paid on the instant leg.
+    expect(byTier.MASTER).toBeUndefined();
+    expect(byTier.SUPER).toBeUndefined();
   });
 
   it("still uses the T+1 commission when settling T+1 even if a T+0 rate exists", async () => {

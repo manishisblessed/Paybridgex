@@ -60,6 +60,8 @@ type Rate = {
   mdrType: string;
   mdrValue: number;
   mdrValueT0: number;
+  minMdrValue: number;
+  minMdrValueT0: number;
   active: boolean;
 };
 
@@ -351,6 +353,8 @@ function RateEditor({
     mdrType: "PERCENT",
     mdrValue: "1",
     mdrValueT0: "0",
+    minMdrValue: "0",
+    minMdrValueT0: "0",
   };
   const [form, setForm] = useState(emptyForm);
   const isCard = instrumentIsCard(form.instrument);
@@ -398,6 +402,8 @@ function RateEditor({
       mdrType: r.mdrType,
       mdrValue: fromStored(r.mdrValue, r.mdrType),
       mdrValueT0: fromStored(r.mdrValueT0, r.mdrType),
+      minMdrValue: fromStored(r.minMdrValue, r.mdrType),
+      minMdrValueT0: fromStored(r.minMdrValueT0, r.mdrType),
     });
     if (typeof document !== "undefined") {
       document.getElementById("brand-rate-form")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -419,6 +425,8 @@ function RateEditor({
         mdrType: form.mdrType,
         mdrValue: toFraction(form.mdrValue, form.mdrType),
         mdrValueT0: toFraction(form.mdrValueT0, form.mdrType),
+        minMdrValue: toFraction(form.minMdrValue, form.mdrType),
+        minMdrValueT0: toFraction(form.minMdrValueT0, form.mdrType),
       };
       const res = await fetch(`/api/admin/brands/${brandId}/rates`, {
         method: editingId ? "PATCH" : "POST",
@@ -576,7 +584,8 @@ function RateEditor({
                       {formatINR(r.minAmount)} – {formatINR(r.maxAmount)}
                     </p>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2">
+                    <p className="mt-3 text-[11px] uppercase tracking-wider text-ink-400">Vendor cost</p>
+                    <div className="mt-1 grid grid-cols-2 gap-2">
                       <div className="rounded-xl bg-brand-50 px-3 py-2">
                         <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-brand-500">
                           <Clock className="h-3 w-3" /> T+1
@@ -589,6 +598,30 @@ function RateEditor({
                         </p>
                         <p className="text-base font-bold text-ink-700">
                           {r.mdrValueT0 > 0 ? fmtRate(r.mdrType, r.mdrValueT0) : "—"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <p className="mt-3 text-[11px] uppercase tracking-wider text-ink-400">
+                      Min MDR <span className="normal-case text-ink-300">(floor offered downstream)</span>
+                    </p>
+                    <div className="mt-1 grid grid-cols-2 gap-2">
+                      <div className="rounded-xl bg-emerald-50 px-3 py-2">
+                        <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-emerald-500">
+                          <Clock className="h-3 w-3" /> T+1
+                        </p>
+                        <p className="text-base font-bold text-emerald-700">
+                          {r.minMdrValue > 0 ? fmtRate(r.mdrType, r.minMdrValue) : "—"}
+                        </p>
+                      </div>
+                      <div className="rounded-xl bg-emerald-50/60 px-3 py-2">
+                        <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-emerald-500">
+                          <Zap className="h-3 w-3" /> Instant
+                        </p>
+                        <p className="text-base font-bold text-emerald-700">
+                          {(r.minMdrValueT0 > 0 ? r.minMdrValueT0 : r.minMdrValue) > 0
+                            ? fmtRate(r.mdrType, r.minMdrValueT0 > 0 ? r.minMdrValueT0 : r.minMdrValue)
+                            : "—"}
                         </p>
                       </div>
                     </div>
@@ -734,16 +767,23 @@ function RateEditor({
                 MDR type
                 <select className={`${inputCls} mt-1 w-full`} value={form.mdrType} onChange={set("mdrType")}>
                   <option>PERCENT</option>
-                  <option>FLAT</option>
                 </select>
               </label>
               <label className="text-xs text-ink-500">
-                MDR (T+1)
+                Vendor (T+1) %
                 <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.mdrValue} onChange={set("mdrValue")} />
               </label>
               <label className="text-xs text-ink-500">
-                MDR (instant)
+                Vendor (instant) %
                 <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.mdrValueT0} onChange={set("mdrValueT0")} />
+              </label>
+              <label className="text-xs text-ink-500">
+                Min MDR (T+1) %
+                <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.minMdrValue} onChange={set("minMdrValue")} />
+              </label>
+              <label className="text-xs text-ink-500">
+                Min MDR (instant) %
+                <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.minMdrValueT0} onChange={set("minMdrValueT0")} />
               </label>
               <div className="flex items-end gap-2 lg:col-span-8">
                 <Button size="sm" onClick={saveRate} disabled={busy} isLoading={busy}>
@@ -766,7 +806,9 @@ function RateEditor({
             </div>
             <p className="mt-3 text-[11px] text-ink-400">
               Pick the instrument (Debit / Credit / UPI); {showClassification ? "Network & Classification apply" : "Network applies"} to card
-              instruments — e.g. Credit · Visa{showClassification ? " · Platinum" : ""}. Instant MDR is optional — leave 0 to reuse the T+1 rate.
+              instruments — e.g. Credit · Visa{showClassification ? " · Platinum" : ""}. Vendor cost is the acquirer charge the company pays
+              upstream; Min MDR is the lowest MDR offered downstream (vendor + company margin) — a scheme can never price a POS service charge
+              below it. Instant fields are optional — leave 0 to reuse the T+1 value.
             </p>
           </div>
         </div>

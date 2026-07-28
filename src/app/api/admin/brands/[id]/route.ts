@@ -42,6 +42,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
           mdrType: r.mdrType,
           mdrValue: toNumber(dec(r.mdrValue)),
           mdrValueT0: toNumber(dec(r.mdrValueT0)),
+          minMdrValue: toNumber(dec(r.minMdrValue)),
+          minMdrValueT0: toNumber(dec(r.minMdrValueT0)),
           active: r.active,
         })),
       },

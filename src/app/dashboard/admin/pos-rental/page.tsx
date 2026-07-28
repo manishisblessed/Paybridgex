@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { AssignUserPicker, type PickerUser } from "@/components/ui/AssignUserPicker";
 
 type Plan = {
   id: string;
@@ -632,17 +633,7 @@ function PlansTab({
 
 /* ─────────────────────────────────────────────────────── Subscriptions */
 
-type PickUser = { id: string; name: string; userCode: string; role: string; shop: string; city: string; walletBalance: number };
 type SDMachine = { id: string; serial: string | null; tid: string | null; model: string | null; status: string; hasSub: boolean };
-
-// Role filter tabs for the "Assign to user" picker (value = /api/admin/users role param).
-const ROLE_TABS = [
-  { value: "all", label: "All" },
-  { value: "super-distributor", label: "SD" },
-  { value: "master-distributor", label: "MD" },
-  { value: "distributor", label: "DT" },
-  { value: "retailer", label: "RT" },
-] as const;
 
 function SubscriptionsTab({
   subs, total, page, pageSize, setPage, loading, busy, act, plans, activeCount, activeMonthlyRent,
@@ -659,12 +650,8 @@ function SubscriptionsTab({
   activeCount: number;
   activeMonthlyRent: number;
 }) {
-  // User search + selection (any network user, not just super-distributors)
-  const [userQuery, setUserQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState<string>("all");
-  const [userResults, setUserResults] = useState<PickUser[]>([]);
-  const [userSearching, setUserSearching] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<PickUser | null>(null);
+  // User selection (any network user, not just super-distributors)
+  const [selectedUser, setSelectedUser] = useState<PickerUser | null>(null);
   const [selectedUserId, setSelectedUserId] = useState("");
   const [sdMachines, setSdMachines] = useState<SDMachine[]>([]);
   const [machLoading, setMachLoading] = useState(false);
@@ -676,25 +663,6 @@ function SubscriptionsTab({
   const [billingDay, setBillingDay] = useState(1);
   const [selectedMachines, setSelectedMachines] = useState<Set<string>>(new Set());
   const [cancelTarget, setCancelTarget] = useState<Sub | null>(null);
-
-  // Debounced user search — any user (retailer → super-distributor). A role
-  // filter lets admin browse a whole tier without typing; a text query narrows
-  // within the selected tier (or across all tiers when role = "all").
-  useEffect(() => {
-    const q = userQuery.trim();
-    if (q.length < 2 && roleFilter === "all") { setUserResults([]); setUserSearching(false); return; }
-    setUserSearching(true);
-    const params = new URLSearchParams({ pageSize: "25", role: roleFilter });
-    if (q.length >= 2) params.set("q", q);
-    const t = setTimeout(() => {
-      fetch(`/api/admin/users?${params.toString()}`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => setUserResults((d?.users ?? []) as PickUser[]))
-        .catch(() => setUserResults([]))
-        .finally(() => setUserSearching(false));
-    }, 300);
-    return () => clearTimeout(t);
-  }, [userQuery, roleFilter]);
 
   // Fetch the selected user's full fleet (own + downline) with per-machine
   // subscription status resolved server-side — un-paginated, so it always
@@ -870,59 +838,16 @@ function SubscriptionsTab({
                 </p>
               </div>
               <button type="button"
-                onClick={() => { setSelectedUser(null); setSelectedUserId(""); setUserQuery(""); setUserResults([]); setRoleFilter("all"); }}
+                onClick={() => { setSelectedUser(null); setSelectedUserId(""); }}
                 className="shrink-0 text-xs font-semibold text-brand-600 hover:text-brand-800">
                 Change
               </button>
             </div>
           ) : (
-            <div className="relative">
-              <div className="mb-2 flex flex-wrap gap-1.5">
-                {ROLE_TABS.map((t) => (
-                  <button key={t.value} type="button"
-                    onClick={() => setRoleFilter(t.value)}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
-                      roleFilter === t.value
-                        ? "bg-brand-600 text-white"
-                        : "bg-ink-100 text-ink-600 hover:bg-ink-200"
-                    }`}>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
-                <input className={`${inputCls} pl-9`}
-                  placeholder={roleFilter === "all" ? "Search by name, shop, email, user code or city..." : "Search within this tier — or leave blank to browse all..."}
-                  value={userQuery}
-                  onChange={(e) => setUserQuery(e.target.value)} />
-              </div>
-              {(userQuery.trim().length >= 2 || roleFilter !== "all") && (
-                <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-ink-100 bg-white shadow-lg">
-                  {userSearching ? (
-                    <div className="flex items-center gap-2 px-4 py-3 text-sm text-ink-500">
-                      <Loader2 className="h-4 w-4 animate-spin" /> Searching...
-                    </div>
-                  ) : userResults.length === 0 ? (
-                    <div className="px-4 py-3 text-sm text-ink-500">No users found.</div>
-                  ) : (
-                    userResults.map((u) => (
-                      <button key={u.id} type="button"
-                        onClick={() => { setSelectedUser(u); setSelectedUserId(u.id); setUserQuery(""); setUserResults([]); }}
-                        className="flex w-full items-center justify-between gap-3 border-b border-ink-50 px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-brand-50">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-ink-900">{u.name}</p>
-                          <p className="truncate text-[11px] text-ink-400">
-                            {u.shop !== "—" ? u.shop : u.city} · {u.userCode}
-                          </p>
-                        </div>
-                        <span className="shrink-0 rounded bg-ink-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-600">{u.role}</span>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
+            <AssignUserPicker
+              onSelect={(u) => { setSelectedUser(u); setSelectedUserId(u.id); }}
+              listMaxHeightClass="max-h-64"
+            />
           )}
         </div>
 

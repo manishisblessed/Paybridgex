@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { AuthError, type SessionUser } from "../auth-server";
 
@@ -33,6 +34,25 @@ export async function getDescendantIds(userId: string): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ id: string }[]>`
     WITH RECURSIVE downline AS (
       SELECT id FROM "User" WHERE "parentId" = ${userId}
+      UNION ALL
+      SELECT u.id FROM "User" u
+      INNER JOIN downline d ON u."parentId" = d.id
+    )
+    SELECT id FROM downline
+  `;
+  return rows.map((r) => r.id);
+}
+
+/**
+ * All descendant user ids beneath ANY of `rootIds` (excludes the roots). Used
+ * to scope staff admins by hierarchy: admins aren't in the parentId tree, so we
+ * seed the CTE with the network users they onboarded and expand downward.
+ */
+export async function getDescendantIdsForMany(rootIds: string[]): Promise<string[]> {
+  if (rootIds.length === 0) return [];
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    WITH RECURSIVE downline AS (
+      SELECT id FROM "User" WHERE "parentId" IN (${Prisma.join(rootIds)})
       UNION ALL
       SELECT u.id FROM "User" u
       INNER JOIN downline d ON u."parentId" = d.id
@@ -118,4 +138,55 @@ export async function scopeDirectUserIdFilter(
   if (isAdminRole(user.role)) return {};
   const children = await getDirectChildIds(user.id);
   return { userId: { in: [user.id, ...children] } };
+}
+
+/**
+ * Invite visibility scope for a staff ADMIN. Admins sit outside the network
+ * parentId tree (the SDs they invite are top-level with parentId = null), so
+ * the only durable link back to the admin is `invite.invitedById`. We anchor on
+ * the SDs the admin onboarded and expand to their full downline.
+ *
+ * Returns:
+ *   - actorIds: users whose invites the admin may see (the admin themself +
+ *               everyone in their tree) — matched against `invite.invitedById`.
+ *   - treeIds:  the network users in the admin's subtree — matched against a
+ *               registered invite's `userId` or a pending invite's `parentId`.
+ */
+export async function getAdminInviteScope(
+  user: SessionUser
+): Promise<{ actorIds: string[]; treeIds: string[] }> {
+  const sdInvites = await prisma.invite.findMany({
+    where: { invitedById: user.id, userId: { not: null } },
+    select: { userId: true },
+  });
+  const sdIds = sdInvites
+    .map((i) => i.userId)
+    .filter((id): id is string => Boolean(id));
+  const descendants = sdIds.length ? await getDescendantIdsForMany(sdIds) : [];
+  const treeIds = [...new Set([...sdIds, ...descendants])];
+  const actorIds = [...new Set([user.id, ...treeIds])];
+  return { actorIds, treeIds };
+}
+
+/**
+ * True if `user` may access a single invite. MASTER_ADMIN and SUPPORT are
+ * unrestricted (existing behaviour); an ADMIN may only touch invites within
+ * their hierarchy scope (see `getAdminInviteScope`). Other roles: false.
+ */
+export async function adminInviteInScope(
+  user: SessionUser,
+  invite: {
+    invitedById?: string | null;
+    userId?: string | null;
+    parentId?: string | null;
+  }
+): Promise<boolean> {
+  if (user.role === "MASTER_ADMIN" || user.role === "SUPPORT") return true;
+  if (user.role !== "ADMIN") return false;
+  const { actorIds, treeIds } = await getAdminInviteScope(user);
+  return Boolean(
+    (invite.invitedById && actorIds.includes(invite.invitedById)) ||
+      (invite.userId && treeIds.includes(invite.userId)) ||
+      (invite.parentId && treeIds.includes(invite.parentId))
+  );
 }

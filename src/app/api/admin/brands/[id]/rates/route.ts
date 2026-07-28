@@ -18,10 +18,16 @@ const RateBody = z.object({
   classification: z.string().trim().min(1).max(40).nullish(),
   minAmount: z.number().nonnegative(),
   maxAmount: z.number().positive(),
-  mdrType: z.enum(["FLAT", "PERCENT"]).default("PERCENT"),
+  // POS acquiring MDR is always a percentage of the transaction (never flat).
+  mdrType: z.literal("PERCENT").default("PERCENT"),
+  // Vendor/acquirer cost the company pays upstream.
   mdrValue: z.number().nonnegative(),
-  // Instant (T+0) rate; 0 = unset, falls back to mdrValue.
+  // Instant (T+0) vendor cost; 0 = unset, falls back to mdrValue.
   mdrValueT0: z.number().nonnegative().default(0),
+  // Minimum MDR the company will offer downstream (vendor cost + company
+  // margin). A scheme POS service charge can never be below this.
+  minMdrValue: z.number().nonnegative().default(0),
+  minMdrValueT0: z.number().nonnegative().default(0),
 });
 
 const norm = (v: string) => (v === "*" ? "*" : v.toUpperCase());
@@ -29,6 +35,28 @@ const normDim = (v: string | null | undefined) => {
   const s = (v ?? "").trim();
   return s ? s.toUpperCase() : null;
 };
+
+/**
+ * Guardrail so the company never books a loss: the Minimum MDR (what we offer
+ * downstream) must be at least the vendor cost, on both the T+1 and T+0 legs.
+ * A zero minimum is allowed (unset) and skipped. T0 values fall back to their
+ * T+1 counterpart when unset.
+ */
+function validateMinMdrVsVendor(v: {
+  mdrValue: number;
+  mdrValueT0: number;
+  minMdrValue: number;
+  minMdrValueT0: number;
+}): string | null {
+  const EPS = 1e-9;
+  if (v.minMdrValue > 0 && v.minMdrValue - v.mdrValue < -EPS)
+    return `Minimum MDR (${(v.minMdrValue * 100).toFixed(2)}%) cannot be below the vendor cost (${(v.mdrValue * 100).toFixed(2)}%). It must cover the acquirer cost plus the company margin.`;
+  const minT0 = v.minMdrValueT0 > 0 ? v.minMdrValueT0 : v.minMdrValue;
+  const venT0 = v.mdrValueT0 > 0 ? v.mdrValueT0 : v.mdrValue;
+  if (minT0 > 0 && minT0 - venT0 < -EPS)
+    return `T+0 Minimum MDR (${(minT0 * 100).toFixed(2)}%) cannot be below the T+0 vendor cost (${(venT0 * 100).toFixed(2)}%).`;
+  return null;
+}
 
 /** POST — add an MDR rate to a brand (band-overlap validated per provider+mode). */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
@@ -82,6 +110,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   );
   if (floorErr) return NextResponse.json({ error: floorErr }, { status: 400 });
 
+  const minErr = validateMinMdrVsVendor(b);
+  if (minErr) return NextResponse.json({ error: minErr }, { status: 400 });
+
   const rate = await prisma.brandMdrRate.create({
     data: { brandId: params.id, ...b },
   });
@@ -109,9 +140,11 @@ const UpdateBody = z.object({
   classification: z.string().trim().max(40).nullish(),
   minAmount: z.number().nonnegative().optional(),
   maxAmount: z.number().positive().optional(),
-  mdrType: z.enum(["FLAT", "PERCENT"]).optional(),
+  mdrType: z.literal("PERCENT").optional(),
   mdrValue: z.number().nonnegative().optional(),
   mdrValueT0: z.number().nonnegative().optional(),
+  minMdrValue: z.number().nonnegative().optional(),
+  minMdrValueT0: z.number().nonnegative().optional(),
   active: z.boolean().optional(),
 });
 
@@ -170,6 +203,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   );
   if (floorErr) return NextResponse.json({ error: floorErr }, { status: 400 });
 
+  const minErr = validateMinMdrVsVendor({
+    mdrValue: b.mdrValue ?? Number(existing.mdrValue),
+    mdrValueT0: b.mdrValueT0 ?? Number(existing.mdrValueT0),
+    minMdrValue: b.minMdrValue ?? Number(existing.minMdrValue),
+    minMdrValueT0: b.minMdrValueT0 ?? Number(existing.minMdrValueT0),
+  });
+  if (minErr) return NextResponse.json({ error: minErr }, { status: 400 });
+
   const updated = await prisma.brandMdrRate.update({
     where: { id: existing.id },
     data: {
@@ -177,6 +218,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       ...(b.mdrType !== undefined ? { mdrType: b.mdrType } : {}),
       ...(b.mdrValue !== undefined ? { mdrValue: b.mdrValue } : {}),
       ...(b.mdrValueT0 !== undefined ? { mdrValueT0: b.mdrValueT0 } : {}),
+      ...(b.minMdrValue !== undefined ? { minMdrValue: b.minMdrValue } : {}),
+      ...(b.minMdrValueT0 !== undefined ? { minMdrValueT0: b.minMdrValueT0 } : {}),
       ...(b.active !== undefined ? { active: b.active } : {}),
     },
   });

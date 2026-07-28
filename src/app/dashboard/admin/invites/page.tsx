@@ -20,6 +20,9 @@ import {
   MapPin,
   ExternalLink,
   X,
+  Link2,
+  Copy,
+  Share2,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
@@ -40,6 +43,34 @@ function getAllowedRoles(userRole: string): { value: string; label: string }[] {
   return ROLE_OPTIONS;
 }
 
+// Statuses where the onboarding link is still actionable (invitee can proceed).
+const ACTIVE_LINK_STATUSES = ["PENDING", "REGISTERED", "VERIFIED"];
+
+async function copyOnboardingLink(link: string) {
+  try {
+    await navigator.clipboard.writeText(link);
+    toast.success("Onboarding link copied to clipboard");
+  } catch {
+    toast.error("Could not copy link");
+  }
+}
+
+async function shareOnboardingLink(link: string, name?: string | null) {
+  if (typeof navigator !== "undefined" && "share" in navigator) {
+    try {
+      await navigator.share({
+        title: "NEXTGEN Onboarding",
+        text: name ? `Onboarding link for ${name}` : "Complete your onboarding",
+        url: link,
+      });
+      return;
+    } catch {
+      // User dismissed the share sheet or it's unavailable — fall back to copy.
+    }
+  }
+  await copyOnboardingLink(link);
+}
+
 type Invite = {
   id: string;
   token: string;
@@ -58,6 +89,8 @@ type Invite = {
   rejectedAt: string | null;
   rejectedReason: string | null;
   upline?: { role: string; name: string; userCode: string | null }[];
+  invitedBy?: { id: string; name: string; role: string; userCode: string | null } | null;
+  onboardingLink?: string | null;
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -275,6 +308,7 @@ export default function AdminInvitesPage() {
               <tr>
                 <th className="px-4 py-3 text-left font-semibold text-ink-700">Contact</th>
                 <th className="px-4 py-3 text-left font-semibold text-ink-700">Role</th>
+                <th className="px-4 py-3 text-left font-semibold text-ink-700">Shared By</th>
                 <th className="px-4 py-3 text-left font-semibold text-ink-700">Upline</th>
                 <th className="px-4 py-3 text-left font-semibold text-ink-700">Status</th>
                 <th className="px-4 py-3 text-left font-semibold text-ink-700">Created</th>
@@ -295,6 +329,19 @@ export default function AdminInvitesPage() {
                     {inv.role.replace("_", " ")}
                   </td>
                   <td className="px-4 py-3">
+                    {inv.invitedBy ? (
+                      <div>
+                        <div className="font-medium text-ink-900">{inv.invitedBy.name}</div>
+                        <div className="text-xs text-ink-500">
+                          {inv.invitedBy.role.replace(/_/g, " ")}
+                          {inv.invitedBy.userCode ? ` · ${inv.invitedBy.userCode}` : ""}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-ink-400">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
                     <UplineChain nodes={inv.upline ?? []} />
                   </td>
                   <td className="px-4 py-3">
@@ -307,6 +354,24 @@ export default function AdminInvitesPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
+                      {inv.onboardingLink && ACTIVE_LINK_STATUSES.includes(inv.status) && (
+                        <>
+                          <button
+                            onClick={() => copyOnboardingLink(inv.onboardingLink!)}
+                            title="Copy onboarding link"
+                            className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-900"
+                          >
+                            <Link2 className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => shareOnboardingLink(inv.onboardingLink!, inv.name)}
+                            title="Share onboarding link"
+                            className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-900"
+                          >
+                            <Share2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
                       {inv.status === "PENDING" && (
                         <>
                           <button
@@ -773,6 +838,8 @@ function InviteDetail({
 }: {
   data: {
     invite: Invite;
+    invitedBy?: { id: string; name: string; role: string; userCode: string | null } | null;
+    onboardingLink?: string | null;
     verifications: any[];
     documents?: OnboardDocument[];
     registeredUser: any;
@@ -781,7 +848,7 @@ function InviteDetail({
   onClose: () => void;
   onAction: (action: "approve" | "reject") => void;
 }) {
-  const { invite, verifications, registeredUser } = data;
+  const { invite, invitedBy, onboardingLink, verifications, registeredUser } = data;
   const documents = data.documents ?? [];
   const declarationApprovals = data.declarationApprovals ?? [];
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -829,6 +896,57 @@ function InviteDetail({
           {invite.verifiedAt && <p className="text-sm">Verified: {new Date(invite.verifiedAt).toLocaleString()}</p>}
         </div>
       </div>
+
+      {invitedBy && (
+        <div className="mt-4 rounded-xl bg-ink-50 p-4">
+          <p className="text-xs font-bold uppercase tracking-wider text-ink-500">Shared By</p>
+          <p className="mt-1 font-semibold text-ink-900">{invitedBy.name}</p>
+          <p className="text-sm text-ink-600">
+            {invitedBy.role.replace(/_/g, " ")}
+            {invitedBy.userCode ? ` · ${invitedBy.userCode}` : ""}
+          </p>
+        </div>
+      )}
+
+      {onboardingLink && (
+        <div className="mt-4 rounded-xl border border-brand-200 bg-brand-50/60 p-4">
+          <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-brand-700">
+            <Link2 className="h-3.5 w-3.5" /> Onboarding Link
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-lg border border-brand-200 bg-white px-3 py-2 text-xs text-ink-700">
+              {onboardingLink}
+            </code>
+            <button
+              type="button"
+              onClick={() => copyOnboardingLink(onboardingLink)}
+              className="inline-flex items-center gap-1 rounded-lg border border-brand-200 bg-white px-2.5 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-50"
+            >
+              <Copy className="h-3.5 w-3.5" /> Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => shareOnboardingLink(onboardingLink, invite.name)}
+              className="inline-flex items-center gap-1 rounded-lg border border-brand-200 bg-white px-2.5 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-50"
+            >
+              <Share2 className="h-3.5 w-3.5" /> Share
+            </button>
+            <a
+              href={onboardingLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-lg border border-brand-200 bg-white px-2.5 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-50"
+            >
+              <ExternalLink className="h-3.5 w-3.5" /> Open
+            </a>
+          </div>
+          {!ACTIVE_LINK_STATUSES.includes(invite.status) && (
+            <p className="mt-2 text-xs text-ink-500">
+              This invite is {invite.status.toLowerCase()} — the link may no longer be usable.
+            </p>
+          )}
+        </div>
+      )}
 
       {verifications.length > 0 && (
         <div className="mt-4">

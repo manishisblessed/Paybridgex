@@ -54,6 +54,8 @@ export async function GET() {
             mdrType: true,
             mdrValue: true,
             mdrValueT0: true,
+            minMdrValue: true,
+            minMdrValueT0: true,
             minAmount: true,
             maxAmount: true,
           },
@@ -121,6 +123,8 @@ export async function GET() {
       mdrType: string;
       mdrValue: number;
       mdrValueT0: number;
+      minMdrValue: number;
+      minMdrValueT0: number;
       minAmount: number;
       maxAmount: number;
     }>
@@ -134,6 +138,8 @@ export async function GET() {
     mdrType: r.mdrType,
     mdrValue: Number(r.mdrValue),
     mdrValueT0: Number(r.mdrValueT0),
+    minMdrValue: Number(r.minMdrValue),
+    minMdrValueT0: Number(r.minMdrValueT0),
     minAmount: Number(r.minAmount),
     maxAmount: Number(r.maxAmount),
   });

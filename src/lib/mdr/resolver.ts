@@ -142,7 +142,8 @@ function slabVendorValue(slab: MdrSlab, settlementType?: "T0" | "T1") {
 function slabCommissionValue(
   slab: MdrSlab,
   tier: "distributor" | "master" | "superDistributor",
-  settlementType?: "T0" | "T1"
+  settlementType?: "T0" | "T1",
+  allowT0Fallback = true
 ) {
   const t1 = {
     distributor: slab.commissionDistributor,
@@ -155,6 +156,10 @@ function slabCommissionValue(
     master: slab.commissionMasterT0,
     superDistributor: slab.commissionSuperDistributorT0,
   }[tier];
+  // POS commission is priced explicitly per leg (the T+0 pool differs from
+  // T+1), so it must NOT fall back to the T+1 value. Other rails still fall
+  // back to keep a single-leg configuration working.
+  if (!allowT0Fallback) return t0;
   return Number(t0) > 0 ? t0 : t1;
 }
 
@@ -195,6 +200,9 @@ export async function getEffectiveMdr(
   ): EffectiveMdr => {
     const mdr = applyRate(amt, slab.mdrType, slabMdrValue(slab, d.settlementType));
     const vendor = applyRate(amt, slab.mdrType, slabVendorValue(slab, d.settlementType));
+    // POS commission is priced explicitly per settlement leg (see route), so its
+    // T+0 value must not silently fall back to T+1.
+    const allowT0Fallback = serviceKind !== "POS";
     const rawMargin = round(dec(mdr).sub(dec(vendor)));
     const margin = rawMargin.gt(0) ? rawMargin : dec(0);
     return {
@@ -208,9 +216,9 @@ export async function getEffectiveMdr(
     mdrType: slab.mdrType,
     commission: {
       retailer: applyRate(amt, slab.commissionType, slab.commissionRetailer),
-      distributor: applyRate(amt, slab.commissionType, slabCommissionValue(slab, "distributor", d.settlementType)),
-      master: applyRate(amt, slab.commissionType, slabCommissionValue(slab, "master", d.settlementType)),
-      superDistributor: applyRate(amt, slab.commissionType, slabCommissionValue(slab, "superDistributor", d.settlementType)),
+      distributor: applyRate(amt, slab.commissionType, slabCommissionValue(slab, "distributor", d.settlementType, allowT0Fallback)),
+      master: applyRate(amt, slab.commissionType, slabCommissionValue(slab, "master", d.settlementType, allowT0Fallback)),
+      superDistributor: applyRate(amt, slab.commissionType, slabCommissionValue(slab, "superDistributor", d.settlementType, allowT0Fallback)),
     },
     };
   };
