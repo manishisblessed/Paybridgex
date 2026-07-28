@@ -1433,7 +1433,9 @@ function MdrRateModal({
           </div>
 
           <div className="rounded-xl border border-orange-100 bg-orange-50/40 p-3">
-            <p className="mb-2 text-xs font-bold uppercase tracking-widest text-ink-500">Service charge & vendor cost</p>
+            <p className="mb-2 text-xs font-bold uppercase tracking-widest text-ink-500">
+              {isPos ? "Service charge & minimum MDR" : "Service charge & vendor cost"}
+            </p>
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label>Type</Label>
@@ -1453,35 +1455,79 @@ function MdrRateModal({
             </div>
             <div className="mt-3 grid grid-cols-3 gap-3">
               <div />
-              <div>
-                <Label>{mdrType === "PERCENT" ? "Vendor T+1 (%)" : "Vendor T+1 (₹)"}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.0001"
-                  value={vendorT1}
-                  onChange={(e) => setVendorT1(e.target.value)}
-                  readOnly={posLock.locked}
-                  className={posLock.locked ? "cursor-not-allowed bg-ink-50 text-ink-500" : undefined}
-                />
-              </div>
-              <div>
-                <Label>{mdrType === "PERCENT" ? "Vendor T+0 (%)" : "Vendor T+0 (₹)"}</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.0001"
-                  value={vendorT0}
-                  onChange={(e) => setVendorT0(e.target.value)}
-                  readOnly={posLock.locked}
-                  className={posLock.locked ? "cursor-not-allowed bg-ink-50 text-ink-500" : undefined}
-                />
-              </div>
+              {isPos ? (
+                <>
+                  <div>
+                    <Label>Min MDR T+1 (%)</Label>
+                    <Input
+                      type="number"
+                      value={posLock.locked ? minT1.toFixed(2) : ""}
+                      readOnly
+                      placeholder={posLock.locked ? undefined : "—"}
+                      className="cursor-not-allowed bg-emerald-50 font-semibold text-emerald-700"
+                    />
+                    {posLock.locked && (
+                      <p className="mt-1 text-[10px] text-ink-400">Vendor cost {rateUnit(venT1Val)}</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label>Min MDR T+0 (%)</Label>
+                    <Input
+                      type="number"
+                      value={posLock.locked ? minT0.toFixed(2) : ""}
+                      readOnly
+                      placeholder={posLock.locked ? undefined : "—"}
+                      className="cursor-not-allowed bg-emerald-50 font-semibold text-emerald-700"
+                    />
+                    {posLock.locked && (
+                      <p className="mt-1 text-[10px] text-ink-400">Vendor cost {rateUnit(venT0Val)}</p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <Label>{mdrType === "PERCENT" ? "Vendor T+1 (%)" : "Vendor T+1 (₹)"}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.0001"
+                      value={vendorT1}
+                      onChange={(e) => setVendorT1(e.target.value)}
+                      readOnly={posLock.locked}
+                      className={posLock.locked ? "cursor-not-allowed bg-ink-50 text-ink-500" : undefined}
+                    />
+                  </div>
+                  <div>
+                    <Label>{mdrType === "PERCENT" ? "Vendor T+0 (%)" : "Vendor T+0 (₹)"}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.0001"
+                      value={vendorT0}
+                      onChange={(e) => setVendorT0(e.target.value)}
+                      readOnly={posLock.locked}
+                      className={posLock.locked ? "cursor-not-allowed bg-ink-50 text-ink-500" : undefined}
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <p className="mt-2 text-xs text-ink-500">
-              The service charge (MDR) is deducted from the gross before crediting the retailer. The vendor charge
-              is the acquirer cost the company pays upstream. Company revenue per txn = service − vendor, credited to
-              the Revenue Wallet. T+0 applies to instant settlement; leave 0 to use the T+1 rate.
+              {isPos ? (
+                <>
+                  The service charge (MDR) is deducted from the gross before crediting the retailer. It can never be
+                  set below the brand's <span className="font-medium">Minimum MDR</span> (the floor shown above). The
+                  company keeps Min MDR − vendor cost; anything priced above the minimum is the commission pool.
+                  T+0 applies to instant settlement; leave 0 to use the T+1 rate.
+                </>
+              ) : (
+                <>
+                  The service charge (MDR) is deducted from the gross before crediting the retailer. The vendor charge
+                  is the acquirer cost the company pays upstream. Company revenue per txn = service − vendor, credited to
+                  the Revenue Wallet. T+0 applies to instant settlement; leave 0 to use the T+1 rate.
+                </>
+              )}
             </p>
             {posLock.locked && !isPos && (
               <p className="mt-2 rounded-lg bg-brand-50/60 p-2 text-[11px] text-brand-700">
