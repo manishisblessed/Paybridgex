@@ -34,9 +34,28 @@ import { bulkpePost, bulkpeGet } from "./bulkpe";
 
 const P = "/bbps";
 
-/** BulkPe shares one bearer token across payouts, PG and BBPS. */
+/**
+ * BBPS bearer token. BulkPe issues a BBPS-scoped token that is separate from
+ * the payout/PG token, so BBPS uses BULKPE_BBPS_TOKEN when present and only
+ * falls back to the shared BULKPE_TOKEN for backward compatibility.
+ */
+function bbpsToken(): string {
+  const t = process.env.BULKPE_BBPS_TOKEN || process.env.BULKPE_TOKEN;
+  if (!t) throw new Error("[bulkpe-bbps] no BBPS token configured (set BULKPE_BBPS_TOKEN or BULKPE_TOKEN)");
+  return t;
+}
+
+/** BBPS POST/GET pinned to the BBPS-scoped token. */
+function bbpsPost<T>(path: string, body: unknown) {
+  return bulkpePost<T>(path, body, bbpsToken());
+}
+function bbpsGet<T>(path: string, params?: Record<string, string>) {
+  return bulkpeGet<T>(path, params, bbpsToken());
+}
+
+/** True when a BBPS token (dedicated or shared) is present. */
 export function bulkpeBbpsConfigured(): boolean {
-  return Boolean(process.env.BULKPE_TOKEN);
+  return Boolean(process.env.BULKPE_BBPS_TOKEN || process.env.BULKPE_TOKEN);
 }
 
 // ---------- category mapping ----------
@@ -208,7 +227,7 @@ export const bulkpeBbps: BbpsProvider = {
 
   async billers(category) {
     const biller = BULKPE_CATEGORY[category];
-    const r = await bulkpePost<BulkpeBillerRow[]>(`${P}/selectBiller`, { biller });
+    const r = await bbpsPost<BulkpeBillerRow[]>(`${P}/selectBiller`, { biller });
     if (!r.ok) return r;
     const rows = Array.isArray(r.data) ? r.data : [];
     return { ok: true, data: rows.map((row) => normalizeBulkpeBiller(row, category)), raw: r.raw };
@@ -222,7 +241,7 @@ export const bulkpeBbps: BbpsProvider = {
     // Fetch references must be unique at BulkPe; suffix so a user retrying a
     // fetch (same idempotencyKey) doesn't collide with the earlier attempt.
     const reference = `${input.idempotencyKey}F${Date.now().toString(36)}`.slice(0, 40);
-    const r = await bulkpePost<BulkpeFetchBillData>(`${P}/FetchBillSingle`, {
+    const r = await bbpsPost<BulkpeFetchBillData>(`${P}/FetchBillSingle`, {
       reference,
       billerId: input.billerCode,
       custParam,
@@ -240,7 +259,7 @@ export const bulkpeBbps: BbpsProvider = {
         message: "Pay requires `billFetchRef` from a prior fetchBill (BulkPe fetchId)",
       };
     }
-    const r = await bulkpePost<BulkpePayData>(`${P}/BillPayTxn`, {
+    const r = await bbpsPost<BulkpePayData>(`${P}/BillPayTxn`, {
       fetchId,
       amount: String(input.amount),
       reference: input.idempotencyKey,
@@ -267,7 +286,7 @@ export const bulkpeBbps: BbpsProvider = {
     if (!transactionId) {
       return { ok: false, code: "BAD_PARAMS", message: "status() needs the BulkPe transactionId (orderId)" };
     }
-    const r = await bulkpePost<BulkpePayData>(`${P}/transactionStatusCheck`, { transactionId });
+    const r = await bbpsPost<BulkpePayData>(`${P}/transactionStatusCheck`, { transactionId });
     if (!r.ok) return r;
     return {
       ok: true,
@@ -286,7 +305,7 @@ export const bulkpeBbps: BbpsProvider = {
 export async function bulkpeBbpsCategories(): Promise<
   PartnerResult<Array<{ biller: string; category: string }>>
 > {
-  return bulkpePost(`${P}/listBillCategory`, {});
+  return bbpsPost(`${P}/listBillCategory`, {});
 }
 
 /** Paginated BBPS transaction history — used by reconciliation sweeps. */
@@ -296,7 +315,7 @@ export async function bulkpeBbpsTransactions(opts: {
   category?: string;
   status?: "SUCCESS" | "PENDING" | "FAILED";
 }): Promise<PartnerResult<BulkpePayData[]>> {
-  return bulkpePost(`${P}/listBillTransactions`, {
+  return bbpsPost(`${P}/listBillTransactions`, {
     page: opts.page != null ? String(opts.page) : "",
     limit: String(opts.limit ?? 50),
     category: opts.category ?? "",
@@ -339,5 +358,5 @@ export async function bulkpeBbpsPendingBills(opts?: {
   if (opts?.isAutofetchEnabled != null) params.isAutofetchEnabled = String(opts.isAutofetchEnabled);
   if (opts?.sort) params.sort = opts.sort;
   if (opts?.order) params.order = opts.order;
-  return bulkpeGet(`${P}/listPendingBills`, params);
+  return bbpsGet(`${P}/listPendingBills`, params);
 }

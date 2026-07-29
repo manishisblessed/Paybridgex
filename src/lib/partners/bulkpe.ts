@@ -37,14 +37,18 @@ type BulkpeEnvelope<T> = {
   data?: T;
 };
 
-/** Shared POST helper — also used by the BBPS adapter (bulkpe-bbps.ts). */
-export async function bulkpePost<T>(path: string, body: unknown): Promise<PartnerResult<T>> {
+/**
+ * Shared POST helper — also used by the BBPS adapter (bulkpe-bbps.ts).
+ * `authToken` lets a caller (e.g. BBPS) authenticate with a rail-specific
+ * token; when omitted the shared BULKPE_TOKEN (payouts/PG) is used.
+ */
+export async function bulkpePost<T>(path: string, body: unknown, authToken?: string): Promise<PartnerResult<T>> {
   try {
     const res = await fetch(`${baseUrl()}${path}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${token()}`,
+        authorization: `Bearer ${authToken || token()}`,
       },
       body: JSON.stringify(body),
     });
@@ -63,7 +67,7 @@ export async function bulkpePost<T>(path: string, body: unknown): Promise<Partne
   }
 }
 
-export async function bulkpeGet<T>(path: string, params?: Record<string, string>): Promise<PartnerResult<T>> {
+export async function bulkpeGet<T>(path: string, params?: Record<string, string>, authToken?: string): Promise<PartnerResult<T>> {
   try {
     let url = `${baseUrl()}${path}`;
     if (params && Object.keys(params).length > 0) {
@@ -71,7 +75,7 @@ export async function bulkpeGet<T>(path: string, params?: Record<string, string>
     }
     const res = await fetch(url, {
       method: "GET",
-      headers: { authorization: `Bearer ${token()}` },
+      headers: { authorization: `Bearer ${authToken || token()}` },
     });
     const json = (await res.json().catch(() => ({}))) as BulkpeEnvelope<T>;
     if (!res.ok || json.status === false) {

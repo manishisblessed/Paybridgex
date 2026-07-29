@@ -119,6 +119,9 @@ const schema = z.object({
   // with BulkPe (see docs/PAYOUT.md).
   BULKPE_BASE_URL: z.string().url().default("https://api.bulkpe.in/client"),
   BULKPE_TOKEN: z.string().min(1).optional(),
+  // BBPS-scoped token. BulkPe issues a separate token for the BBPS product;
+  // when set it is used for all BBPS calls, otherwise BULKPE_TOKEN is used.
+  BULKPE_BBPS_TOKEN: z.string().min(1).optional(),
   BULKPE_WEBHOOK_SECRET: z.string().min(1).optional(),
 
   // ---------- Security controls (see SECURITY.md) ----------
