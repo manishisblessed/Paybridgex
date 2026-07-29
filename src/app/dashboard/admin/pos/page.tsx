@@ -879,6 +879,15 @@ function TransactionsTab() {
     setSearchNonce((n) => n + 1);
   }, [today.from, today.to, statusFilter, modeFilter, terminalFilter, companyFilter]);
 
+  // Company applies instantly on selection (no Search click needed). It still
+  // won't auto-poll, so this is a single load — no rate-limit risk.
+  const applyCompany = useCallback((company: string) => {
+    setCompanyFilter(company);
+    setApplied({ dateFrom, dateTo, status: statusFilter, mode: modeFilter, terminal: terminalFilter, company });
+    setPage(1);
+    setSearchNonce((n) => n + 1);
+  }, [dateFrom, dateTo, statusFilter, modeFilter, terminalFilter]);
+
   const body = {
     date_from: `${applied.dateFrom}T00:00:00.000Z`,
     date_to: `${applied.dateTo}T23:59:59.999Z`,
@@ -1033,8 +1042,8 @@ function TransactionsTab() {
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={companyFilter}
-              onChange={(e) => setCompanyFilter(e.target.value)}
-              title="Filter by acquiring company, then click Search"
+              onChange={(e) => applyCompany(e.target.value)}
+              title="Filter by acquiring company — applies instantly"
               className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
             >
               <option value="">All companies</option>

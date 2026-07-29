@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { handlePosCapture } from "@/lib/settlement/pos";
-import { verifySamedayPosWebhook } from "@/lib/partners/sameday-pos";
+import { verifySamedayPosWebhook, canonicalPosCaptureRef } from "@/lib/partners/sameday-pos";
 import { prisma } from "@/lib/db";
 import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
 import { isCardClassificationEnabled } from "@/lib/settings";
@@ -57,7 +57,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, action: "ignored", status: mappedStatus });
   }
 
-  const transactionRef = String(txnData.txnId ?? "");
+  const terminalId = String(txnData.tid ?? "");
+  // Canonical, cross-path idempotency ref (RRN-based) so this webhook and the
+  // ingest sweep converge on the SAME transactionRef for one physical swipe —
+  // the @unique constraint then makes a double settlement/commission impossible.
+  const rrn = String(txnData.rrNumber ?? txnData.rrn ?? "");
+  const transactionRef = canonicalPosCaptureRef({
+    rrn,
+    terminalId,
+    fallbackId: String(txnData.txnId ?? ""),
+  });
   if (!transactionRef) {
     return NextResponse.json({ error: "Missing transaction reference" }, { status: 400 });
   }
@@ -67,8 +76,6 @@ export async function POST(req: Request) {
   if (!(grossAmount > 0)) {
     return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
   }
-
-  const terminalId = String(txnData.tid ?? "");
   const paymentMode = "CARD";
   // Card dimensions (optional in the payload) drive company/card-wise MDR.
   const cardType = String(txnData.paymentCardType ?? "").toUpperCase() || undefined;

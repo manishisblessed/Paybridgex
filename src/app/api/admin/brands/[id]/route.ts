@@ -29,6 +29,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         description: brand.description,
         active: brand.active,
         settlementMode: brand.settlementMode,
+        t1CutoffHour: brand.t1CutoffHour,
         machines: brand._count.machines,
         rates: brand.rates.map((r) => ({
           id: r.id,
@@ -61,6 +62,9 @@ const PatchBody = z.object({
   description: z.string().trim().max(300).nullable().optional(),
   active: z.boolean().optional(),
   settlementMode: z.enum(["INSTANT", "T1", "BOTH"]).optional(),
+  // Per-company T+1 cutoff (IST hour 0-23). null clears it (no early cutoff →
+  // whole day settles T+1). Captures at/after this hour settle T+2.
+  t1CutoffHour: z.number().int().min(0).max(23).nullable().optional(),
 });
 
 /** PATCH — update brand metadata / active / settlement mode. */
@@ -91,6 +95,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       ...(parsed.data.active !== undefined ? { active: parsed.data.active } : {}),
       ...(parsed.data.settlementMode !== undefined
         ? { settlementMode: parsed.data.settlementMode }
+        : {}),
+      ...(parsed.data.t1CutoffHour !== undefined
+        ? { t1CutoffHour: parsed.data.t1CutoffHour }
         : {}),
     },
   });

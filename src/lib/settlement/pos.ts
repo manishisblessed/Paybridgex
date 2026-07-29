@@ -255,29 +255,37 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
       wtxnId = null;
     }
 
-    await prisma.posSettlementEntry.create({
-      data: {
-        transactionRef: input.transactionRef,
-        machineId: machineDbId,
-        userId,
-        grossAmount: dec(input.grossAmount),
-        mdrAmount: priced.mdrAmount,
-        netAmount,
-        mode: "INSTANT",
-        status: wtxnId ? "SETTLED" : "PENDING",
-        settledAt: wtxnId ? new Date() : null,
-        settledVia: wtxnId ? SETTLED_VIA.INSTANT_AUTO : null,
-        walletTxnId: wtxnId,
-        paymentMode,
-        cardType: dims.cardType ?? null,
-        brandType: dims.brandType ?? null,
-        classification: dims.classification ?? null,
-        capturedAt: capturedAtValid ? capturedAt : null,
-        brandId: priced.brandId,
-        provider: priced.provider,
-        mdrRateId: priced.mdrRateId,
-      },
-    });
+    try {
+      await prisma.posSettlementEntry.create({
+        data: {
+          transactionRef: input.transactionRef,
+          machineId: machineDbId,
+          userId,
+          grossAmount: dec(input.grossAmount),
+          mdrAmount: priced.mdrAmount,
+          netAmount,
+          mode: "INSTANT",
+          status: wtxnId ? "SETTLED" : "PENDING",
+          settledAt: wtxnId ? new Date() : null,
+          settledVia: wtxnId ? SETTLED_VIA.INSTANT_AUTO : null,
+          walletTxnId: wtxnId,
+          paymentMode,
+          cardType: dims.cardType ?? null,
+          brandType: dims.brandType ?? null,
+          classification: dims.classification ?? null,
+          capturedAt: capturedAtValid ? capturedAt : null,
+          brandId: priced.brandId,
+          provider: priced.provider,
+          mdrRateId: priced.mdrRateId,
+        },
+      });
+    } catch (e) {
+      // Another path (webhook vs ingest, or a retry) already inserted this exact
+      // capture — the wallet credit above is idempotency-keyed, so no double
+      // credit occurred. Treat as a duplicate and skip commission.
+      if ((e as { code?: string }).code === "P2002") return { status: "DUPLICATE" };
+      throw e;
+    }
 
     await distributeCommissionForPos(input.transactionRef, userId, input.grossAmount, paymentMode, dims, settlementType);
 
@@ -291,26 +299,33 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
 
   // T+1 — queue for the daily cron. MDR is re-verified against the brand rate
   // at sweep time before crediting.
-  await prisma.posSettlementEntry.create({
-    data: {
-      transactionRef: input.transactionRef,
-      machineId: machineDbId,
-      userId,
-      grossAmount: dec(input.grossAmount),
-      mdrAmount: priced.mdrAmount,
-      netAmount,
-      mode: "T1",
-      status: "PENDING",
-      paymentMode,
-      cardType: dims.cardType ?? null,
-      brandType: dims.brandType ?? null,
-      classification: dims.classification ?? null,
-      capturedAt: capturedAtValid ? capturedAt : null,
-      brandId: priced.brandId,
-      provider: priced.provider,
-      mdrRateId: priced.mdrRateId,
-    },
-  });
+  try {
+    await prisma.posSettlementEntry.create({
+      data: {
+        transactionRef: input.transactionRef,
+        machineId: machineDbId,
+        userId,
+        grossAmount: dec(input.grossAmount),
+        mdrAmount: priced.mdrAmount,
+        netAmount,
+        mode: "T1",
+        status: "PENDING",
+        paymentMode,
+        cardType: dims.cardType ?? null,
+        brandType: dims.brandType ?? null,
+        classification: dims.classification ?? null,
+        capturedAt: capturedAtValid ? capturedAt : null,
+        brandId: priced.brandId,
+        provider: priced.provider,
+        mdrRateId: priced.mdrRateId,
+      },
+    });
+  } catch (e) {
+    // Concurrent duplicate of the same canonical capture — the @unique ref
+    // rejected the second insert. Skip commission so it's paid exactly once.
+    if ((e as { code?: string }).code === "P2002") return { status: "DUPLICATE" };
+    throw e;
+  }
 
   // Commission still distributes instantly even in T+1 mode.
   await distributeCommissionForPos(input.transactionRef, userId, input.grossAmount, paymentMode, dims, settlementType);
@@ -338,21 +353,32 @@ async function distributeCommissionForPos(
   settlementType: "T0" | "T1" = "T1"
 ) {
   // We need a Transaction row for the CommissionCredit FK. Create a synthetic
-  // settlement-type entry. Idempotent per capture via the unique refId.
-  const refId = `POS${transactionRef.slice(-10).toUpperCase()}`;
+  // settlement-type entry. The refId is 1:1 with the canonical capture ref (NO
+  // truncation — a slice could collide two distinct captures onto one refId and
+  // silently drop the second's commission). Idempotent per capture via @unique.
+  const refId = `POS:${transactionRef}`;
   let txn = await prisma.transaction.findUnique({ where: { refId } });
   if (!txn) {
-    txn = await prisma.transaction.create({
-      data: {
-        refId,
-        userId,
-        service: "WALLET_TOPUP" as ServiceCode, // POS settlement doesn't have its own ServiceCode; use placeholder
-        amount: dec(grossAmount),
-        status: "SUCCESS",
-        partner: "SAMEDAY_POS",
-        partnerTxnId: transactionRef,
-      },
-    });
+    try {
+      txn = await prisma.transaction.create({
+        data: {
+          refId,
+          userId,
+          service: "WALLET_TOPUP" as ServiceCode, // POS settlement doesn't have its own ServiceCode; use placeholder
+          amount: dec(grossAmount),
+          status: "SUCCESS",
+          partner: "SAMEDAY_POS",
+          partnerTxnId: transactionRef,
+        },
+      });
+    } catch (e) {
+      // A concurrent capture raced us to the same refId — reuse the winner's row
+      // so commission still distributes exactly once (idempotency-keyed below).
+      if ((e as { code?: string }).code === "P2002") {
+        txn = await prisma.transaction.findUnique({ where: { refId } });
+      }
+      if (!txn) throw e;
+    }
   }
 
   await distributeMdrCommission(
@@ -614,12 +640,30 @@ export async function runPosT1SettlementSweep(): Promise<{
   // True T+1: only captures from previous IST days are due. Settle by CAPTURE
   // date so a capture pull-ingested a day late still settles on its correct
   // day; legacy rows without capturedAt fall back to their createdAt.
-  const cutoff = startOfTodayIst();
+  const todayStart = startOfTodayIst();
+
+  // Per-company (brand) T+1 cutoff. A capture taken at/after the brand's cutoff
+  // IST hour belongs to the NEXT business day, so it becomes due one day later
+  // (i.e. T+2). The DB pre-filter below (capturedAt < todayStart) is a SUPERSET
+  // of every brand's due set — the latest possible boundary is todayStart
+  // (cutoff = end of day) — so we fetch that set and hold "late" captures per
+  // brand in code. As todayStart advances each day, a held capture naturally
+  // clears its brand boundary on the next run, landing it on T+2.
+  const brandCutoffs = await prisma.brand.findMany({ select: { id: true, t1CutoffHour: true } });
+  const cutoffByBrand = new Map(brandCutoffs.map((b) => [b.id, b.t1CutoffHour]));
+  const HOUR_MS = 60 * 60 * 1000;
+  const dueBoundary = (brandId: string | null): Date => {
+    const hour = brandId ? cutoffByBrand.get(brandId) ?? null : null;
+    // null / out-of-range → no early cutoff → whole previous day is due today.
+    if (hour === null || hour < 0 || hour >= 24) return todayStart;
+    return new Date(todayStart.getTime() - (24 - hour) * HOUR_MS);
+  };
+
   const entries = await prisma.posSettlementEntry.findMany({
     where: {
       status: "PENDING",
       mode: "T1",
-      OR: [{ capturedAt: { lt: cutoff } }, { capturedAt: null, createdAt: { lt: cutoff } }],
+      OR: [{ capturedAt: { lt: todayStart } }, { capturedAt: null, createdAt: { lt: todayStart } }],
     },
     orderBy: { createdAt: "asc" },
     take: 500,
@@ -630,6 +674,12 @@ export async function runPosT1SettlementSweep(): Promise<{
   let totalAmount = 0;
 
   for (const entry of entries) {
+    // Company cutoff gate: hold captures taken at/after the brand's cutoff for
+    // their T+2 run. capturedAt drives the call; legacy rows fall back to
+    // createdAt. Brands with no cutoff use todayStart (classic T+1).
+    const captured = entry.capturedAt ?? entry.createdAt;
+    if (captured >= dueBoundary(entry.brandId)) continue;
+
     if (!gte(entry.netAmount, config.minAmount)) {
       continue; // Below minimum — leave for next run
     }

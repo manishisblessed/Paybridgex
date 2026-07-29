@@ -27,6 +27,7 @@ export async function GET() {
         description: b.description,
         active: b.active,
         settlementMode: b.settlementMode,
+        t1CutoffHour: b.t1CutoffHour,
         rates: b._count.rates,
         machines: b._count.machines,
         createdAt: b.createdAt.toISOString(),

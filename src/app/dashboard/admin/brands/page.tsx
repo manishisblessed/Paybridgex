@@ -43,6 +43,7 @@ type Brand = {
   description: string | null;
   active: boolean;
   settlementMode: string;
+  t1CutoffHour: number | null;
   rates: number;
   machines: number;
   createdAt: string;
@@ -72,9 +73,21 @@ type BrandDetail = {
   description: string | null;
   active: boolean;
   settlementMode: string;
+  t1CutoffHour: number | null;
   machines: number;
   rates: Rate[];
 };
+
+/** IST hours 0-23 offered as per-company T+1 cutoff options. */
+const CUTOFF_HOURS = Array.from({ length: 24 }, (_, h) => h);
+
+/** 22 → "10:00 PM", 0 → "12:00 AM (midnight)", 12 → "12:00 PM (noon)". */
+function fmtCutoffHour(h: number): string {
+  const ampm = h < 12 ? "AM" : "PM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  const suffix = h === 0 ? " (midnight)" : h === 12 ? " (noon)" : "";
+  return `${hour12}:00 ${ampm}${suffix}`;
+}
 
 const inputCls =
   "rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100";
@@ -206,6 +219,27 @@ export default function BrandsPage() {
       ),
     },
     {
+      key: "cutoff",
+      header: "T+1 cutoff",
+      render: (b) => (
+        <select
+          className="rounded-lg border border-ink-200 bg-white px-2 py-1.5 text-xs text-ink-700 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+          value={b.t1CutoffHour ?? ""}
+          onChange={(e) =>
+            patchBrand(b.id, { t1CutoffHour: e.target.value === "" ? null : Number(e.target.value) })
+          }
+          title="Captures taken at/after this IST hour roll to the next business day and settle on T+2 instead of T+1"
+        >
+          <option value="">All day → T+1</option>
+          {CUTOFF_HOURS.map((h) => (
+            <option key={h} value={h}>
+              {fmtCutoffHour(h)} → T+2 after
+            </option>
+          ))}
+        </select>
+      ),
+    },
+    {
       key: "flags",
       header: "Status",
       render: (b) => (
@@ -285,6 +319,16 @@ export default function BrandsPage() {
 
       {tab === "pos" && (
         <>
+          <div className="flex items-start gap-2 rounded-xl border border-ink-100 bg-ink-50/60 px-4 py-3 text-xs text-ink-500">
+            <Clock className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+            <p>
+              <span className="font-semibold text-ink-700">T+1 cutoff (per company):</span> set the IST hour after which a
+              day&apos;s captures roll to the next business day. A swipe taken at/after the cutoff settles on{" "}
+              <span className="font-semibold">T+2</span>; everything before settles <span className="font-semibold">T+1</span>.
+              Leave as <span className="font-semibold">&quot;All day → T+1&quot;</span> for no early cutoff. Instant settlement is unaffected.
+            </p>
+          </div>
+
           <DataTable columns={columns} data={brands} loading={loading} />
 
           {selected && (

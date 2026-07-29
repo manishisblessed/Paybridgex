@@ -52,6 +52,37 @@ function authHeaders(
   };
 }
 
+/**
+ * Canonical, cross-path idempotency reference for a POS capture.
+ *
+ * The same physical swipe reaches us via TWO independent paths that identify it
+ * with DIFFERENT primary ids: the real-time webhook sends `txnId`, while the
+ * ingest sweep sees `razorpay_txn_id` / `external_ref` / numeric `id`. If each
+ * path keyed the settlement entry on its own id, the two paths would create TWO
+ * entries for one swipe — double-crediting the retailer and paying commission
+ * twice.
+ *
+ * The RRN (Retrieval Reference Number) is the ONE identifier both paths carry
+ * and that uniquely identifies a card transaction network-wide. Deriving the
+ * reference from `${tid}:${rrn}` makes BOTH paths converge on the SAME
+ * `transactionRef`, so the `PosSettlementEntry.transactionRef @unique`
+ * constraint makes a second insert physically impossible — no double credit.
+ *
+ * When no RRN is present (rare, non-card), we fall back to the path's own id
+ * (the pre-existing behaviour). Returns "" only when nothing identifies the
+ * capture, which callers reject.
+ */
+export function canonicalPosCaptureRef(input: {
+  rrn?: string | null;
+  terminalId?: string | null;
+  fallbackId?: string | null;
+}): string {
+  const rrn = (input.rrn ?? "").replace(/\s+/g, "").toUpperCase();
+  const tid = (input.terminalId ?? "").trim().toUpperCase();
+  if (rrn) return tid ? `SDPOS:${tid}:${rrn}` : `SDPOS:${rrn}`;
+  return (input.fallbackId ?? "").trim();
+}
+
 /** Max age (seconds) accepted for a webhook timestamp — replay protection. */
 const WEBHOOK_MAX_SKEW_SEC = 300; // 5 minutes
 

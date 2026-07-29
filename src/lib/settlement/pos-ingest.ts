@@ -1,6 +1,6 @@
 import { flags } from "@/lib/env";
 import { getSetting, isCardClassificationEnabled } from "@/lib/settings";
-import { getPosTransactions } from "@/lib/partners/sameday-pos";
+import { getPosTransactions, canonicalPosCaptureRef } from "@/lib/partners/sameday-pos";
 import { handlePosCapture } from "@/lib/settlement/pos";
 import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
 import type { PosTransaction } from "@/lib/partners/sameday-pos.types";
@@ -45,9 +45,18 @@ const up = (v: string | null | undefined) => {
   return s ? s : undefined;
 };
 
-/** Stable, capture-unique reference matching nothing else in the queue. */
+/**
+ * Stable, capture-unique reference. Uses the SAME canonical (RRN-based) key as
+ * the real-time webhook so a swipe seen by both paths resolves to ONE
+ * transactionRef — the @unique constraint then prevents a duplicate settlement
+ * entry / commission. Falls back to the partner txn id when no RRN is present.
+ */
 function txnRef(t: PosTransaction): string {
-  return t.razorpay_txn_id || t.external_ref || `SDP-${t.id}`;
+  return canonicalPosCaptureRef({
+    rrn: t.rrn,
+    terminalId: t.terminal_id,
+    fallbackId: t.razorpay_txn_id || t.external_ref || `SDP-${t.id}`,
+  });
 }
 
 function parseCapturedAt(t: PosTransaction): Date | undefined {
@@ -106,6 +115,14 @@ export async function runPosIngestSweep(opts?: {
     const rows = res.data.data ?? [];
     for (const t of rows) {
       base.scanned++;
+      // Money guard: settle ONLY genuinely captured swipes. We already ask the
+      // API for status=CAPTURED, but never trust a single query param — an
+      // AUTHORIZED (held, not captured), FAILED, REFUNDED or VOIDED row must
+      // never credit a wallet. Re-check each row's own status defensively.
+      if (up(t.status) !== "CAPTURED") {
+        base.skippedRows++;
+        continue;
+      }
       const grossAmount = Number(t.amount);
       if (!t.terminal_id || !Number.isFinite(grossAmount) || grossAmount <= 0) {
         base.skippedRows++;
