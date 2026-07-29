@@ -1045,6 +1045,8 @@ model Invite {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  verificationResults VerificationResult[]
+
   @@index([token])
   @@index([invitedById, status])
   @@index([phone])
@@ -1064,6 +1066,10 @@ model VerificationResult {
   requestPayload  Json?
   responsePayload Json?
   createdAt       DateTime @default(now())
+
+  // Detach (not delete) when the parent invite is removed so a user's KYC/eKYC
+  // verification audit trail is preserved even if their invite is purged.
+  invite Invite? @relation(fields: [inviteId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([userId, type])
   @@index([inviteId, type])

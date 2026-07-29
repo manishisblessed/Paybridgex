@@ -55,6 +55,12 @@ const schema = z.object({
   SAMEDAY_POS_BASE_URL: z.string().url().default("https://api.samedaysolution.in"),
   SAMEDAY_POS_API_KEY: z.string().min(1).optional(),
   SAMEDAY_POS_API_SECRET: z.string().min(1).optional(),
+  // Signing secret for INCOMING POS capture webhooks (POST /api/pos/webhook).
+  // When unset, the webhook accepts requests unverified (bootstrap phase before
+  // Same Day supplies/confirms the secret); once set, every webhook must carry a
+  // valid HMAC-SHA256 signature or it is rejected 401. See docs / the message to
+  // Same Day for the exact scheme.
+  SAMEDAY_POS_WEBHOOK_SECRET: z.string().min(1).optional(),
 
   // Same Day Solution — BBPS-2 (Pay2New) credit card bill payments and
   // Settlement API. Both fall back to the POS key pair when unset (the admin

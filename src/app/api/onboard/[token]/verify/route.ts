@@ -434,7 +434,12 @@ export async function POST(
         });
 
         if (dupVerification) {
-          // Only block if the other invite/user is still active
+          // Only block if the prior verification is actually claimed by a real
+          // account or a still-active onboarding. If the other invite was
+          // deleted AND no user was ever linked, the verification is orphaned
+          // (nobody owns this Aadhaar) — allow it through. A missing invite must
+          // NOT be treated as "active", otherwise a user's own abandoned +
+          // later-purged attempt permanently locks them out.
           const otherInvite = dupVerification.inviteId
             ? await prisma.invite.findUnique({
                 where: { id: dupVerification.inviteId },
@@ -442,10 +447,11 @@ export async function POST(
               })
             : null;
           const isOtherActive =
-            !otherInvite ||
-            ["PENDING", "REGISTERED", "VERIFIED", "APPROVED"].includes(
-              otherInvite.status
-            );
+            Boolean(dupVerification.userId) ||
+            (otherInvite != null &&
+              ["PENDING", "REGISTERED", "VERIFIED", "APPROVED"].includes(
+                otherInvite.status
+              ));
 
           if (isOtherActive) {
             return NextResponse.json(

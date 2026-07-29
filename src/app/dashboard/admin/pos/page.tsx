@@ -839,8 +839,20 @@ function TransactionsTab() {
   const [statusFilter, setStatusFilter] = useState<PosTransactionStatus | "">("");
   const [modeFilter, setModeFilter] = useState<PosPaymentMode | "">("");
   const [terminalFilter, setTerminalFilter] = useState("");
+  const [companyFilter, setCompanyFilter] = useState("");
   const [page, setPage] = useState(1);
+  // Bumped on every Search/Today so a re-search re-fetches even when the filters
+  // are unchanged — important for the company view, which has auto-refresh off.
+  const [searchNonce, setSearchNonce] = useState(0);
   const [slipTxn, setSlipTxn] = useState<PosTransaction | null>(null);
+
+  // Acquiring companies present in the fleet — populates the company picker.
+  const { data: companyData } = useSWR<{ companies: { company: string; machineCount: number }[] }>(
+    "/api/admin/pos/companies",
+    fetcher,
+    { revalidateOnFocus: false, dedupingInterval: 60000 }
+  );
+  const companies = companyData?.companies ?? [];
 
   // Applied filters — drive the live feed AND the report export. Updated only
   // when the user clicks Search / Today, so the table and downloads always agree.
@@ -850,19 +862,22 @@ function TransactionsTab() {
     status: "" as PosTransactionStatus | "",
     mode: "" as PosPaymentMode | "",
     terminal: "",
+    company: "",
   });
 
   const applySearch = useCallback(() => {
-    setApplied({ dateFrom, dateTo, status: statusFilter, mode: modeFilter, terminal: terminalFilter });
+    setApplied({ dateFrom, dateTo, status: statusFilter, mode: modeFilter, terminal: terminalFilter, company: companyFilter });
     setPage(1);
-  }, [dateFrom, dateTo, statusFilter, modeFilter, terminalFilter]);
+    setSearchNonce((n) => n + 1);
+  }, [dateFrom, dateTo, statusFilter, modeFilter, terminalFilter, companyFilter]);
 
   const applyToday = useCallback(() => {
     setDateFrom(today.from);
     setDateTo(today.to);
-    setApplied({ dateFrom: today.from, dateTo: today.to, status: statusFilter, mode: modeFilter, terminal: terminalFilter });
+    setApplied({ dateFrom: today.from, dateTo: today.to, status: statusFilter, mode: modeFilter, terminal: terminalFilter, company: companyFilter });
     setPage(1);
-  }, [today.from, today.to, statusFilter, modeFilter, terminalFilter]);
+    setSearchNonce((n) => n + 1);
+  }, [today.from, today.to, statusFilter, modeFilter, terminalFilter, companyFilter]);
 
   const body = {
     date_from: `${applied.dateFrom}T00:00:00.000Z`,
@@ -870,17 +885,20 @@ function TransactionsTab() {
     status: applied.status || null,
     payment_mode: applied.mode || null,
     terminal_id: applied.terminal || null,
+    company: applied.company || null,
     page,
     page_size: 50,
   };
 
   const { data, error, isLoading, mutate } = useSWR<PosTransactionsResponse>(
-    ["/api/pos/transactions", body],
+    ["/api/pos/transactions", body, searchNonce],
     postFetcher,
     {
-      // 5s keeps the feed feeling live without saturating the partner API —
-      // each poll is a full proxy round trip that competes with other requests.
-      refreshInterval: (latest) => (latest ? 5000 : 0),
+      // 5s keeps the feed feeling live without saturating the partner API. A
+      // company view fans out across every terminal booked to that acquirer, so
+      // auto-refresh is disabled there (it refreshes on Search) to stay under
+      // the partner's rate limit.
+      refreshInterval: (latest) => (applied.company ? 0 : latest ? 5000 : 0),
       refreshWhenHidden: false,
       revalidateOnFocus: false,
       keepPreviousData: true,
@@ -937,6 +955,7 @@ function TransactionsTab() {
         status: applied.status || null,
         payment_mode: applied.mode || null,
         terminal_id: applied.terminal || null,
+        company: applied.company || null,
       }),
     });
     if (!res.ok) {
@@ -953,6 +972,7 @@ function TransactionsTab() {
 
   const reportSubtitle =
     `${applied.dateFrom} to ${applied.dateTo}` +
+    (applied.company ? ` · ${applied.company}` : "") +
     (applied.status ? ` · ${applied.status}` : "") +
     (applied.mode ? ` · ${applied.mode}` : "") +
     (applied.terminal ? ` · TID ${applied.terminal}` : "");
@@ -996,14 +1016,34 @@ function TransactionsTab() {
       {/* Live indicator + filters */}
       <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
-            </span>
-            <span className="text-xs font-semibold text-emerald-700">Live — auto-refreshing</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
+          {applied.company ? (
+            <div className="flex items-center gap-2 rounded-full bg-ink-100 px-3 py-1.5" title="Auto-refresh is paused for company views — click Search to refresh.">
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ink-400" />
+              <span className="text-xs font-semibold text-ink-600">Paused — {applied.company}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+              </span>
+              <span className="text-xs font-semibold text-emerald-700">Live — auto-refreshing</span>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={companyFilter}
+              onChange={(e) => setCompanyFilter(e.target.value)}
+              title="Filter by acquiring company, then click Search"
+              className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            >
+              <option value="">All companies</option>
+              {companies.map((c) => (
+                <option key={c.company} value={c.company}>
+                  {c.company} ({c.machineCount})
+                </option>
+              ))}
+            </select>
             <ReportActions<PosTransaction>
               filename={`pos-transactions-${applied.dateFrom}-to-${applied.dateTo}`}
               title="POS Transactions Report"

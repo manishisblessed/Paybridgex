@@ -421,6 +421,34 @@ export async function scopePosTerminals(
   return { all: false, tids: terminals.map((t) => t.tid), terminals };
 }
 
+/**
+ * Resolve an acquiring-company label (`PosMachine.company`, e.g.
+ * "Sameday-Avika POS ( HDFC)") to the distinct terminal IDs booked under it.
+ *
+ * Admin-only convenience: the partner transactions feed filters by a single
+ * `terminal_id`, so a per-company view needs the full TID list to aggregate
+ * over. `assignedAt` is intentionally null — an admin sees ALL activity on a
+ * company's terminals, so the per-terminal assignment clamp is not applied.
+ */
+export async function resolveCompanyTerminals(
+  company: string
+): Promise<ScopedTerminal[]> {
+  const rows = await prisma.posMachine.findMany({
+    where: { company, tid: { not: null } },
+    select: { tid: true },
+  });
+
+  const seen = new Set<string>();
+  const terminals: ScopedTerminal[] = [];
+  for (const r of rows) {
+    if (r.tid && !seen.has(r.tid)) {
+      seen.add(r.tid);
+      terminals.push({ tid: r.tid, assignedAt: null });
+    }
+  }
+  return terminals;
+}
+
 /** Serialize a DB row (with assignee) into the API/UI shape. */
 export function serializePosMachine(
   row: PosMachineWithAssignee

@@ -52,6 +52,49 @@ function authHeaders(
   };
 }
 
+/** Max age (seconds) accepted for a webhook timestamp — replay protection. */
+const WEBHOOK_MAX_SKEW_SEC = 300; // 5 minutes
+
+/**
+ * Verify an INCOMING Same Day POS capture webhook (POST /api/pos/webhook).
+ *
+ * Same Day's confirmed scheme:
+ *   X-Sameday-Signature = HMAC-SHA256( secret, `${X-Sameday-Timestamp}.${rawBody}` )  (hex)
+ *   X-Sameday-Timestamp = unix time in SECONDS at signing
+ * The signature covers the timestamp, a literal ".", then the exact raw body
+ * bytes — so it must be verified BEFORE JSON parsing. Comparison is constant
+ * time; stale timestamps (> 5 min skew) are rejected to blunt replay attacks.
+ *
+ * Return value:
+ *   "SKIP" — SAMEDAY_POS_WEBHOOK_SECRET is not configured yet. The caller
+ *            ACCEPTS the webhook but flags it unverified. This is the bootstrap
+ *            phase: captures keep saving while we await Same Day's signing
+ *            secret. Set the env var to turn enforcement on (fail-closed).
+ *   true   — signature present, timestamp fresh, and HMAC valid.
+ *   false  — secret configured but signature/timestamp missing, stale, or invalid
+ *            → caller rejects 401.
+ */
+export function verifySamedayPosWebhook(
+  rawBody: string,
+  signature: string | null,
+  timestamp: string | null
+): boolean | "SKIP" {
+  const secret = process.env.SAMEDAY_POS_WEBHOOK_SECRET;
+  if (!secret) return "SKIP";
+  if (!signature || !timestamp) return false;
+
+  // Replay protection: reject timestamps outside the tolerance window.
+  const skewSec = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (!Number.isFinite(skewSec) || skewSec > WEBHOOK_MAX_SKEW_SEC) return false;
+
+  const provided = signature.startsWith("sha256=") ? signature.slice(7) : signature.trim();
+  const expected = sign(secret, `${timestamp}.${rawBody}`);
+  const a = Buffer.from(expected);
+  const b = Buffer.from(provided);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 type ApiResult<T> =
   | { ok: true; data: T; status: number }
   | { ok: false; error: PosApiError; status: number };

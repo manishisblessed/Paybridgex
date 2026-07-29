@@ -5,8 +5,9 @@ import { getPosTransactions } from "@/lib/partners/sameday-pos";
 import { enrichPosTransactions } from "@/lib/pos/enrich";
 import { prisma } from "@/lib/db";
 import { flags } from "@/lib/env";
-import { scopePosTerminals } from "@/lib/pos/assignments";
+import { scopePosTerminals, resolveCompanyTerminals, type ScopedTerminal } from "@/lib/pos/assignments";
 import { crawlScopedTransactions } from "@/lib/pos/aggregate";
+import { isAdminRole } from "@/lib/security/ownership";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import type { PosTransaction } from "@/lib/partners/sameday-pos.types";
@@ -27,6 +28,8 @@ const schema = z.object({
   date_to: z.string().min(1, "date_to is required"),
   status: z.enum(["AUTHORIZED", "CAPTURED", "FAILED", "REFUNDED", "VOIDED"]).nullable().optional(),
   terminal_id: z.string().nullable().optional(),
+  // Admin-only: export every terminal booked under an acquiring company.
+  company: z.string().nullable().optional(),
   payment_mode: z.enum(["CARD", "UPI", "NFC", "CASH", "WALLET", "NETBANKING", "BHARATQR"]).nullable().optional(),
 });
 
@@ -61,39 +64,51 @@ export async function POST(req: Request) {
 
   const filters = parsed.data;
 
-  // Ownership: non-admins may only export their own terminals' transactions.
-  // With no terminal picked and several owned, we aggregate across all of them
-  // (an "all my terminals" report) instead of forcing a selection.
-  const scope = await scopePosTerminals(user);
-  let aggregate = false;
-  if (!scope.all) {
-    if (scope.tids.length === 0)
-      return NextResponse.json({ error: "No POS terminals are assigned to your account" }, { status: 403 });
-    if (filters.terminal_id) {
-      if (!scope.tids.includes(filters.terminal_id))
-        return NextResponse.json({ error: "You do not have access to that terminal" }, { status: 403 });
-    } else if (scope.tids.length === 1) {
-      filters.terminal_id = scope.tids[0];
-    } else {
-      aggregate = true;
-    }
+  // Terminals to aggregate over when we can't do a single direct partner query
+  // (multi-terminal "all mine" report, or an admin company filter).
+  let aggregateTerminals: ScopedTerminal[] | null = null;
 
-    // Clamp date_from so exports only include transactions from after the
-    // terminal was assigned to this user/downline. (Aggregation clamps
-    // per-terminal internally.)
-    if (!aggregate) {
-      const match = scope.terminals.find((t) => t.tid === filters.terminal_id);
-      if (match?.assignedAt) {
-        const assignedIso = match.assignedAt.toISOString();
-        if (filters.date_from < assignedIso) filters.date_from = assignedIso;
+  const companyFilter = filters.company?.trim() || null;
+
+  if (companyFilter) {
+    // Company filtering spans terminals across many holders, so it's admin-only.
+    if (!isAdminRole(user.role))
+      return NextResponse.json({ error: "Company filtering is available to admins only" }, { status: 403 });
+    aggregateTerminals = await resolveCompanyTerminals(companyFilter);
+  } else {
+    // Ownership: non-admins may only export their own terminals' transactions.
+    // With no terminal picked and several owned, we aggregate across all of them
+    // (an "all my terminals" report) instead of forcing a selection.
+    const scope = await scopePosTerminals(user);
+    if (!scope.all) {
+      if (scope.tids.length === 0)
+        return NextResponse.json({ error: "No POS terminals are assigned to your account" }, { status: 403 });
+      if (filters.terminal_id) {
+        if (!scope.tids.includes(filters.terminal_id))
+          return NextResponse.json({ error: "You do not have access to that terminal" }, { status: 403 });
+      } else if (scope.tids.length === 1) {
+        filters.terminal_id = scope.tids[0];
+      } else {
+        aggregateTerminals = scope.terminals;
+      }
+
+      // Clamp date_from so exports only include transactions from after the
+      // terminal was assigned to this user/downline. (Aggregation clamps
+      // per-terminal internally.)
+      if (!aggregateTerminals && filters.terminal_id) {
+        const match = scope.terminals.find((t) => t.tid === filters.terminal_id);
+        if (match?.assignedAt) {
+          const assignedIso = match.assignedAt.toISOString();
+          if (filters.date_from < assignedIso) filters.date_from = assignedIso;
+        }
       }
     }
   }
 
-  // Aggregated multi-terminal export: crawl every owned terminal and merge.
-  if (aggregate) {
+  // Aggregated export: crawl every resolved terminal and merge.
+  if (aggregateTerminals) {
     const { rows: merged, truncated } = await crawlScopedTransactions(
-      scope.terminals,
+      aggregateTerminals,
       {
         date_from: filters.date_from,
         date_to: filters.date_to,
@@ -117,6 +132,7 @@ export async function POST(req: Request) {
           status: filters.status ?? null,
           payment_mode: filters.payment_mode ?? null,
           terminal_id: null,
+          company: companyFilter,
           aggregated: true,
         },
       },
