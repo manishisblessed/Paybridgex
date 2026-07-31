@@ -51,6 +51,16 @@ const REFILL_PER_MS = RATE_PER_MIN / 60_000;
 const MAX_RETRIES = 3; // total attempts = MAX_RETRIES + 1
 const MAX_BACKOFF_MS = 15_000;
 
+// Hard per-attempt ceiling on a partner call. Node's global `fetch` (undici) has
+// no total-request timeout, so a partner that accepts the connection but stalls
+// (its pos-transactions endpoint does heavy DB work) would hang the call — and
+// with it the background sweep — FOREVER. A single hung sweep silently wedges the
+// mirror ingester: the in-process recent-poll's re-entrancy guard stays stuck and
+// the pg-boss consumer stops draining, freezing the "Live Transactions" feed with
+// no error. This abort turns any stall into a fast, retryable failure so the
+// worker self-heals instead of going dark. Override via env for slow links.
+const REQUEST_TIMEOUT_MS = Number(process.env.SAMEDAY_POS_TIMEOUT_MS) || 25_000;
+
 let _tokens = BUCKET_CAPACITY;
 let _lastRefill = Date.now();
 // Serialize token math so concurrent callers can't race across await points.
@@ -223,7 +233,15 @@ async function request<T>(
       const headers: Record<string, string> = { ...authHeaders(apiKey, apiSecret, bodyStr) };
       if (bodyStr) headers["Content-Type"] = "application/json";
 
-      const res = await fetch(url, { method, headers, body: bodyStr, cache: "no-store" });
+      // Abort a stalled request so it can never hang the caller indefinitely.
+      const ac = new AbortController();
+      const timeout = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(url, { method, headers, body: bodyStr, cache: "no-store", signal: ac.signal });
+      } finally {
+        clearTimeout(timeout);
+      }
 
       // Rate limited: back off (honoring Retry-After) and retry if attempts remain.
       if (res.status === 429) {
@@ -270,11 +288,16 @@ async function request<T>(
       }
       return { ok: true, data: json as T, status: res.status };
     } catch (e) {
-      // Transient network error: retry with backoff if attempts remain.
-      const message = e instanceof Error ? e.message : "POS partner request failed";
+      // Transient network error (incl. our abort-on-timeout): retry with backoff.
+      const aborted = e instanceof Error && e.name === "AbortError";
+      const message = aborted
+        ? `POS partner request timed out after ${REQUEST_TIMEOUT_MS}ms`
+        : e instanceof Error
+          ? e.message
+          : "POS partner request failed";
       lastError = {
         ok: false,
-        error: { success: false, error: { code: "PARTNER_REQUEST_FAILED", message } },
+        error: { success: false, error: { code: aborted ? "PARTNER_TIMEOUT" : "PARTNER_REQUEST_FAILED", message } },
         status: 502,
       };
       if (attempt < MAX_RETRIES) {
