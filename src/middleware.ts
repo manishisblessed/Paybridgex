@@ -132,15 +132,26 @@ export async function middleware(req: NextRequest) {
   //       /_next/image and public assets are already excluded by the matcher,
   //       so their long-lived immutable caching is untouched.
   if (pathname.startsWith("/dashboard") || pathname.startsWith("/api")) {
+    // Server-Sent Events endpoints MUST keep `no-transform`, otherwise a
+    // compression/proxy layer (Next's built-in gzip in production, nginx, a CDN)
+    // buffers the `text/event-stream` and holds each frame back until the
+    // connection closes — which breaks the live push (the feed then only
+    // "refreshes" on reconnect / tab-switch). The stream route sets this header
+    // itself; we must not clobber it here.
+    const isEventStream = req.headers.get("accept") === "text/event-stream";
     res.headers.set(
       "Cache-Control",
-      "no-store, no-cache, must-revalidate, private"
+      isEventStream
+        ? "no-store, no-cache, no-transform, must-revalidate, private"
+        : "no-store, no-cache, must-revalidate, private"
     );
     res.headers.set("Pragma", "no-cache");
     res.headers.set("Expires", "0");
     // Caches that key on the response must vary by the auth cookie so a shared
     // cache can never serve one user's authenticated response to another.
     res.headers.set("Vary", "Cookie");
+    // Belt-and-suspenders: disable nginx/proxy response buffering for the stream.
+    if (isEventStream) res.headers.set("X-Accel-Buffering", "no");
   }
 
   return res;

@@ -1371,6 +1371,74 @@ model PosMachine {
   @@index([brandId])
 }
 
+/// Local mirror of the Same Day POS transaction feed — the display READ-MODEL.
+///
+/// The dashboard "Live Transactions" feed and the report exports read from HERE,
+/// never the partner API. This decouples the UI from the partner's 100 req/min
+/// rate limit (the root cause of the 429s that the old direct-poll design hit)
+/// and turns per-company / multi-terminal views from a hundreds-of-calls crawl
+/// into a single indexed SQL query.
+///
+/// Populated by two convergent paths:
+///   • WEBHOOK — the real-time capture webhook upserts a row the instant a swipe
+///     is captured (fast path).
+///   • SWEEP   — a periodic reconciliation pulls the partner feed (all statuses)
+///     and upserts by canonical ref, repairing anything the webhook missed and
+///     backfilling non-CAPTURED rows (correctness net).
+///
+/// Deduped by `transactionRef` — the SAME canonical RRN key as settlement
+/// (`canonicalPosCaptureRef`) — so both paths converge on ONE row per physical
+/// swipe and the @unique constraint makes a duplicate physically impossible.
+model PosTransactionMirror {
+  id             String @id @default(cuid())
+  transactionRef String @unique // canonical RRN-based key (e.g. SDPOS:<tid>:<rrn>)
+  externalId     Int? // partner numeric txn id (feed `id`), for slip lookups / sort tiebreak
+
+  terminalId  String
+  amount      Decimal @db.Decimal(14, 2)
+  status      String  @default("CAPTURED") // AUTHORIZED | CAPTURED | FAILED | REFUNDED | VOIDED
+  paymentMode String  @default("CARD") // CARD | UPI | NFC | BHARATQR | ...
+  currency    String  @default("INR")
+
+  // Card / network dimensions (masked PAN only — exactly what the feed returns).
+  rrn                String?
+  cardBrand          String?
+  cardType           String?
+  cardNumber         String? // masked, as provided by the acquirer
+  cardClassification String?
+  cardTxnType        String?
+  issuingBank        String?
+  acquiringBank      String?
+
+  // References, device, and parties.
+  razorpayTxnId String?
+  externalRef   String?
+  deviceSerial  String?
+  mid           String?
+  authCode      String?
+  txnType       String?
+  customerName  String?
+  payerName     String?
+  receiptUrl    String?
+
+  // Timeline. `txnTime` is the swipe time — the feed ordering + date-filter key.
+  txnTime          DateTime
+  postingDate      DateTime?
+  partnerCreatedAt DateTime?
+
+  // Full partner payload for audit / future fields, and row provenance.
+  raw    Json?
+  source String @default("SWEEP") // WEBHOOK | SWEEP
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([txnTime])
+  @@index([terminalId, txnTime])
+  @@index([status, txnTime])
+  @@index([paymentMode])
+}
+
 model PosAssignmentLog {
   id        String     @id @default(cuid())
   machineId String
@@ -2190,6 +2258,11 @@ model PosSettlementEntry {
   cardType       String? // CREDIT | DEBIT | PREPAID
   brandType      String? // VISA | MASTERCARD | RUPAY | AMEX | DINERS
   classification String? // PLATINUM | SIGNATURE | REWARDS | ...
+  // Acquiring-company label the capture was priced against (PosMachine.company,
+  // e.g. "Sameday-AXIS"). MDR slabs can be pinned per acquirer, so this must be
+  // persisted for the T+1 sweep / instant re-pricing to hit the SAME slab the
+  // capture was quoted at. null on legacy rows → priced as wildcard.
+  company        String?
 
   // When the swipe actually happened at the terminal (partner txn time). The
   // T+1 sweep settles by CAPTURE date, not row-creation date, so captures that

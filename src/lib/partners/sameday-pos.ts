@@ -31,6 +31,65 @@ function getCredentials() {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Outbound rate control — stay under the partner's 100 req/min ceiling.
+//
+// A process-wide token bucket paces EVERY outbound partner call so a burst
+// (e.g. a paginated sweep, or overlapping jobs) can never exceed the partner's
+// limit and trigger 429s. We cap at 90/min (10% headroom) with a small burst
+// allowance. Now that the dashboard feed + exports serve from the local mirror,
+// virtually all partner traffic originates from the single background worker
+// process, so this in-process bucket is effectively global.
+//
+// On a 429 we still back off and retry (respecting Retry-After) as a safety net
+// for anything outside our own pacing (e.g. another client on the same account).
+// ---------------------------------------------------------------------------
+
+const RATE_PER_MIN = 90;
+const BUCKET_CAPACITY = 20; // allow a short burst, then settle to the rate
+const REFILL_PER_MS = RATE_PER_MIN / 60_000;
+const MAX_RETRIES = 3; // total attempts = MAX_RETRIES + 1
+const MAX_BACKOFF_MS = 15_000;
+
+let _tokens = BUCKET_CAPACITY;
+let _lastRefill = Date.now();
+// Serialize token math so concurrent callers can't race across await points.
+let _acquireChain: Promise<void> = Promise.resolve();
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, Math.max(0, ms)));
+
+/** Block until a rate-limit token is available, then consume one. */
+async function acquireToken(): Promise<void> {
+  const run = async () => {
+    const now = Date.now();
+    _tokens = Math.min(BUCKET_CAPACITY, _tokens + (now - _lastRefill) * REFILL_PER_MS);
+    _lastRefill = now;
+    if (_tokens < 1) {
+      const waitMs = Math.ceil((1 - _tokens) / REFILL_PER_MS);
+      await sleep(waitMs);
+      const after = Date.now();
+      _tokens = Math.min(BUCKET_CAPACITY, _tokens + (after - _lastRefill) * REFILL_PER_MS);
+      _lastRefill = after;
+    }
+    _tokens -= 1;
+  };
+  const next = _acquireChain.then(run, run);
+  _acquireChain = next.catch(() => {});
+  return next;
+}
+
+/** Parse a Retry-After header (seconds, or an HTTP date) into milliseconds. */
+function retryAfterMs(header: string | null, attempt: number): number {
+  if (header) {
+    const secs = Number(header);
+    if (Number.isFinite(secs) && secs >= 0) return Math.min(secs * 1000, MAX_BACKOFF_MS);
+    const date = Date.parse(header);
+    if (!Number.isNaN(date)) return Math.min(Math.max(0, date - Date.now()), MAX_BACKOFF_MS);
+  }
+  // Exponential fallback: 1s, 2s, 4s … capped.
+  return Math.min(1000 * 2 ** attempt, MAX_BACKOFF_MS);
+}
+
 function sign(secret: string, payload: string): string {
   return crypto
     .createHmac("sha256", secret)
@@ -136,72 +195,97 @@ async function request<T>(
   body?: unknown,
   query?: Record<string, string>
 ): Promise<ApiResult<T>> {
-  try {
-    const { baseUrl, apiKey, apiSecret } = getCredentials();
+  const { baseUrl, apiKey, apiSecret } = getCredentials();
+  const bodyStr = body ? JSON.stringify(body) : undefined;
 
-    const bodyStr = body ? JSON.stringify(body) : undefined;
-    const headers: Record<string, string> = {
-      ...authHeaders(apiKey, apiSecret, bodyStr),
-    };
-    if (bodyStr) {
-      headers["Content-Type"] = "application/json";
-    }
-
-    let url = `${baseUrl}${path}`;
-    if (query) {
-      const params = new URLSearchParams(
-        Object.entries(query).filter(([, v]) => v !== "" && v != null)
-      );
-      if (params.toString()) url += `?${params}`;
-    }
-
-    const res = await fetch(url, {
-      method,
-      headers,
-      body: bodyStr,
-      cache: "no-store",
-    });
-
-    const text = await res.text();
-    let json: unknown = null;
-    try {
-      json = text ? JSON.parse(text) : null;
-    } catch {
-      return {
-        ok: false,
-        error: {
-          success: false,
-          error: {
-            code: "INVALID_RESPONSE",
-            message: `POS partner returned a non-JSON response (${res.status})`,
-          },
-        },
-        status: res.status || 502,
-      };
-    }
-
-    if (!res.ok || (json as { success?: boolean } | null)?.success === false) {
-      return {
-        ok: false,
-        error: (json as PosApiError) ?? {
-          success: false,
-          error: { code: "UPSTREAM_ERROR", message: "Failed to fetch from POS partner" },
-        },
-        status: res.status || 502,
-      };
-    }
-    return { ok: true, data: json as T, status: res.status };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "POS partner request failed";
-    return {
-      ok: false,
-      error: {
-        success: false,
-        error: { code: "PARTNER_REQUEST_FAILED", message },
-      },
-      status: 502,
-    };
+  let url = `${baseUrl}${path}`;
+  if (query) {
+    const params = new URLSearchParams(
+      Object.entries(query).filter(([, v]) => v !== "" && v != null)
+    );
+    if (params.toString()) url += `?${params}`;
   }
+
+  let lastError: ApiResult<T> = {
+    ok: false,
+    error: { success: false, error: { code: "PARTNER_REQUEST_FAILED", message: "POS partner request failed" } },
+    status: 502,
+  };
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    // Pace every attempt through the shared token bucket so we never burst past
+    // the partner's per-minute ceiling in the first place.
+    await acquireToken();
+
+    try {
+      // Sign per-attempt: the HMAC covers a fresh timestamp (5-min tolerance),
+      // so a retry after a backoff still presents a valid, non-stale signature.
+      const headers: Record<string, string> = { ...authHeaders(apiKey, apiSecret, bodyStr) };
+      if (bodyStr) headers["Content-Type"] = "application/json";
+
+      const res = await fetch(url, { method, headers, body: bodyStr, cache: "no-store" });
+
+      // Rate limited: back off (honoring Retry-After) and retry if attempts remain.
+      if (res.status === 429) {
+        await res.text().catch(() => {}); // drain body to free the connection
+        lastError = {
+          ok: false,
+          error: { success: false, error: { code: "RATE_LIMITED", message: "POS partner rate limit hit (429)" } },
+          status: 429,
+        };
+        if (attempt < MAX_RETRIES) {
+          await sleep(retryAfterMs(res.headers.get("retry-after"), attempt));
+          continue;
+        }
+        return lastError;
+      }
+
+      const text = await res.text();
+      let json: unknown = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        return {
+          ok: false,
+          error: {
+            success: false,
+            error: {
+              code: "INVALID_RESPONSE",
+              message: `POS partner returned a non-JSON response (${res.status})`,
+            },
+          },
+          status: res.status || 502,
+        };
+      }
+
+      if (!res.ok || (json as { success?: boolean } | null)?.success === false) {
+        return {
+          ok: false,
+          error: (json as PosApiError) ?? {
+            success: false,
+            error: { code: "UPSTREAM_ERROR", message: "Failed to fetch from POS partner" },
+          },
+          status: res.status || 502,
+        };
+      }
+      return { ok: true, data: json as T, status: res.status };
+    } catch (e) {
+      // Transient network error: retry with backoff if attempts remain.
+      const message = e instanceof Error ? e.message : "POS partner request failed";
+      lastError = {
+        ok: false,
+        error: { success: false, error: { code: "PARTNER_REQUEST_FAILED", message } },
+        status: 502,
+      };
+      if (attempt < MAX_RETRIES) {
+        await sleep(retryAfterMs(null, attempt));
+        continue;
+      }
+      return lastError;
+    }
+  }
+
+  return lastError;
 }
 
 // ── Public API ──

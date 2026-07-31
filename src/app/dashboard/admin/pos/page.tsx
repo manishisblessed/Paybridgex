@@ -63,21 +63,60 @@ async function fetcher<T>(url: string): Promise<T> {
   return json as T;
 }
 
-async function postFetcher<T>([url, body]: readonly [string, unknown]): Promise<T> {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const text = await r.text();
-  let json: { error?: string } = {};
-  try {
-    json = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(r.ok ? "Invalid response from server" : `Request failed (${r.status})`);
-  }
-  if (!r.ok) throw new Error(typeof json?.error === "string" ? json.error : "Request failed");
-  return json as T;
+/**
+ * Live POS feed over Server-Sent Events. The browser holds ONE EventSource
+ * connection and the server pushes each scoped page from the local mirror —
+ * replacing the old 5s polling of `/api/pos/transactions`. Previous data is
+ * kept while a new query (page / filter change) reconnects, so the table never
+ * flashes empty. A `fatal` event (auth / scope / bad params) stops retries and
+ * surfaces the error; transient drops rely on EventSource auto-reconnect.
+ */
+function usePosFeedStream(query: Record<string, string>, enabled: boolean) {
+  const [data, setData] = useState<PosTransactionsResponse | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const qs = new URLSearchParams(query).toString();
+
+  useEffect(() => {
+    if (!enabled) return;
+    setIsLoading(true);
+    setError(null);
+    const es = new EventSource(`/api/pos/transactions/stream?${qs}`);
+
+    es.onmessage = (ev) => {
+      try {
+        const payload = JSON.parse(ev.data) as PosTransactionsResponse;
+        setData(payload);
+        setError(null);
+        setIsLoading(false);
+      } catch {
+        /* ignore a malformed frame */
+      }
+    };
+
+    es.addEventListener("fatal", (ev) => {
+      let msg = "Live feed unavailable";
+      try {
+        const d = JSON.parse((ev as MessageEvent).data);
+        if (typeof d?.error === "string") msg = d.error;
+      } catch {
+        /* keep default */
+      }
+      setError(new Error(msg));
+      setIsLoading(false);
+      es.close(); // terminal condition — do not auto-reconnect
+    });
+
+    es.onerror = () => {
+      // Transient network drop — EventSource auto-reconnects. Keep any data on
+      // screen; just clear the loading state.
+      setIsLoading(false);
+    };
+
+    return () => es.close();
+  }, [qs, enabled]);
+
+  return { data, error, isLoading };
 }
 
 // ── Helpers ──
@@ -888,34 +927,23 @@ function TransactionsTab() {
     setSearchNonce((n) => n + 1);
   }, [dateFrom, dateTo, statusFilter, modeFilter, terminalFilter]);
 
-  const body = {
+  // Live feed via SSE (server pushes from the local mirror — no polling, and no
+  // partner API on the hot path, so company/multi-terminal views are live too).
+  // `_n` (searchNonce) is included so an explicit Search/Today reopens the
+  // stream even when the filters are unchanged.
+  const streamQuery: Record<string, string> = {
     date_from: `${applied.dateFrom}T00:00:00.000Z`,
     date_to: `${applied.dateTo}T23:59:59.999Z`,
-    status: applied.status || null,
-    payment_mode: applied.mode || null,
-    terminal_id: applied.terminal || null,
-    company: applied.company || null,
-    page,
-    page_size: 50,
+    page: String(page),
+    page_size: "50",
+    _n: String(searchNonce),
   };
+  if (applied.status) streamQuery.status = applied.status;
+  if (applied.mode) streamQuery.payment_mode = applied.mode;
+  if (applied.terminal) streamQuery.terminal_id = applied.terminal;
+  if (applied.company) streamQuery.company = applied.company;
 
-  const { data, error, isLoading, mutate } = useSWR<PosTransactionsResponse>(
-    ["/api/pos/transactions", body, searchNonce],
-    postFetcher,
-    {
-      // 5s keeps the feed feeling live without saturating the partner API. A
-      // company view fans out across every terminal booked to that acquirer, so
-      // auto-refresh is disabled there (it refreshes on Search) to stay under
-      // the partner's rate limit.
-      refreshInterval: (latest) => (applied.company ? 0 : latest ? 5000 : 0),
-      refreshWhenHidden: false,
-      revalidateOnFocus: false,
-      keepPreviousData: true,
-      shouldRetryOnError: true,
-      errorRetryCount: 2,
-      errorRetryInterval: 8000,
-    }
-  );
+  const { data, error, isLoading } = usePosFeedStream(streamQuery, true);
 
   // Total machine count from our local inventory — not the partner's
   // transaction-scoped terminal_count which only includes terminals with txns.
@@ -1025,20 +1053,18 @@ function TransactionsTab() {
       {/* Live indicator + filters */}
       <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          {applied.company ? (
-            <div className="flex items-center gap-2 rounded-full bg-ink-100 px-3 py-1.5" title="Auto-refresh is paused for company views — click Search to refresh.">
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ink-400" />
-              <span className="text-xs font-semibold text-ink-600">Paused — {applied.company}</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
-              </span>
-              <span className="text-xs font-semibold text-emerald-700">Live — auto-refreshing</span>
-            </div>
-          )}
+          <div
+            className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5"
+            title="Live via server push (SSE) from the local mirror — updates stream in without polling."
+          >
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            </span>
+            <span className="text-xs font-semibold text-emerald-700">
+              {applied.company ? `Live — ${applied.company}` : "Live — streaming"}
+            </span>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={companyFilter}

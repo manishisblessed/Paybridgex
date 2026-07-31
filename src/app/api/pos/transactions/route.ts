@@ -1,14 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth-server";
-import { getPosTransactions } from "@/lib/partners/sameday-pos";
-import { enrichPosTransactions } from "@/lib/pos/enrich";
-import { getBinLastLowBalanceAt } from "@/lib/pos/binLookup";
-import { getCardClassificationSetting } from "@/lib/settings";
 import { flags } from "@/lib/env";
-import { scopePosTerminals, resolveCompanyTerminals, type ScopedTerminal } from "@/lib/pos/assignments";
-import { crawlScopedTransactions } from "@/lib/pos/aggregate";
-import { isAdminRole } from "@/lib/security/ownership";
+import { resolvePosScope } from "@/lib/pos/scope";
+import { buildPosFeedResponse } from "@/lib/pos/feed";
+import { type MirrorQueryFilters } from "@/lib/pos/mirror";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { assertServiceEnabled } from "@/lib/services/guard";
@@ -30,6 +26,18 @@ const schema = z.object({
   page_size: z.number().int().min(1).max(100).optional().default(50),
 });
 
+/**
+ * POST /api/pos/transactions
+ *
+ * Serves one page of the POS "Live Transactions" feed from the local
+ * `PosTransactionMirror` read-model — NOT the partner API. The mirror is kept
+ * current by the real-time capture webhook plus a periodic reconciliation
+ * sweep, so this is a fast, indexed DB query with no dependency on the partner's
+ * 100 req/min rate limit.
+ *
+ * This remains the paginated / one-shot fetch path; the browser's LIVE feed now
+ * subscribes to GET /api/pos/transactions/stream (SSE) instead of polling here.
+ */
 export async function POST(req: Request) {
   let user;
   try {
@@ -42,164 +50,46 @@ export async function POST(req: Request) {
   }
 
   if (!flags.pos) {
-    return NextResponse.json(
-      { error: "POS service is not enabled" },
-      { status: 503 }
-    );
+    return NextResponse.json({ error: "POS service is not enabled" }, { status: 503 });
   }
 
   const body = await req.json();
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0].message },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
-  // Terminals to aggregate over when we can't do a single direct partner query
-  // (multi-terminal "all mine" view, or an admin company filter). null → the
-  // request resolves to a single terminal (or the admin tenant-wide feed).
-  let aggregateTerminals: ScopedTerminal[] | null = null;
-
-  const companyFilter = parsed.data.company?.trim() || null;
-
-  if (companyFilter) {
-    // Company filtering spans terminals across many holders, so it's admin-only.
-    if (!isAdminRole(user.role))
-      return NextResponse.json({ error: "Company filtering is available to admins only" }, { status: 403 });
-    aggregateTerminals = await resolveCompanyTerminals(companyFilter);
-  } else {
-    // Ownership: non-admins may only query terminals assigned to them/their
-    // downline. Prevents pulling the tenant-wide partner transaction feed.
-    //
-    // When a non-admin owns several terminals and hasn't picked one, we default
-    // to an aggregated "all my terminals" view (crawl each, merge, paginate)
-    // rather than forcing a selection. A single terminal is still a direct
-    // partner query.
-    const scope = await scopePosTerminals(user);
-    if (!scope.all) {
-      if (scope.tids.length === 0)
-        return NextResponse.json({ error: "No POS terminals are assigned to your account" }, { status: 403 });
-      if (parsed.data.terminal_id) {
-        if (!scope.tids.includes(parsed.data.terminal_id))
-          return NextResponse.json({ error: "You do not have access to that terminal" }, { status: 403 });
-      } else if (scope.tids.length === 1) {
-        parsed.data.terminal_id = scope.tids[0];
-      } else {
-        aggregateTerminals = scope.terminals;
-      }
-
-      // Clamp date_from so users only see transactions from after the terminal
-      // was assigned to them (or their downline). Prevents viewing the previous
-      // holder's transactions. (Aggregation clamps per-terminal internally.)
-      if (!aggregateTerminals && parsed.data.terminal_id) {
-        const match = scope.terminals.find((t) => t.tid === parsed.data.terminal_id);
-        if (match?.assignedAt) {
-          const assignedIso = match.assignedAt.toISOString();
-          if (parsed.data.date_from < assignedIso) {
-            parsed.data.date_from = assignedIso;
-          }
-        }
-      }
-    }
-  }
-
-  // Aggregated path: crawl the resolved terminals, merge and paginate
-  // in-memory, and enrich only the page we return.
-  if (aggregateTerminals) {
-    try {
-      const { rows, summary, truncated } = await crawlScopedTransactions(
-        aggregateTerminals,
-        {
-          date_from: parsed.data.date_from,
-          date_to: parsed.data.date_to,
-          status: parsed.data.status ?? null,
-          payment_mode: parsed.data.payment_mode ?? null,
-        }
-      );
-
-      const page = parsed.data.page;
-      const pageSize = parsed.data.page_size;
-      const totalRecords = rows.length;
-      const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
-      const start = (page - 1) * pageSize;
-      const pageRows = rows.slice(start, start + pageSize);
-
-      const enrichStartedAt = Date.now();
-      const [enriched, cardClassification] = await Promise.all([
-        enrichPosTransactions(pageRows),
-        getCardClassificationSetting(),
-      ]);
-      const classificationDegraded =
-        cardClassification.enabled && getBinLastLowBalanceAt() >= enrichStartedAt;
-
-      return NextResponse.json({
-        success: true,
-        company: "",
-        data: enriched,
-        pagination: {
-          page,
-          page_size: pageSize,
-          total_records: totalRecords,
-          total_pages: totalPages,
-          has_next: page < totalPages,
-          has_prev: page > 1,
-        },
-        summary,
-        enrichment: {
-          classificationDegraded,
-          showClassification: cardClassification.showInUi,
-          truncated,
-          ...(classificationDegraded ? { reason: "BIN_PROVIDER_LOW_BALANCE" as const } : {}),
-        },
-      });
-    } catch (e) {
-      return toErrorResponse(e);
-    }
+  const dateFrom = new Date(parsed.data.date_from);
+  const dateTo = new Date(parsed.data.date_to);
+  if (Number.isNaN(dateFrom.getTime()) || Number.isNaN(dateTo.getTime())) {
+    return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
   try {
-    const result = await getPosTransactions({
-      date_from: parsed.data.date_from,
-      date_to: parsed.data.date_to,
-      status: parsed.data.status ?? null,
-      terminal_id: parsed.data.terminal_id ?? null,
-      payment_mode: parsed.data.payment_mode ?? null,
-      page: parsed.data.page,
-      page_size: parsed.data.page_size,
+    const companyFilter = parsed.data.company?.trim() || null;
+    const scope = await resolvePosScope(user, {
+      company: companyFilter,
+      terminalId: parsed.data.terminal_id,
     });
-
-    if (!result.ok) {
-      const upstreamStatus = result.status;
-      const clientStatus = upstreamStatus === 429 ? 429 : (upstreamStatus === 404 || upstreamStatus >= 500) ? 502 : upstreamStatus;
-      return NextResponse.json(
-        { error: result.error.error?.message ?? "Failed to fetch POS transactions" },
-        { status: clientStatus }
-      );
+    if (!scope.ok) {
+      return NextResponse.json({ error: scope.error }, { status: scope.status });
     }
 
-    // Capture before enrichment so we can tell if a low-balance BIN rejection
-    // happened during THIS request (vs. a stale one from an earlier request).
-    const enrichStartedAt = Date.now();
-    const [enriched, cardClassification] = await Promise.all([
-      enrichPosTransactions(result.data.data),
-      getCardClassificationSetting(),
-    ]);
-    // Only meaningful when classification is enabled — if the whole concept is
-    // off, the column is hidden regardless, so degradation is irrelevant.
-    const classificationDegraded =
-      cardClassification.enabled && getBinLastLowBalanceAt() >= enrichStartedAt;
+    const filters: MirrorQueryFilters = {
+      dateFrom,
+      dateTo,
+      status: parsed.data.status ?? null,
+      paymentMode: parsed.data.payment_mode ?? null,
+      terminals: scope.terminals,
+    };
 
-    return NextResponse.json({
-      ...result.data,
-      data: enriched,
-      enrichment: {
-        classificationDegraded,
-        showClassification: cardClassification.showInUi,
-        ...(classificationDegraded ? { reason: "BIN_PROVIDER_LOW_BALANCE" as const } : {}),
-      },
-    });
+    const payload = await buildPosFeedResponse(
+      filters,
+      parsed.data.page,
+      parsed.data.page_size,
+      companyFilter
+    );
+    return NextResponse.json(payload);
   } catch (e) {
     return toErrorResponse(e);
   }

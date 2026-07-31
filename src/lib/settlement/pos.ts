@@ -156,31 +156,37 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   });
   if (existing) return { status: "DUPLICATE" };
 
-  // Resolve the machine, its assigned user, brand, and provider.
+  // Resolve the machine, its assigned user, brand, provider, and acquiring
+  // company. The company label (PosMachine.company, e.g. "Sameday-AXIS") is a
+  // PRICING dimension — MDR slabs can be pinned per acquirer, so a capture that
+  // doesn't carry it can never match a company-pinned slab.
   let userId: string | null = null;
   let machineDbId: string | null = input.machineId ?? null;
   let brandId: string | null = input.brandId ?? null;
   let provider: string | null = input.provider ?? null;
+  let company: string | null = input.company ?? null;
 
   if (!machineDbId && input.terminalId) {
     const machine = await prisma.posMachine.findFirst({
       where: { tid: input.terminalId, assignedUserId: { not: null } },
-      select: { id: true, assignedUserId: true, brandId: true, provider: true },
+      select: { id: true, assignedUserId: true, brandId: true, provider: true, company: true },
     });
     if (machine) {
       machineDbId = machine.id;
       userId = machine.assignedUserId;
       brandId = brandId ?? machine.brandId;
       provider = provider ?? machine.provider;
+      company = company ?? machine.company;
     }
   } else if (machineDbId) {
     const machine = await prisma.posMachine.findUnique({
       where: { id: machineDbId },
-      select: { assignedUserId: true, brandId: true, provider: true },
+      select: { assignedUserId: true, brandId: true, provider: true, company: true },
     });
     userId = machine?.assignedUserId ?? null;
     brandId = brandId ?? machine?.brandId ?? null;
     provider = provider ?? machine?.provider ?? null;
+    company = company ?? machine?.company ?? null;
   }
 
   if (!userId) return { status: "SKIPPED" };
@@ -209,7 +215,7 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   const settlementType = mode === "INSTANT" ? "T0" : "T1";
 
   const dims: Omit<MdrDimensions, "paymentMode" | "settlementType"> = {
-    company: input.company ?? null,
+    company: company ?? null,
     cardType: input.cardType ?? null,
     brandType: input.brandType ?? null,
     classification: input.classification ?? null,
@@ -273,6 +279,7 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
           cardType: dims.cardType ?? null,
           brandType: dims.brandType ?? null,
           classification: dims.classification ?? null,
+          company: dims.company ?? null,
           capturedAt: capturedAtValid ? capturedAt : null,
           brandId: priced.brandId,
           provider: priced.provider,
@@ -314,6 +321,7 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
         cardType: dims.cardType ?? null,
         brandType: dims.brandType ?? null,
         classification: dims.classification ?? null,
+        company: dims.company ?? null,
         capturedAt: capturedAtValid ? capturedAt : null,
         brandId: priced.brandId,
         provider: priced.provider,
@@ -416,6 +424,7 @@ type PendingEntry = {
   cardType: string | null;
   brandType: string | null;
   classification: string | null;
+  company: string | null;
   brandId: string | null;
   provider: string | null;
   mdrRateId: string | null;
@@ -453,9 +462,10 @@ async function settleEntry(
       paymentMode: entry.paymentMode ?? "CARD",
       grossAmount: toNumber(gross),
       settlementType,
-      // Re-resolve against the SAME card dimensions the capture was priced on,
-      // so a classification-specific brand rate is honoured at settlement.
+      // Re-resolve against the SAME dimensions the capture was priced on, so a
+      // company-pinned / classification-specific rate is honoured at settlement.
       dims: {
+        company: entry.company,
         cardType: entry.cardType,
         brandType: entry.brandType,
         classification: entry.classification,
@@ -595,6 +605,7 @@ export async function listPendingPosSettlements(userId: string) {
       grossAmount: toNumber(e.grossAmount),
       settlementType: "T0",
       dims: {
+        company: e.company,
         cardType: e.cardType,
         brandType: e.brandType,
         classification: e.classification,

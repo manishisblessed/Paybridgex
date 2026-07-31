@@ -38,7 +38,8 @@ import { runT1SettlementSweep } from "@/lib/settlement/t1";
 import { runPosT1SettlementSweep, runPosInstantSettlementSweep } from "@/lib/settlement/pos";
 import { runPgT1SettlementSweep, runPgInstantSettlementSweep } from "@/lib/settlement/pg";
 import { runQrT1SettlementSweep } from "@/lib/qr/claims";
-import { runPosIngestSweep } from "@/lib/settlement/pos-ingest";
+import { runPosMirrorSettleSweep } from "@/lib/settlement/pos-mirror-settle";
+import { runPosMirrorSweep, runPosRecentSweep } from "@/lib/pos/mirror-sweep";
 import { runPosRentalBilling } from "@/lib/pos/rental";
 import { syncPosMachines } from "@/lib/pos/assignments";
 import { flags } from "@/lib/env";
@@ -224,19 +225,32 @@ async function main() {
   });
   await boss.schedule(QUEUES.SETTLEMENT_T1, "5 * * * *", {}, { tz: "Asia/Kolkata" });
 
-  // QUEUES.POS_INGEST — pull CAPTURED transactions from Same Day (no capture
-  // webhooks) and queue them as PENDING settlement entries. Runs every 30 min
-  // so the day's captures are queued well before the T+1 settlement hour;
-  // idempotent per txn ref, so overlapping runs never double-queue.
+  // QUEUES.POS_INGEST — MIRROR-DRIVEN settlement sweep. The mirror read-model is
+  // the single source of truth for POS transactions; this reads CAPTURED rows
+  // for terminals assigned to an active, schemed retailer and feeds each into
+  // the settlement engine (PENDING/INSTANT entry + upline commission). No second
+  // partner pull. Runs every 10 min so the day's captures are queued well before
+  // the T+1 settlement hour; idempotent per txn ref, so overlaps never double-book.
+  // `noScheme` counts captures on assigned terminals that couldn't be priced
+  // (retailer has no matching scheme/rate) — surfaced so admins can fix pricing.
   await boss.work(QUEUES.POS_INGEST, async () => {
-    const r = await runPosIngestSweep();
+    const r = await runPosMirrorSettleSweep();
     if (!r.skipped && (r.queued > 0 || r.noScheme > 0))
       log(
-        `pos.ingest: scanned=${r.scanned} queued=${r.queued} dup=${r.duplicate} ` +
-          `noScheme=${r.noScheme} skipped=${r.skippedRows}`
+        `pos.settle.sweep: terminals=${r.eligibleTerminals} scanned=${r.scanned} ` +
+          `queued=${r.queued} dup=${r.duplicate} noScheme=${r.noScheme} skipped=${r.skippedRows}`
       );
+    if (!r.skipped && r.noScheme > 0)
+      await sendOpsAlert({
+        title: "POS captures on assigned terminals could not be priced",
+        severity: "warning",
+        details: {
+          noScheme: r.noScheme,
+          hint: "Assign a scheme/MDR slab (check the acquiring-company dimension) for these retailers.",
+        },
+      }).catch(() => {});
   });
-  await boss.schedule(QUEUES.POS_INGEST, "*/30 * * * *", {}, { tz: "Asia/Kolkata" });
+  await boss.schedule(QUEUES.POS_INGEST, "*/10 * * * *", {}, { tz: "Asia/Kolkata" });
 
   // QUEUES.POS_SETTLEMENT_T1 — POS acquirer T+1 settlement. Scheduled hourly;
   // fires the sweep only at the operator-configured IST hour (PlatformSetting
@@ -381,6 +395,60 @@ async function main() {
   });
   await boss.schedule(QUEUES.POS_MACHINE_SYNC, "*/10 * * * *", {}, { tz: "Asia/Kolkata" });
 
+  // QUEUES.POS_MIRROR_SYNC — pull the Same Day transaction feed (ALL statuses,
+  // tenant-wide) into the local `PosTransactionMirror` read-model that the
+  // dashboard feed + exports serve from. Reconciliation net behind the capture
+  // webhook: repairs missed webhooks and backfills non-CAPTURED rows. Reads the
+  // partner but writes only our DB (moves no money); idempotent per txn ref, so
+  // overlapping/retried runs are safe. Every 2 minutes keeps the feed fresh
+  // while one tenant-wide sweep stays far under the partner's 100 req/min limit.
+  await boss.work(QUEUES.POS_MIRROR_SYNC, async () => {
+    if (!flags.pos) return;
+    try {
+      const r = await runPosMirrorSweep();
+      if (!r.skipped && r.written > 0)
+        log(
+          `pos.mirror.sync: pages=${r.pages} scanned=${r.scanned} written=${r.written} ` +
+            `skipped=${r.skippedRows}`
+        );
+    } catch (e) {
+      await captureError(e, { where: "pos.mirror.sync" });
+    }
+  });
+  await boss.schedule(QUEUES.POS_MIRROR_SYNC, "*/2 * * * *", {}, { tz: "Asia/Kolkata" });
+  // Prime the mirror once at boot so the feed isn't empty before the first
+  // scheduled tick (deduped by singletonKey so a restart storm won't pile up).
+  if (flags.pos) {
+    await boss.send(QUEUES.POS_MIRROR_SYNC, {}, { singletonKey: "pos.mirror.sync.boot" }).catch(() => {});
+  }
+
+  // Near-real-time "recent" poll. pg-boss cron can't go below 1 minute, so we
+  // run a self-guarded in-process interval instead. Each tick pulls only the
+  // last ~15 min (page 1 → one partner request), so new captures reach the
+  // mirror within ~10s and the dashboard within another ≤4s (SSE refresh) —
+  // ~7–14s end-to-end. The `running` guard drops a tick if the previous one is
+  // still in flight (partner slow), so ticks never pile up. The 2-min
+  // POS_MIRROR_SYNC sweep above stays the completeness net.
+  if (flags.pos) {
+    const POS_RECENT_POLL_MS = 10_000;
+    let recentRunning = false;
+    const recentTick = async () => {
+      if (recentRunning) return;
+      recentRunning = true;
+      try {
+        const r = await runPosRecentSweep();
+        if (!r.skipped && r.written > 0)
+          log(`pos.mirror.recent: scanned=${r.scanned} written=${r.written}`);
+      } catch (e) {
+        await captureError(e, { where: "pos.mirror.recent" });
+      } finally {
+        recentRunning = false;
+      }
+    };
+    setInterval(() => void recentTick(), POS_RECENT_POLL_MS);
+    log(`pos.mirror.recent: near-real-time poll every ${POS_RECENT_POLL_MS / 1000}s`);
+  }
+
   // QUEUES.WEBHOOK_DELIVER — Phase 4. Signed partner webhook deliveries;
   // per-job retryLimit set at enqueue time, terminal failures alert ops.
   await boss.work<{ deliveryId: string }>(QUEUES.WEBHOOK_DELIVER, async (jobs) => {
@@ -426,7 +494,7 @@ async function main() {
   }
 
   log(
-    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.ingest (*/30 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
+    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.settle.sweep (*/10 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), pos.mirror.sync (*/2 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
   );
 }
 

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { toNumber } from "@/lib/money";
 import { getSetting, setSetting } from "@/lib/settings";
 import { runPosT1SettlementSweep, runPosInstantSettlementSweep } from "@/lib/settlement/pos";
-import { runPosIngestSweep } from "@/lib/settlement/pos-ingest";
+import { runPosMirrorSettleSweep } from "@/lib/settlement/pos-mirror-settle";
 import { clientIp } from "@/lib/security/audit";
 import type { Prisma } from "@prisma/client";
 
@@ -153,7 +153,9 @@ export async function POST(req: Request) {
   }
 
   if (action === "run_ingest") {
-    const result = await runPosIngestSweep({
+    // Mirror-driven: create settlement entries from CAPTURED mirror rows for
+    // assigned + schemed terminals. Used for backfills and on-demand runs.
+    const result = await runPosMirrorSettleSweep({
       dateFrom: parsed.data.dateFrom,
       dateTo: parsed.data.dateTo,
     });

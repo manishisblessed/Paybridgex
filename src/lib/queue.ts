@@ -89,6 +89,14 @@ export const QUEUES = {
   // reconcile guard). Scheduled every 10 min so the fleet stays current without
   // a manual Sync button. Fully idempotent; assignment data is preserved.
   POS_MACHINE_SYNC: "pos.machines.sync",
+  // POS transaction mirror sync — pulls the Same Day transaction feed (ALL
+  // statuses, tenant-wide) into the local `PosTransactionMirror` read-model that
+  // the dashboard feed + exports serve from. This is the reconciliation net
+  // behind the real-time capture webhook; running ONE tenant-wide sweep every
+  // couple of minutes replaces every browser polling the partner every 5s, which
+  // is what keeps us under the partner's 100 req/min limit. Idempotent per txn
+  // ref. See src/lib/pos/mirror-sweep.ts.
+  POS_MIRROR_SYNC: "pos.mirror.sync",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -117,6 +125,14 @@ export async function getBoss(): Promise<PgBoss> {
         connectionString: connectionString(),
         // pg-boss creates and manages its own "pgboss" schema.
         schema: "pgboss",
+        // Cap the pool FAR below the Supabase session pooler's 15-client limit
+        // (DIRECT_URL, port 5432). pg-boss must use the session pooler (it needs
+        // LISTEN/NOTIFY + advisory locks the transaction pooler can't provide),
+        // and its default pool of 10 — combined with cron/maintenance churn and
+        // occasional migration connections — exhausts that limit ("EMAXCONNSESSION
+        // max clients reached in session mode"). This workload is light and
+        // infrequent, so a small pool is plenty. Override via env if needed.
+        max: Number(process.env.PGBOSS_MAX_CONNECTIONS ?? 4),
       });
       boss.on("error", (err: unknown) => {
         // eslint-disable-next-line no-console

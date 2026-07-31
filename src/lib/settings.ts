@@ -155,6 +155,24 @@ const SETTING_SCHEMAS = {
     enabled: z.boolean().default(false),
     showInUi: z.boolean().default(false),
   }),
+
+  /**
+   * POS transaction MIRROR reconciliation sweep. Pulls the partner feed (ALL
+   * statuses, tenant-wide) into the local `PosTransactionMirror` read-model so
+   * the dashboard feed + exports serve from our DB instead of polling the
+   * partner (which rate-limits at 100 req/min). This is the completeness net
+   * behind the real-time capture webhook: it repairs missed webhooks and
+   * backfills non-CAPTURED rows. Read-only against the partner (moves no money),
+   * so it can run frequently; pause/disable independently if ever needed.
+   */
+  "pos.mirror_sync": z.object({
+    enabled: z.boolean().default(true),
+    paused: z.boolean().default(false),
+    /** How many days back to pull each run (absorbs late/amended rows). */
+    lookbackDays: z.number().int().min(1).max(31).default(2),
+    /** Safety cap on pages fetched per run (page_size 100). */
+    maxPages: z.number().int().min(1).max(500).default(100),
+  }),
 } as const;
 
 export type SettingKey = keyof typeof SETTING_SCHEMAS;

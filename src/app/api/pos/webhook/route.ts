@@ -4,6 +4,7 @@ import { verifySamedayPosWebhook, canonicalPosCaptureRef } from "@/lib/partners/
 import { prisma } from "@/lib/db";
 import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
 import { isCardClassificationEnabled } from "@/lib/settings";
+import { upsertMirrorFromWebhook } from "@/lib/pos/mirror";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -110,6 +111,42 @@ export async function POST(req: Request) {
     brandType,
     classification,
   });
+
+  // Mirror the capture into the display read-model so the dashboard feed shows
+  // it instantly (the periodic sweep later reconciles/completes it). Masked PAN
+  // only, exactly what the feed returns. Best-effort: a mirror write must never
+  // fail the webhook or block settlement.
+  const maskedPan = String(txnData.formattedPan ?? txnData.maskedCardNumber ?? "").trim() || null;
+  const capturedAt = (() => {
+    for (const raw of [txnData.txnTime, txnData.transactionTime, txnData.txnDate, txnData.createdAt]) {
+      if (raw == null) continue;
+      const d = new Date(String(raw));
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+    return null;
+  })();
+  try {
+    await upsertMirrorFromWebhook({
+      transactionRef,
+      terminalId,
+      grossAmount,
+      paymentMode,
+      status: "CAPTURED",
+      rrn: rrn || null,
+      cardType,
+      cardBrand: brandType,
+      cardClassification: classification ?? null,
+      cardNumber: maskedPan,
+      acquiringBank: provider ?? null,
+      authCode: String(txnData.authCode ?? txnData.authcode ?? "").trim() || null,
+      customerName: String(txnData.customerName ?? txnData.cardHolderName ?? "").trim() || null,
+      mid: String(txnData.mid ?? "").trim() || null,
+      txnTime: capturedAt,
+      raw: txnData,
+    });
+  } catch {
+    // Non-blocking: the reconciliation sweep will pick this capture up.
+  }
 
   // Log the webhook for audit.
   await prisma.auditLog.create({
