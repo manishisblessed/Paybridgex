@@ -2,29 +2,32 @@ import { nanoid } from "nanoid";
 import { flags, isProd } from "../env";
 import {
   ekychubConfigured,
-  aadhaarOtpInitiate as hubAadhaarInit,
-  aadhaarOtpVerify as hubAadhaarVerify,
+  createDigilockerUrl as hubDigilockerUrl,
+  getDigilockerDocument as hubDigilockerDoc,
   faceMatch as hubFaceMatch,
 } from "../partners/ekychub";
 
 /**
  * Re-KYC provider abstraction over the eKYC Hub.
  *
+ * Aadhaar re-verification reuses the SAME DigiLocker flow as onboarding: we
+ * create a DigiLocker redirect URL, the user authenticates with UIDAI, and we
+ * pull the verified Aadhaar document back. (The earlier Aadhaar-OTP endpoints
+ * were never part of eKYC Hub's live contract and returned 404 → 502.)
+ *
  * Live path (PARTNER_VERIFICATION_ENABLED=true AND eKYC Hub creds present):
- *   real calls to the eKYC Hub Aadhaar-OTP and face-match APIs.
+ *   real calls to the eKYC Hub DigiLocker and face-match APIs.
  *
  * Simulated path (provider not configured AND NODE_ENV !== "production"):
  *   deterministic local stubs so the whole gate → flow → unblock cycle is
- *   testable end-to-end without external creds. The dev OTP is "123456".
+ *   testable end-to-end without external creds. The simulated DigiLocker URL
+ *   loops straight back to the redirect URL.
  *
  * In production the simulated path is refused — a missing/disabled provider
  * surfaces a clear error rather than silently waving identity checks through.
  */
 
 export type ReKycProviderName = "EKYCHUB" | "SIMULATED";
-
-/** Dev-only OTP accepted by the simulated provider. */
-export const DEV_SIMULATED_OTP = "123456";
 
 export function rekycLive(): boolean {
   return flags.verification && ekychubConfigured();
@@ -44,52 +47,80 @@ function assertSimulationAllowed(): void {
 }
 
 export type AadhaarInitResult =
-  | { ok: true; referenceId: string }
+  | { ok: true; url: string; verificationId: string; referenceId: string }
   | { ok: false; code: string; message: string };
 
-export async function initiateAadhaarOtp(input: {
-  aadhaar: string;
+/**
+ * Open a DigiLocker Aadhaar session. Returns the redirect URL the user must
+ * visit plus the opaque verification/reference ids we persist on the ReKycLog
+ * to fetch the document after they return.
+ */
+export async function initiateAadhaarDigilocker(input: {
+  redirectUrl: string;
   orderid: string;
 }): Promise<AadhaarInitResult> {
   if (rekycLive()) {
-    const res = await hubAadhaarInit({ aadhaar: input.aadhaar, orderid: input.orderid });
-    if (res.ok) return { ok: true, referenceId: String(res.data.reference_id) };
-    return { ok: false, code: res.code, message: res.message };
-  }
-  assertSimulationAllowed();
-  return { ok: true, referenceId: `SIMREF_${nanoid(12)}` };
-}
-
-export type AadhaarVerifyResult =
-  | { ok: true; name: string; maskedAadhaar: string | null; dob: string | null }
-  | { ok: false; code: string; message: string };
-
-export async function verifyAadhaarOtp(input: {
-  referenceId: string;
-  otp: string;
-  orderid: string;
-}): Promise<AadhaarVerifyResult> {
-  if (rekycLive()) {
-    const res = await hubAadhaarVerify({
-      reference_id: input.referenceId,
-      otp: input.otp,
+    const res = await hubDigilockerUrl({
+      document_type: "AADHAAR",
+      redirect_url: input.redirectUrl,
       orderid: input.orderid,
     });
     if (res.ok) {
       return {
         ok: true,
-        name: res.data.name,
-        maskedAadhaar: res.data.aadhaar_number ?? null,
-        dob: res.data.dob ?? null,
+        url: res.data.url,
+        verificationId: String(res.data.verification_id),
+        referenceId: String(res.data.reference_id),
       };
     }
     return { ok: false, code: res.code, message: res.message };
   }
   assertSimulationAllowed();
-  if (input.otp !== DEV_SIMULATED_OTP) {
-    return { ok: false, code: "OTP_MISMATCH", message: "Invalid OTP (dev simulation expects 123456)" };
+  // Loop straight back so the dev flow completes without a real DigiLocker hop.
+  return {
+    ok: true,
+    url: input.redirectUrl,
+    verificationId: `SIMVID_${nanoid(10)}`,
+    referenceId: `SIMREF_${nanoid(10)}`,
+  };
+}
+
+export type AadhaarCompleteResult =
+  | { ok: true; name: string; uid: string | null; dob: string | null; gender: string | null }
+  | { ok: false; code: string; message: string };
+
+/**
+ * Pull the verified Aadhaar document after the user completes DigiLocker.
+ * `uid` is eKYC Hub's returned Aadhaar identifier — the caller matches it
+ * against the user's on-file Aadhaar so a hijacked session can't re-verify with
+ * a different Aadhaar.
+ */
+export async function completeAadhaarDigilocker(input: {
+  verificationId: string;
+  referenceId: string;
+  orderid: string;
+}): Promise<AadhaarCompleteResult> {
+  if (rekycLive()) {
+    const res = await hubDigilockerDoc({
+      verification_id: input.verificationId,
+      reference_id: input.referenceId,
+      orderid: input.orderid,
+      document_type: "AADHAAR",
+    });
+    if (res.ok) {
+      return {
+        ok: true,
+        name: res.data.name,
+        uid: res.data.uid ?? null,
+        dob: res.data.dob ?? null,
+        gender: res.data.gender ?? null,
+      };
+    }
+    return { ok: false, code: res.code, message: res.message };
   }
-  return { ok: true, name: "SIMULATED USER", maskedAadhaar: "XXXXXXXX1234", dob: null };
+  assertSimulationAllowed();
+  // Simulated document — the service skips the identity match off the live path.
+  return { ok: true, name: "SIMULATED USER", uid: null, dob: null, gender: null };
 }
 
 export type FaceMatchResult =

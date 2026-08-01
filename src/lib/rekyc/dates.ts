@@ -25,3 +25,41 @@ export function firstOfNextMonthIST(now: Date = new Date()): Date {
   const { year, month } = istYearMonth(now);
   return new Date(Date.UTC(year, month + 1, 1, 0, 0, 0) - IST_OFFSET_MS);
 }
+
+/**
+ * UTC instant for 00:00 IST on the given calendar day. Accepts either a
+ * "YYYY-MM-DD" string or a Date, and pins to IST midnight so an admin-chosen
+ * re-KYC day lines up with the same day-boundary the monthly gate uses.
+ * Returns null for an unparseable input.
+ */
+export function istMidnightForDate(input: string | Date): Date | null {
+  let year: number;
+  let month: number;
+  let day: number;
+
+  if (typeof input === "string") {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(input.trim());
+    if (!m) {
+      const parsed = new Date(input);
+      if (Number.isNaN(parsed.getTime())) return null;
+      const ym = istYearMonth(parsed);
+      year = ym.year;
+      month = ym.month;
+      day = new Date(parsed.getTime() + IST_OFFSET_MS).getUTCDate();
+    } else {
+      year = Number(m[1]);
+      month = Number(m[2]) - 1;
+      day = Number(m[3]);
+    }
+  } else {
+    if (Number.isNaN(input.getTime())) return null;
+    const ym = istYearMonth(input);
+    year = ym.year;
+    month = ym.month;
+    day = new Date(input.getTime() + IST_OFFSET_MS).getUTCDate();
+  }
+
+  const utc = Date.UTC(year, month, day, 0, 0, 0) - IST_OFFSET_MS;
+  const d = new Date(utc);
+  return Number.isNaN(d.getTime()) ? null : d;
+}

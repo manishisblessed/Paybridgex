@@ -10,8 +10,9 @@ import { initiateReKyc, ReKycError } from "@/lib/rekyc/service";
 
 const Body = z
   .object({
-    // Required only for Aadhaar-OTP methods; validated downstream by the service.
-    aadhaar: z.string().trim().regex(/^\d{12}$/).optional(),
+    // DigiLocker return URL — required for Aadhaar methods, validated downstream.
+    // Must be a clean URL with no query string (eKYC Hub WAF rejects nested queries).
+    redirectUrl: z.string().url().max(512).optional(),
   })
   .strict();
 
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
     // Idempotent so a double-tap / client retry reuses the same provider call.
     const result = await withIdempotency(
       { key: idemKey, scope: "rekyc.initiate", userId: user.id, ttlSec: 600 },
-      () => initiateReKyc(user, { aadhaar: parsed.data.aadhaar }, { ip, userAgent })
+      () => initiateReKyc(user, { redirectUrl: parsed.data.redirectUrl }, { ip, userAgent })
     );
 
     return NextResponse.json(result, { status: 201 });

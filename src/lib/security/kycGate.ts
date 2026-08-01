@@ -34,12 +34,31 @@ export class ReKycRequiredError extends Error {
 }
 
 /**
+ * Whether a network user's re-KYC is currently due. True when the flag is
+ * already raised OR the scheduled due date has arrived. Making the gate
+ * due-date aware (not just flag-driven) lets an admin reschedule re-KYC to ANY
+ * day — the user is re-blocked the moment that day arrives, without waiting for
+ * the monthly (1st-of-month) sweep, and the gate stays correct even if the
+ * scheduled sweep is missed.
+ */
+export function isReKycDue(
+  reKycRequired: boolean,
+  reKycDueAt: Date | null,
+  now: Date = new Date()
+): boolean {
+  if (reKycRequired) return true;
+  return reKycDueAt != null && now.getTime() >= reKycDueAt.getTime();
+}
+
+/**
  * Throw {@link ReKycRequiredError} (403, code REKYC_REQUIRED) when a network-tier
  * user has an open monthly re-KYC requirement. No-op for staff/admin roles and
  * for network users who are current.
  *
  * Cheap by design: staff roles never hit the database; network users incur a
- * single primary-key lookup of the gate flag.
+ * single primary-key lookup of the gate flag. When the due date has arrived but
+ * the flag was not yet raised (e.g. an admin postponed to a mid-month day), we
+ * lazily persist `reKycRequired` so downstream reads and the gate modal agree.
  */
 export async function assertKycCurrent(user: SessionUser): Promise<void> {
   if (!isNetworkTier(user.role)) return;
@@ -48,8 +67,17 @@ export async function assertKycCurrent(user: SessionUser): Promise<void> {
     where: { id: user.id },
     select: { reKycRequired: true, reKycDueAt: true },
   });
+  if (!row) return;
 
-  if (row?.reKycRequired) {
-    throw new ReKycRequiredError(undefined, row.reKycDueAt?.toISOString() ?? null);
+  if (!isReKycDue(row.reKycRequired, row.reKycDueAt)) return;
+
+  // Due date reached without the flag set → raise it now so status reads and
+  // the blocking modal stay consistent with this refusal.
+  if (!row.reKycRequired) {
+    await prisma.user
+      .update({ where: { id: user.id }, data: { reKycRequired: true } })
+      .catch(() => {});
   }
+
+  throw new ReKycRequiredError(undefined, row.reKycDueAt?.toISOString() ?? null);
 }

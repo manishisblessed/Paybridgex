@@ -307,50 +307,13 @@ export async function getDigilockerDocument(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Aadhaar OTP eKYC (used by the monthly Re-KYC gate — Phase 13)
+// Monthly Re-KYC Aadhaar re-verification (Phase 13)
 //
-// Two-step: generate an OTP to the Aadhaar-linked mobile, then submit it to
-// pull the verified identity. Endpoint paths are overridable via env so they
-// can be aligned with the live eKYC Hub Aadhaar OTP contract without a code
-// change. Responses follow the same { status: "Success" | "Failure" } shape.
+// Re-KYC reuses the DigiLocker Aadhaar flow above (createDigilockerUrl +
+// getDigilockerDocument) — the same live contract used during onboarding. The
+// previous standalone Aadhaar-OTP endpoints were never part of eKYC Hub's live
+// API (they returned 404) and have been removed.
 // ---------------------------------------------------------------------------
-
-export interface AadhaarOtpInitResponse {
-  status: string;
-  reference_id: string | number;
-  message: string;
-}
-
-export async function aadhaarOtpInitiate(input: {
-  aadhaar: string;
-  orderid: string;
-}): Promise<PartnerResult<AadhaarOtpInitResponse>> {
-  const path = process.env.EKYCHUB_AADHAAR_OTP_INIT_PATH || "/aadhaar/otp";
-  return ekychubGet(path, { id_number: input.aadhaar, orderid: input.orderid });
-}
-
-export interface AadhaarOtpVerifyResponse {
-  status: string;
-  name: string;
-  /** eKYC Hub returns a masked Aadhaar (e.g. "XXXXXXXX1234"). */
-  aadhaar_number?: string;
-  dob?: string;
-  gender?: string;
-  message: string;
-}
-
-export async function aadhaarOtpVerify(input: {
-  reference_id: string;
-  otp: string;
-  orderid: string;
-}): Promise<PartnerResult<AadhaarOtpVerifyResponse>> {
-  const path = process.env.EKYCHUB_AADHAAR_OTP_VERIFY_PATH || "/aadhaar/verify_otp";
-  return ekychubGet(path, {
-    reference_id: input.reference_id,
-    otp: input.otp,
-    orderid: input.orderid,
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Face match (liveness selfie/video frame vs. an enrolled baseline — Phase 13/14)
@@ -449,8 +412,6 @@ export const ekychubVerification = {
   verifyCin,
   createDigilockerUrl,
   getDigilockerDocument,
-  aadhaarOtpInitiate,
-  aadhaarOtpVerify,
   faceMatch,
   faceRegister,
   checkCardBin,

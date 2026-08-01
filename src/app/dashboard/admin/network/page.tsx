@@ -1010,9 +1010,157 @@ function UserDrawer({
             </div>
           )}
         </Section>
+
+        {/* Monthly Re-KYC */}
+        <ReKycSection user={user} onChanged={onChanged} onRefresh={onRefresh} />
         </div>
       </div>
     </div>
+  );
+}
+
+/* ─── Monthly Re-KYC reschedule (MASTER_ADMIN / ADMIN) ─────────────────────── */
+
+type ReKycDetail = {
+  reKycRequired: boolean;
+  reKycDueAt: string | null;
+  lastReKycAt: string | null;
+};
+
+function ReKycSection({
+  user,
+  onChanged,
+  onRefresh,
+}: {
+  user: NetworkUser;
+  onChanged: (msg: string, ok: boolean) => void;
+  onRefresh: () => void;
+}) {
+  const [detail, setDetail] = useState<ReKycDetail | null>(null);
+  const [date, setDate] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/network/${user.id}`);
+      const data = await res.json();
+      if (res.ok && data.user) {
+        setDetail({
+          reKycRequired: !!data.user.reKycRequired,
+          reKycDueAt: data.user.reKycDueAt ?? null,
+          lastReKycAt: data.user.lastReKycAt ?? null,
+        });
+      }
+    } catch {
+      /* non-critical: controls still work without the current snapshot */
+    }
+  }, [user.id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const fmt = (iso: string | null) =>
+    iso
+      ? new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+      : "—";
+
+  const act = async (mode: "now" | "postpone" | "clear") => {
+    if (mode === "postpone" && !date) {
+      onChanged("Pick a date to postpone to.", false);
+      return;
+    }
+    setBusy(mode);
+    try {
+      const res = await fetch(`/api/admin/network/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "rescheduleReKyc",
+          mode,
+          dueDate: mode === "postpone" ? date : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Update failed");
+      const msg =
+        mode === "now"
+          ? `${user.name} must re-verify now.`
+          : mode === "postpone"
+          ? `Re-KYC postponed to ${fmt(data.reKycDueAt)}.`
+          : `Re-KYC block cleared for ${user.name}.`;
+      onChanged(msg, true);
+      await load();
+      onRefresh();
+    } catch (e) {
+      onChanged(e instanceof Error ? e.message : "Failed", false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Section icon={ShieldAlert} title="Monthly Re-KYC">
+      <div className="rounded-xl border border-ink-100 bg-ink-50/60 px-3 py-2.5 text-sm">
+        <div className="flex items-center justify-between">
+          <span className="text-ink-500">Status</span>
+          <span
+            className={`font-semibold ${
+              detail?.reKycRequired ? "text-amber-700" : "text-emerald-700"
+            }`}
+          >
+            {detail?.reKycRequired ? "Verification required" : "Current"}
+          </span>
+        </div>
+        <div className="mt-1 flex items-center justify-between">
+          <span className="text-ink-500">Next due</span>
+          <span className="font-medium text-ink-900">{fmt(detail?.reKycDueAt ?? null)}</span>
+        </div>
+        <div className="mt-1 flex items-center justify-between">
+          <span className="text-ink-500">Last verified</span>
+          <span className="font-medium text-ink-900">{fmt(detail?.lastReKycAt ?? null)}</span>
+        </div>
+      </div>
+
+      <p className="mt-2 text-[11px] leading-relaxed text-ink-400">
+        Postpone to let the user transact today; they will be asked to re-verify
+        again on the chosen date. &ldquo;Require now&rdquo; blocks transactions until
+        they re-verify.
+      </p>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <input
+          type="date"
+          value={date}
+          min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
+          onChange={(e) => setDate(e.target.value)}
+          className={inputCls}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy !== null || !date}
+          onClick={() => act("postpone")}
+        >
+          Postpone
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy !== null || !detail?.reKycRequired}
+          onClick={() => act("clear")}
+        >
+          Clear block
+        </Button>
+        <Button
+          size="sm"
+          disabled={busy !== null || detail?.reKycRequired}
+          onClick={() => act("now")}
+        >
+          Require now
+        </Button>
+      </div>
+    </Section>
   );
 }
 

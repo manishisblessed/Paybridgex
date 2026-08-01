@@ -7,6 +7,8 @@ import { clientIp } from "@/lib/security/audit";
 import { bumpTokenVersion } from "@/lib/security/session";
 import { generateRandomPassword } from "@/lib/utils";
 import { dec, toNumber } from "@/lib/money";
+import { istMidnightForDate } from "@/lib/rekyc/dates";
+import { isNetworkTier } from "@/lib/security/kycGate";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -38,6 +40,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         kyc: { select: { status: true } },
         userLimit: true,
         settlementConfig: true,
+        reKycRequired: true,
+        reKycDueAt: true,
+        lastReKycAt: true,
         _count: { select: { children: true } },
       },
     });
@@ -46,6 +51,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return NextResponse.json({
       user: {
         ...u,
+        reKycDueAt: u.reKycDueAt?.toISOString() ?? null,
+        lastReKycAt: u.lastReKycAt?.toISOString() ?? null,
         walletBalance: toNumber(dec(u.walletBalance)),
         aepsBalance: toNumber(dec(u.aepsBalance)),
         heldBalance: toNumber(dec(u.heldBalance)),
@@ -114,6 +121,16 @@ const Body = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("toggleInstantSettlement"),
     enabled: z.boolean(),
+  }),
+  z.object({
+    action: z.literal("rescheduleReKyc"),
+    // "now"      → require re-verification immediately (blocks until done).
+    // "postpone" → clear the block now and re-require it on `dueDate`.
+    // "clear"    → clear the current block; next requirement falls on the
+    //              monthly sweep (or the provided dueDate if given).
+    mode: z.enum(["now", "postpone", "clear"]),
+    dueDate: z.string().min(1).max(40).optional(),
+    reason: z.string().max(300).optional(),
   }),
 ]);
 
@@ -253,6 +270,66 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         });
         await audit("network.instant_settlement_toggled", { enabled: body.enabled });
         return NextResponse.json({ ok: true, instantSettlement: body.enabled });
+      }
+
+      case "rescheduleReKyc": {
+        // Only the four network tiers are subject to the monthly re-KYC gate.
+        if (!isNetworkTier(target.role)) {
+          return NextResponse.json(
+            { error: "Re-KYC does not apply to this role." },
+            { status: 400 }
+          );
+        }
+
+        let reKycRequired: boolean;
+        let reKycDueAt: Date | null;
+
+        if (body.mode === "now") {
+          // Block immediately.
+          reKycRequired = true;
+          reKycDueAt = new Date();
+        } else {
+          // postpone / clear: unblock now; the gate re-blocks when dueDate lands.
+          if (body.dueDate) {
+            const due = istMidnightForDate(body.dueDate);
+            if (!due) {
+              return NextResponse.json(
+                { error: "Invalid date. Use YYYY-MM-DD." },
+                { status: 400 }
+              );
+            }
+            if (body.mode === "postpone" && due.getTime() <= Date.now()) {
+              return NextResponse.json(
+                { error: "Postpone date must be in the future." },
+                { status: 400 }
+              );
+            }
+            reKycDueAt = due;
+            // The due-aware gate treats an elapsed dueDate as "required".
+            reKycRequired = due.getTime() <= Date.now();
+          } else {
+            // No date: just clear the current block.
+            reKycRequired = false;
+            reKycDueAt = null;
+          }
+        }
+
+        await prisma.user.update({
+          where: { id: target.id },
+          data: { reKycRequired, reKycDueAt },
+        });
+        await audit("network.rekyc_rescheduled", {
+          mode: body.mode,
+          dueDate: body.dueDate ?? null,
+          reKycRequired,
+          reKycDueAt: reKycDueAt?.toISOString() ?? null,
+          reason: body.reason,
+        });
+        return NextResponse.json({
+          ok: true,
+          reKycRequired,
+          reKycDueAt: reKycDueAt?.toISOString() ?? null,
+        });
       }
     }
   } catch (e) {

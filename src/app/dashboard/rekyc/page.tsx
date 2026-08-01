@@ -6,12 +6,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ShieldCheck,
   ShieldAlert,
-  Fingerprint,
   ArrowRight,
   Loader2,
   Camera,
   CheckCircle2,
-  KeyRound,
+  Landmark,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
@@ -27,7 +26,20 @@ type Status = {
   method: Method;
 };
 
-type Step = "loading" | "verified" | "intro" | "aadhaar" | "otp" | "face" | "submitting" | "done";
+type Step =
+  | "loading"
+  | "verified"
+  | "intro"
+  | "redirecting"
+  | "face"
+  | "stepup"
+  | "submitting"
+  | "done";
+
+/** Marks that we sent the user off to DigiLocker so we auto-complete on return. */
+const REKYC_PENDING_KEY = "ngp_rekyc_pending";
+/** Abandon a pending DigiLocker session after this long. */
+const PENDING_TTL_MS = 20 * 60 * 1000;
 
 function fmtDate(iso: string | null) {
   if (!iso) return null;
@@ -45,16 +57,64 @@ export default function ReKycPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Flow state
-  const [aadhaar, setAadhaar] = useState("");
-  const [otp, setOtp] = useState("");
   const [faceProbeRef, setFaceProbeRef] = useState<string | null>(null);
-  const [needsStepUp, setNeedsStepUp] = useState(false);
   const [stepUpCode, setStepUpCode] = useState("");
   const [nextDue, setNextDue] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const resumedRef = useRef(false);
 
-  const requiresOtp = status?.method === "aadhaar_otp" || status?.method === "aadhaar_otp+face";
-  const requiresFace = status?.method === "face_match" || status?.method === "aadhaar_otp+face";
+  const requiresAadhaar =
+    status?.method === "aadhaar_otp" || status?.method === "aadhaar_otp+face";
+  const requiresFace =
+    status?.method === "face_match" || status?.method === "aadhaar_otp+face";
+
+  // POST the collected proofs. Aadhaar is pulled server-side from the DigiLocker
+  // session opened at initiate; we only ever send an optional face probe / 2FA.
+  const submitVerify = useCallback(
+    async (opts?: { faceRef?: string | null; stepUp?: string }) => {
+      setStep("submitting");
+      setBusy(true);
+      setError(null);
+      try {
+        const body: Record<string, unknown> = {};
+        const faceRef = opts?.faceRef ?? faceProbeRef;
+        if (requiresFace && faceRef) body.faceProbeRef = faceRef;
+        if (opts?.stepUp) body.stepUpCode = opts.stepUp;
+
+        const res = await fetch("/api/rekyc/verify", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": crypto.randomUUID(),
+          },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+          setNextDue(data.reKycDueAt ?? null);
+          setStep("done");
+          return;
+        }
+
+        // Step-up required → reveal the 2FA field and let the user resubmit.
+        if (data.stepUp || data.code === "STEP_UP_REQUIRED" || data.code === "STEP_UP_INVALID") {
+          setError(data.error || "Enter your two-factor code to continue.");
+          setStep("stepup");
+          return;
+        }
+
+        setError(typeof data.error === "string" ? data.error : "Verification failed.");
+        setStep(requiresFace ? "face" : "intro");
+      } catch {
+        setError("Network error. Please try again.");
+        setStep(requiresFace ? "face" : "intro");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [faceProbeRef, requiresFace]
+  );
 
   const loadStatus = useCallback(async () => {
     try {
@@ -65,92 +125,81 @@ export default function ReKycPage() {
         router.replace("/dashboard");
         return;
       }
-      setStep(data.reKycRequired ? "intro" : "verified");
+      if (!data.reKycRequired) {
+        setStep("verified");
+        return;
+      }
+
+      // Returning from DigiLocker? Resume and finish the verification.
+      const reqAadhaar =
+        data.method === "aadhaar_otp" || data.method === "aadhaar_otp+face";
+      const reqFace =
+        data.method === "face_match" || data.method === "aadhaar_otp+face";
+      const raw = reqAadhaar ? localStorage.getItem(REKYC_PENDING_KEY) : null;
+      if (raw && !resumedRef.current) {
+        resumedRef.current = true;
+        localStorage.removeItem(REKYC_PENDING_KEY);
+        let fresh = false;
+        try {
+          const parsed = JSON.parse(raw);
+          fresh = parsed?.ts && Date.now() - parsed.ts < PENDING_TTL_MS;
+        } catch {
+          fresh = false;
+        }
+        if (fresh) {
+          // Aadhaar was proven via DigiLocker; capture face next if required,
+          // otherwise complete straight away.
+          if (reqFace) setStep("face");
+          else submitVerify();
+          return;
+        }
+      }
+
+      setStep("intro");
     } catch {
       setError("Could not load your verification status.");
     }
-  }, [router]);
+  }, [router, submitVerify]);
 
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
 
-  async function initiate() {
+  // Open a DigiLocker Aadhaar session and hand the browser off to it.
+  async function startDigilocker() {
     setBusy(true);
     setError(null);
     try {
+      // Clean return URL (no query string) — a nested query trips the eKYC Hub WAF.
+      const redirectUrl = `${window.location.origin}/dashboard/rekyc`;
       const res = await fetch("/api/rekyc/initiate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Idempotency-Key": crypto.randomUUID(),
         },
-        body: JSON.stringify(requiresOtp ? { aadhaar } : {}),
+        body: JSON.stringify({ redirectUrl }),
       });
       const data = await res.json();
-      if (!res.ok) {
+      if (!res.ok || !data.digilockerUrl) {
         setError(typeof data.error === "string" ? data.error : "Could not start verification.");
+        setBusy(false);
         return;
       }
-      // Advance to whichever proof we still need to collect.
-      if (requiresOtp) setStep("otp");
-      else setStep("face");
+      localStorage.setItem(REKYC_PENDING_KEY, JSON.stringify({ ts: Date.now() }));
+      setStep("redirecting");
+      window.location.href = data.digilockerUrl;
     } catch {
       setError("Network error. Please try again.");
-    } finally {
       setBusy(false);
     }
   }
 
-  async function submitVerify(extraStepUp?: string) {
-    setStep("submitting");
-    setBusy(true);
-    setError(null);
-    try {
-      const body: Record<string, unknown> = {};
-      if (requiresOtp) body.otp = otp;
-      if (requiresFace && faceProbeRef) body.faceProbeRef = faceProbeRef;
-      const code = extraStepUp ?? (needsStepUp ? stepUpCode : undefined);
-      if (code) body.stepUpCode = code;
-
-      const res = await fetch("/api/rekyc/verify", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": crypto.randomUUID(),
-        },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-
-      if (res.ok) {
-        setNextDue(data.reKycDueAt ?? null);
-        setStep("done");
-        return;
-      }
-
-      // Step-up required → reveal the 2FA field and let the user resubmit.
-      if (data.stepUp || data.code === "STEP_UP_REQUIRED" || data.code === "STEP_UP_INVALID") {
-        setNeedsStepUp(true);
-        setError(data.error || "Enter your two-factor code to continue.");
-        setStep(requiresFace && !requiresOtp ? "face" : "otp");
-        return;
-      }
-
-      setError(typeof data.error === "string" ? data.error : "Verification failed.");
-      setStep(requiresFace && !requiresOtp ? "face" : "otp");
-    } catch {
-      setError("Network error. Please try again.");
-      setStep(requiresFace && !requiresOtp ? "face" : "otp");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // After OTP entry: go to face capture if needed, else verify.
-  function afterOtp() {
-    if (requiresFace) setStep("face");
-    else submitVerify();
+  // From the intro card: Aadhaar methods go through DigiLocker; face-only skips
+  // straight to the liveness capture.
+  function begin() {
+    if (requiresAadhaar) startDigilocker();
+    else setStep("face");
   }
 
   return (
@@ -195,102 +244,69 @@ export default function ReKycPage() {
               <h2 className="text-xl font-bold text-ink-900">Re-verify your identity</h2>
               <p className="text-sm leading-relaxed text-ink-500">
                 {status?.reKycDueAt && `Due for ${fmtDate(status.reKycDueAt)}. `}
-                {requiresOtp && requiresFace
-                  ? "We'll confirm an Aadhaar OTP and a quick liveness check."
-                  : requiresOtp
-                  ? "We'll send an OTP to your Aadhaar-linked mobile."
+                {requiresAadhaar && requiresFace
+                  ? "We'll confirm your Aadhaar via DigiLocker and a quick liveness check."
+                  : requiresAadhaar
+                  ? "We'll confirm your Aadhaar securely through DigiLocker — the same way you verified at signup."
                   : "We'll do a quick liveness check."}
               </p>
               {error && <ErrorNote>{error}</ErrorNote>}
-              <Button
-                size="lg"
-                className="mx-auto"
-                onClick={() => setStep(requiresOtp ? "aadhaar" : "face")}
-              >
-                Begin verification <ArrowRight className="h-4 w-4" />
+              <Button size="lg" className="mx-auto" disabled={busy} onClick={begin}>
+                {busy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : requiresAadhaar ? (
+                  <>Continue with DigiLocker <ArrowRight className="h-4 w-4" /></>
+                ) : (
+                  <>Begin verification <ArrowRight className="h-4 w-4" /></>
+                )}
               </Button>
             </Card>
           )}
 
-          {step === "aadhaar" && (
-            <Card key="aadhaar" tone="brand">
+          {step === "redirecting" && (
+            <Card key="redirecting" tone="brand">
               <IconBubble tone="brand">
-                <KeyRound className="h-8 w-8 text-brand-600" />
+                <Landmark className="h-8 w-8 text-brand-600" />
               </IconBubble>
-              <h2 className="text-xl font-bold text-ink-900">Enter your Aadhaar number</h2>
+              <h2 className="text-xl font-bold text-ink-900">Redirecting to DigiLocker…</h2>
               <p className="text-sm text-ink-500">
-                We send a one-time password to the mobile linked with your Aadhaar.
-                Your full Aadhaar is never stored.
+                Complete the Aadhaar consent on DigiLocker. You&apos;ll be brought
+                back here automatically to finish.
               </p>
-              <div className="text-left">
-                <Label htmlFor="aadhaar">Aadhaar number</Label>
-                <Input
-                  id="aadhaar"
-                  inputMode="numeric"
-                  maxLength={12}
-                  placeholder="1234 5678 9012"
-                  value={aadhaar}
-                  onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))}
-                  autoFocus
-                  className="text-center tracking-[0.2em]"
-                />
-              </div>
-              {error && <ErrorNote>{error}</ErrorNote>}
-              <Button
-                size="lg"
-                className="mx-auto"
-                disabled={aadhaar.length !== 12 || busy}
-                onClick={initiate}
-              >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Send OTP <ArrowRight className="h-4 w-4" /></>}
-              </Button>
+              <Loader2 className="mx-auto h-6 w-6 animate-spin text-brand-600" />
             </Card>
           )}
 
-          {step === "otp" && (
-            <Card key="otp" tone="brand">
+          {step === "stepup" && (
+            <Card key="stepup" tone="brand">
               <IconBubble tone="brand">
-                <Fingerprint className="h-8 w-8 text-brand-600" />
+                <ShieldCheck className="h-8 w-8 text-brand-600" />
               </IconBubble>
-              <h2 className="text-xl font-bold text-ink-900">Enter the OTP</h2>
+              <h2 className="text-xl font-bold text-ink-900">Confirm it&apos;s you</h2>
               <p className="text-sm text-ink-500">
-                Enter the one-time password sent to your Aadhaar-linked mobile.
+                Enter your two-factor code to finish re-verification.
               </p>
               <div className="text-left">
-                <Label htmlFor="otp">One-time password</Label>
+                <Label htmlFor="stepup">Two-factor code</Label>
                 <Input
-                  id="otp"
+                  id="stepup"
                   inputMode="numeric"
                   maxLength={8}
-                  placeholder="••••••"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                  placeholder="2FA code"
+                  value={stepUpCode}
+                  onChange={(e) => setStepUpCode(e.target.value.replace(/\D/g, ""))}
                   autoFocus
-                  className="text-center text-lg font-mono tracking-[0.3em]"
+                  className="text-center font-mono tracking-[0.2em]"
                 />
               </div>
-              {needsStepUp && (
-                <div className="text-left">
-                  <Label htmlFor="stepup">Two-factor code</Label>
-                  <Input
-                    id="stepup"
-                    inputMode="numeric"
-                    maxLength={8}
-                    placeholder="2FA code"
-                    value={stepUpCode}
-                    onChange={(e) => setStepUpCode(e.target.value.replace(/\D/g, ""))}
-                    className="text-center font-mono tracking-[0.2em]"
-                  />
-                </div>
-              )}
               {error && <ErrorNote>{error}</ErrorNote>}
               <Button
                 size="lg"
                 className="mx-auto"
-                disabled={otp.length < 4 || busy}
-                onClick={afterOtp}
+                disabled={stepUpCode.length < 4 || busy}
+                onClick={() => submitVerify({ stepUp: stepUpCode })}
               >
-                {requiresFace ? <>Continue <ArrowRight className="h-4 w-4" /></> : <>Verify <ArrowRight className="h-4 w-4" /></>}
+                Verify <ArrowRight className="h-4 w-4" />
               </Button>
             </Card>
           )}
@@ -303,20 +319,6 @@ export default function ReKycPage() {
                 onboarding record (or set it up if this is your first check).
               </p>
               <LivenessCapture onCaptured={(ref) => setFaceProbeRef(ref)} captured={!!faceProbeRef} />
-              {needsStepUp && (
-                <div className="text-left">
-                  <Label htmlFor="stepup2">Two-factor code</Label>
-                  <Input
-                    id="stepup2"
-                    inputMode="numeric"
-                    maxLength={8}
-                    placeholder="2FA code"
-                    value={stepUpCode}
-                    onChange={(e) => setStepUpCode(e.target.value.replace(/\D/g, ""))}
-                    className="text-center font-mono tracking-[0.2em]"
-                  />
-                </div>
-              )}
               {error && <ErrorNote>{error}</ErrorNote>}
               <Button
                 size="lg"

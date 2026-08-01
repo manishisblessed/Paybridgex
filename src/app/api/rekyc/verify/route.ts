@@ -11,7 +11,6 @@ import { verifyReKyc, ReKycError } from "@/lib/rekyc/service";
 
 const Body = z
   .object({
-    otp: z.string().trim().max(8).optional(),
     // Opaque provider/Cloudinary reference for the fresh liveness capture.
     faceProbeRef: z.string().trim().max(256).optional(),
     // Step-up 2FA (verified before any provider submit).
@@ -55,11 +54,7 @@ export async function POST(req: Request) {
     const result = await withIdempotency(
       { key: idemKey, scope: "rekyc.verify", userId: user.id, ttlSec: 600 },
       () =>
-        verifyReKyc(
-          user,
-          { otp: parsed.data.otp, faceProbeRef: parsed.data.faceProbeRef },
-          { ip, userAgent }
-        )
+        verifyReKyc(user, { faceProbeRef: parsed.data.faceProbeRef }, { ip, userAgent })
     );
 
     return NextResponse.json(result);
