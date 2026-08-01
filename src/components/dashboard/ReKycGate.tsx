@@ -27,8 +27,8 @@ export function ReKycGate() {
   const router = useRouter();
   const pathname = usePathname();
   const { data: status } = useSWR("/api/rekyc/status", fetcher, {
-    revalidateOnFocus: false,
-    dedupingInterval: 10 * 60_000,
+    revalidateOnFocus: true,
+    dedupingInterval: 60_000,
     refreshInterval: 15 * 60_000,
   });
 

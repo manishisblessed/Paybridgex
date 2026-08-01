@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { mutate } from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ShieldCheck,
@@ -94,6 +95,9 @@ export default function ReKycPage() {
         if (res.ok) {
           setNextDue(data.reKycDueAt ?? null);
           setStep("done");
+          // Refresh the shared status cache so the blocking gate modal (which
+          // lives in the persistent dashboard layout) clears without a reload.
+          mutate("/api/rekyc/status");
           return;
         }
 
@@ -121,6 +125,9 @@ export default function ReKycPage() {
       const res = await fetch("/api/rekyc/status");
       const data: Status = await res.json();
       setStatus(data);
+      // Seed the shared SWR cache the gate modal reads (same key) so it reflects
+      // the freshest status the moment the user navigates back to the dashboard.
+      mutate("/api/rekyc/status", data, { revalidate: false });
       if (!data.isNetworkTier) {
         router.replace("/dashboard");
         return;
