@@ -35,7 +35,16 @@ export type RechargekitOperator = {
   operatorId: string;
   operatorName: string;
   operatorCode: string;
+  /**
+   * Bank-level credit-card IFSC to use verbatim as the Pay `ifsc`. Normalized
+   * to `null` when the partner returns "NA"/empty (no IFSC available — the UI
+   * must then collect a valid IFSC or block that operator). Never carries "NA".
+   */
+  operatorIfsc: string | null;
 };
+
+/** Canonical IFSC shape: 4 letters, a 0, then 6 alphanumerics (e.g. ICIC0001234). */
+export const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
 export type RechargekitCharges = {
   amount: number;
@@ -114,6 +123,7 @@ export async function rechargekitOperators(
       operator_id: string;
       operator_name: string;
       operator_code: string;
+      operator_ifsc?: string | null;
     }>;
     count?: number;
   }>(creds(), "GET", `${P}/operators`);
@@ -121,11 +131,17 @@ export async function rechargekitOperators(
   if (!r.ok) return r;
 
   const operators: RechargekitOperator[] = (r.data.operators ?? []).map(
-    (op) => ({
-      operatorId: op.operator_id,
-      operatorName: op.operator_name,
-      operatorCode: op.operator_code,
-    })
+    (op) => {
+      // Normalize the partner IFSC: uppercase, drop "NA"/empty so downstream
+      // code never sends a bogus value. Only a well-formed IFSC survives.
+      const ifsc = (op.operator_ifsc ?? "").trim().toUpperCase();
+      return {
+        operatorId: op.operator_id,
+        operatorName: op.operator_name,
+        operatorCode: op.operator_code,
+        operatorIfsc: IFSC_REGEX.test(ifsc) ? ifsc : null,
+      };
+    }
   );
 
   operatorCache = operators;

@@ -22,7 +22,11 @@ const Body = z
     accountNo: z
       .string()
       .regex(/^\d{13,19}$/, "Card number must be 13-19 digits"),
-    ifsc: z.string().min(4),
+    ifsc: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, "A valid bank IFSC is required (e.g. ICIC0001234)"),
     bankName: z.string().min(2),
     beneficiaryName: z.string().min(2),
     amount: z.number().positive().max(500000),

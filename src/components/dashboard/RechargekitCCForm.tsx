@@ -15,7 +15,11 @@ type Operator = {
   operatorId: string;
   operatorName: string;
   operatorCode: string;
+  operatorIfsc: string | null;
 };
+
+/** Canonical IFSC: 4 letters, a 0, then 6 alphanumerics (e.g. ICIC0001234). */
+const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
 type ChargeQuote = {
   serviceCharge: number;
@@ -87,17 +91,29 @@ export function RechargekitCCForm() {
     loadOperators();
   }, [loadOperators]);
 
-  // Auto-fill bank name from selected operator
+  const selectedOp = useMemo(
+    () => operators.find((o) => o.operatorCode === operatorCode) ?? null,
+    [operators, operatorCode]
+  );
+
+  // Whether the selected bank supplies a usable IFSC (auto-filled, read-only).
+  // When it doesn't (partner returned "NA"/null), the retailer must enter one.
+  const operatorProvidesIfsc = !!selectedOp?.operatorIfsc;
+
+  // Auto-fill bank name + IFSC from the selected operator. The Get Operators
+  // response carries the bank-level CC IFSC, so no manual entry is needed for
+  // supported banks; unsupported banks clear the field for manual input.
   useEffect(() => {
-    const op = operators.find((o) => o.operatorCode === operatorCode);
-    if (op) setBankName(op.operatorName);
-  }, [operatorCode, operators]);
+    if (!selectedOp) return;
+    setBankName(selectedOp.operatorName);
+    setIfsc(selectedOp.operatorIfsc ?? "");
+  }, [selectedOp]);
 
   const inputsValid = useMemo(
     () =>
       /^\d{10}$/.test(mobile) &&
       /^\d{13,19}$/.test(cardNumber) &&
-      ifsc.length >= 4 &&
+      IFSC_RE.test(ifsc) &&
       bankName.length >= 2 &&
       beneficiaryName.length >= 2 &&
       operatorCode.length > 0 &&
@@ -208,7 +224,9 @@ export function RechargekitCCForm() {
   function resetForm() {
     setCardNumber("");
     setMobile("");
-    setIfsc("");
+    // Keep the operator-derived IFSC so the field stays auto-filled after a
+    // payment; only clears when the selected bank supplies none.
+    setIfsc(selectedOp?.operatorIfsc ?? "");
     setBeneficiaryName("");
     setAmount("");
     setQuote(null);
@@ -381,16 +399,33 @@ export function RechargekitCCForm() {
           />
         </div>
 
-        {/* IFSC */}
+        {/* IFSC — auto-filled from the selected bank; manual only when the
+            operator did not supply one. */}
         <div>
           <Label htmlFor="ifsc">Card IFSC code</Label>
           <Input
             id="ifsc"
             required
-            placeholder="e.g. ICIC0000001"
+            readOnly={operatorProvidesIfsc}
+            placeholder={operatorProvidesIfsc ? "" : "e.g. ICIC0000001"}
             value={ifsc}
             onChange={(e) => setIfsc(e.target.value.toUpperCase().slice(0, 11))}
+            className={operatorProvidesIfsc ? "bg-ink-50 text-ink-500" : ""}
           />
+          {operatorProvidesIfsc ? (
+            <p className="mt-1 text-[11px] text-emerald-600">
+              Auto-filled from the selected bank — no entry needed.
+            </p>
+          ) : selectedOp ? (
+            <p className="mt-1 text-[11px] text-amber-600">
+              This bank did not provide an IFSC — enter the card&apos;s bank IFSC manually.
+            </p>
+          ) : null}
+          {ifsc.length > 0 && !IFSC_RE.test(ifsc) && (
+            <p className="mt-1 text-[11px] text-rose-600">
+              Enter a valid IFSC (format: ICIC0001234).
+            </p>
+          )}
         </div>
 
         {/* Beneficiary name */}
