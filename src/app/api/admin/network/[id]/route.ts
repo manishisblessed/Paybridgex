@@ -43,6 +43,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         reKycRequired: true,
         reKycDueAt: true,
         lastReKycAt: true,
+        reKycExempt: true,
         _count: { select: { children: true } },
       },
     });
@@ -121,6 +122,11 @@ const Body = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("toggleInstantSettlement"),
     enabled: z.boolean(),
+  }),
+  z.object({
+    action: z.literal("setReKycExempt"),
+    exempt: z.boolean(),
+    reason: z.string().max(300).optional(),
   }),
   z.object({
     action: z.literal("rescheduleReKyc"),
@@ -270,6 +276,32 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         });
         await audit("network.instant_settlement_toggled", { enabled: body.enabled });
         return NextResponse.json({ ok: true, instantSettlement: body.enabled });
+      }
+
+      case "setReKycExempt": {
+        // Exemption bypasses a compliance/security control — master-admin only.
+        if (admin.role !== "MASTER_ADMIN") {
+          return NextResponse.json(
+            { error: "Only a master-admin can change re-KYC exemption." },
+            { status: 403 }
+          );
+        }
+        if (!isNetworkTier(target.role)) {
+          return NextResponse.json(
+            { error: "Re-KYC does not apply to this role." },
+            { status: 400 }
+          );
+        }
+        await prisma.user.update({
+          where: { id: target.id },
+          data: {
+            reKycExempt: body.exempt,
+            // Exempting clears any open block so they can transact immediately.
+            ...(body.exempt ? { reKycRequired: false } : {}),
+          },
+        });
+        await audit("network.rekyc_exempt_set", { exempt: body.exempt, reason: body.reason });
+        return NextResponse.json({ ok: true, reKycExempt: body.exempt });
       }
 
       case "rescheduleReKyc": {

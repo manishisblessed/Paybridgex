@@ -33,6 +33,7 @@ export async function runMonthlyReKycSweep(
         role: { in: networkRoles },
         status: "ACTIVE",
         deletedAt: null,
+        reKycExempt: false,
         OR: [{ reKycDueAt: null }, { reKycDueAt: { lt: dueAt } }],
       },
       select: { id: true },

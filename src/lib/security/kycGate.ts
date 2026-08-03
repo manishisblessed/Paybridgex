@@ -65,9 +65,12 @@ export async function assertKycCurrent(user: SessionUser): Promise<void> {
 
   const row = await prisma.user.findUnique({
     where: { id: user.id },
-    select: { reKycRequired: true, reKycDueAt: true },
+    select: { reKycRequired: true, reKycDueAt: true, reKycExempt: true },
   });
   if (!row) return;
+
+  // Master-admin-granted exemption bypasses the gate entirely.
+  if (row.reKycExempt) return;
 
   if (!isReKycDue(row.reKycRequired, row.reKycDueAt)) return;
 

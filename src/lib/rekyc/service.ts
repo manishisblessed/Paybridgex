@@ -48,6 +48,7 @@ export type ReKycStatus = {
   reKycDueAt: string | null;
   lastReKycAt: string | null;
   isNetworkTier: boolean;
+  exempt: boolean;
   method: ReKycMethod;
 };
 
@@ -59,22 +60,30 @@ export async function getReKycStatus(user: {
   const row = network
     ? await prisma.user.findUnique({
         where: { id: user.id },
-        select: { reKycRequired: true, reKycDueAt: true, lastReKycAt: true },
+        select: {
+          reKycRequired: true,
+          reKycDueAt: true,
+          lastReKycAt: true,
+          reKycExempt: true,
+        },
       })
     : null;
 
   // Due-date aware: a scheduled day that has arrived counts as required even if
   // the flag was not yet raised (keeps the page + gate modal in sync with the
   // transaction gate, which lazily flips the flag on the next money route).
-  const required = network
-    ? isReKycDue(!!row?.reKycRequired, row?.reKycDueAt ?? null)
-    : false;
+  // A master-admin exemption always wins.
+  const required =
+    network && !row?.reKycExempt
+      ? isReKycDue(!!row?.reKycRequired, row?.reKycDueAt ?? null)
+      : false;
 
   return {
     reKycRequired: required,
     reKycDueAt: row?.reKycDueAt?.toISOString() ?? null,
     lastReKycAt: row?.lastReKycAt?.toISOString() ?? null,
     isNetworkTier: network,
+    exempt: network ? !!row?.reKycExempt : false,
     method: reKycMethod(),
   };
 }

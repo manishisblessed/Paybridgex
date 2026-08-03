@@ -24,6 +24,7 @@ type Status = {
   reKycDueAt: string | null;
   lastReKycAt: string | null;
   isNetworkTier: boolean;
+  exempt?: boolean;
   method: Method;
 };
 
@@ -231,9 +232,13 @@ export default function ReKycPage() {
               <IconBubble tone="emerald">
                 <ShieldCheck className="h-8 w-8 text-emerald-600" />
               </IconBubble>
-              <h2 className="text-xl font-bold text-ink-900">You&apos;re verified this month</h2>
+              <h2 className="text-xl font-bold text-ink-900">
+                {status?.exempt ? "No re-verification needed" : "You're verified this month"}
+              </h2>
               <p className="text-sm text-ink-500">
-                {status?.reKycDueAt
+                {status?.exempt
+                  ? "Your account is exempt from the monthly identity check."
+                  : status?.reKycDueAt
                   ? `Your next re-verification is due ${fmtDate(status.reKycDueAt)}.`
                   : "No action needed right now."}
               </p>

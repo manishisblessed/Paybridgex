@@ -72,6 +72,10 @@ model User {
   reKycRequired Boolean   @default(false)
   lastReKycAt   DateTime?
   reKycDueAt    DateTime?
+  // When true, this user is permanently exempt from the monthly re-KYC gate
+  // (set by a master-admin). Exempt users are never flagged by the sweep and
+  // never blocked, regardless of reKycRequired/reKycDueAt.
+  reKycExempt   Boolean   @default(false)
 
   // ── Onboarding liveness video / face baseline (Phase 14) ────────────────
   // Network tiers (RT/DT/MD/SD) must record a short liveness video at onboarding;

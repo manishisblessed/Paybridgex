@@ -42,6 +42,8 @@ type NetworkUser = {
   aeps: number;
   held: number;
   servicesEnabled: number;
+  reKycRequired: boolean;
+  reKycExempt: boolean;
   scheme: { id: string; name: string } | null;
   parent: { id: string; name: string; role: string; userCode: string | null } | null;
   settlementTier: string | null;
@@ -80,6 +82,7 @@ export default function NetworkManagerPage() {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
+  const [rekyc, setRekyc] = useState("all");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<NetworkUser | null>(null);
   const notify = useCallback((text: string, ok: boolean) => {
@@ -100,6 +103,7 @@ export default function NetworkManagerPage() {
         tier,
         q,
         status,
+        rekyc,
         page: String(page),
         pageSize: String(pageSize),
       });
@@ -113,7 +117,7 @@ export default function NetworkManagerPage() {
     } finally {
       setLoading(false);
     }
-  }, [tier, q, status, page]);
+  }, [tier, q, status, rekyc, page]);
 
   useEffect(() => {
     const t = setTimeout(load, q ? 350 : 0);
@@ -147,9 +151,16 @@ export default function NetworkManagerPage() {
       key: "status",
       header: "Status",
       render: (r) => (
-        <Badge variant={r.status === "ACTIVE" ? "success" : r.status === "SUSPENDED" ? "danger" : "warning"}>
-          {r.status.replace(/_/g, " ")}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-1">
+          <Badge variant={r.status === "ACTIVE" ? "success" : r.status === "SUSPENDED" ? "danger" : "warning"}>
+            {r.status.replace(/_/g, " ")}
+          </Badge>
+          {r.reKycExempt ? (
+            <Badge variant="brand">re-KYC exempt</Badge>
+          ) : (
+            r.reKycRequired && <Badge variant="warning">re-KYC due</Badge>
+          )}
+        </div>
       ),
     },
     { key: "primary", header: "Wallet", align: "right", render: (r) => formatINR(r.primary) },
@@ -252,6 +263,18 @@ export default function NetworkManagerPage() {
           <option value="ACTIVE">Active</option>
           <option value="PENDING_KYC">Pending KYC</option>
           <option value="SUSPENDED">Suspended</option>
+        </select>
+        <select
+          value={rekyc}
+          onChange={(e) => {
+            setRekyc(e.target.value);
+            setPage(1);
+          }}
+          className={inputCls}
+        >
+          <option value="all">All re-KYC</option>
+          <option value="due">Re-KYC due</option>
+          <option value="exempt">Re-KYC exempt</option>
         </select>
       </div>
 
@@ -1025,6 +1048,7 @@ type ReKycDetail = {
   reKycRequired: boolean;
   reKycDueAt: string | null;
   lastReKycAt: string | null;
+  reKycExempt: boolean;
 };
 
 function ReKycSection({
@@ -1036,6 +1060,8 @@ function ReKycSection({
   onChanged: (msg: string, ok: boolean) => void;
   onRefresh: () => void;
 }) {
+  const { data: session } = useSession();
+  const isMasterAdmin = session?.user?.role === "MASTER_ADMIN";
   const [detail, setDetail] = useState<ReKycDetail | null>(null);
   const [date, setDate] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -1049,6 +1075,7 @@ function ReKycSection({
           reKycRequired: !!data.user.reKycRequired,
           reKycDueAt: data.user.reKycDueAt ?? null,
           lastReKycAt: data.user.lastReKycAt ?? null,
+          reKycExempt: !!data.user.reKycExempt,
         });
       }
     } catch {
@@ -1099,6 +1126,33 @@ function ReKycSection({
     }
   };
 
+  const toggleExempt = async (next: boolean) => {
+    setBusy("exempt");
+    try {
+      const res = await fetch(`/api/admin/network/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setReKycExempt", exempt: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Update failed");
+      onChanged(
+        next
+          ? `${user.name} is now exempt from monthly re-KYC.`
+          : `${user.name} is back under monthly re-KYC.`,
+        true
+      );
+      await load();
+      onRefresh();
+    } catch (e) {
+      onChanged(e instanceof Error ? e.message : "Failed", false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const exempt = !!detail?.reKycExempt;
+
   return (
     <Section icon={ShieldAlert} title="Monthly Re-KYC">
       <div className="rounded-xl border border-ink-100 bg-ink-50/60 px-3 py-2.5 text-sm">
@@ -1106,15 +1160,21 @@ function ReKycSection({
           <span className="text-ink-500">Status</span>
           <span
             className={`font-semibold ${
-              detail?.reKycRequired ? "text-amber-700" : "text-emerald-700"
+              exempt
+                ? "text-brand-600"
+                : detail?.reKycRequired
+                ? "text-amber-700"
+                : "text-emerald-700"
             }`}
           >
-            {detail?.reKycRequired ? "Verification required" : "Current"}
+            {exempt ? "Exempt" : detail?.reKycRequired ? "Verification required" : "Current"}
           </span>
         </div>
         <div className="mt-1 flex items-center justify-between">
           <span className="text-ink-500">Next due</span>
-          <span className="font-medium text-ink-900">{fmt(detail?.reKycDueAt ?? null)}</span>
+          <span className="font-medium text-ink-900">
+            {exempt ? "—" : fmt(detail?.reKycDueAt ?? null)}
+          </span>
         </div>
         <div className="mt-1 flex items-center justify-between">
           <span className="text-ink-500">Last verified</span>
@@ -1122,44 +1182,68 @@ function ReKycSection({
         </div>
       </div>
 
-      <p className="mt-2 text-[11px] leading-relaxed text-ink-400">
-        Postpone to let the user transact today; they will be asked to re-verify
-        again on the chosen date. &ldquo;Require now&rdquo; blocks transactions until
-        they re-verify.
-      </p>
+      {/* Exemption — master-admin only. Bypasses the monthly gate entirely. */}
+      {isMasterAdmin && (
+        <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl border border-ink-100 bg-white px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={exempt}
+            disabled={busy !== null}
+            onChange={(e) => toggleExempt(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-400"
+          />
+          <span className="text-sm">
+            <span className="font-semibold text-ink-900">Exempt from monthly re-KYC</span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-400">
+              This user will never be asked to re-verify and is never blocked by the
+              monthly gate. Use sparingly.
+            </span>
+          </span>
+        </label>
+      )}
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <input
-          type="date"
-          value={date}
-          min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
-          onChange={(e) => setDate(e.target.value)}
-          className={inputCls}
-        />
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy !== null || !date}
-          onClick={() => act("postpone")}
-        >
-          Postpone
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy !== null || !detail?.reKycRequired}
-          onClick={() => act("clear")}
-        >
-          Clear block
-        </Button>
-        <Button
-          size="sm"
-          disabled={busy !== null || detail?.reKycRequired}
-          onClick={() => act("now")}
-        >
-          Require now
-        </Button>
-      </div>
+      {!exempt && (
+        <>
+          <p className="mt-2 text-[11px] leading-relaxed text-ink-400">
+            Postpone to let the user transact today; they will be asked to re-verify
+            again on the chosen date. &ldquo;Require now&rdquo; blocks transactions until
+            they re-verify.
+          </p>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              type="date"
+              value={date}
+              min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
+              onChange={(e) => setDate(e.target.value)}
+              className={inputCls}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy !== null || !date}
+              onClick={() => act("postpone")}
+            >
+              Postpone
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy !== null || !detail?.reKycRequired}
+              onClick={() => act("clear")}
+            >
+              Clear block
+            </Button>
+            <Button
+              size="sm"
+              disabled={busy !== null || detail?.reKycRequired}
+              onClick={() => act("now")}
+            >
+              Require now
+            </Button>
+          </div>
+        </>
+      )}
     </Section>
   );
 }

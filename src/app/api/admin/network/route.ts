@@ -20,11 +20,18 @@ export async function GET(req: Request) {
     const tier = (TIERS as readonly string[]).includes(tierParam) ? tierParam : "RETAILER";
     const q = searchParams.get("q") ?? "";
     const status = searchParams.get("status");
+    const rekyc = searchParams.get("rekyc");
     const page = Math.max(1, Number(searchParams.get("page") ?? 1));
     const pageSize = Math.min(100, Math.max(10, Number(searchParams.get("pageSize") ?? 25)));
 
     const where: Record<string, unknown> = { role: tier, deletedAt: null };
     if (status && status !== "all") where.status = status;
+    // Monthly re-KYC filter: exempt users, or users with an open requirement.
+    if (rekyc === "exempt") where.reKycExempt = true;
+    else if (rekyc === "due") {
+      where.reKycRequired = true;
+      where.reKycExempt = false;
+    }
     if (q) {
       where.OR = [
         { name: { contains: q, mode: "insensitive" } },
@@ -53,6 +60,8 @@ export async function GET(req: Request) {
           heldBalance: true,
           enabledServices: true,
           createdAt: true,
+          reKycRequired: true,
+          reKycExempt: true,
           scheme: { select: { id: true, name: true } },
           parent: { select: { id: true, name: true, role: true, userCode: true } },
           userLimit: {
@@ -88,6 +97,8 @@ export async function GET(req: Request) {
         aeps: toNumber(dec(u.aepsBalance)),
         held: toNumber(dec(u.heldBalance)),
         servicesEnabled: u.enabledServices.length,
+        reKycRequired: u.reKycRequired,
+        reKycExempt: u.reKycExempt,
         scheme: u.scheme,
         parent: u.parent,
         settlementTier: u.userLimit?.settlementTier ?? null,
