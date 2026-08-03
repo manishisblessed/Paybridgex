@@ -218,7 +218,7 @@ export const samedayBbps: BbpsProvider = {
       bill_fetch_ref: billFetchRef,
       customer_number: cc.mobile,
       optional1: cc.mobile,
-      optional2: "",
+      optional2: input.remark ?? "",
       optional3: "",
       optional4: "",
       pincode: cc.pincode,

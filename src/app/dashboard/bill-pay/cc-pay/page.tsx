@@ -9,7 +9,7 @@ export default function RechargekitCCPage() {
     <div className="mx-auto max-w-3xl">
       <ServicePageHeader
         icon={CreditCard}
-        title="Credit Card Payment"
+        title="Credit Card Bill Payment-2"
         description="Pay credit card bills directly — enter the full card number, bank details, and amount. Charges are shown before confirmation."
       />
       <RechargekitCCForm />

@@ -75,7 +75,7 @@ const baseServices: NavItem[] = [
 
 const bbpsServices: NavItem[] = [
   { href: "/dashboard/bill-pay/credit-card", label: "Credit Card Bill Payment", icon: CreditCard, badge: "New" },
-  { href: "/dashboard/bill-pay/cc-pay", label: "Credit Card Payment (CC-2)", icon: CreditCard, badge: "New" },
+  { href: "/dashboard/bill-pay/cc-pay", label: "Credit Card Bill Payment-2", icon: CreditCard, badge: "New" },
   { href: "/dashboard/bill-pay/bbps-1", label: "BBPS-Bharat BillPay", icon: Receipt, badge: "New" },
   { href: "/dashboard/bill-pay/bbps-2", label: "Unified Bill Payment Platform", icon: Receipt, badge: "New" },
 ];

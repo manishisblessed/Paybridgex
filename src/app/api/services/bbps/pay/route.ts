@@ -83,7 +83,11 @@ export async function POST(req: Request) {
       operator: parsed.data.billerCode,
       partner: bbps.name,
       request: parsed.data,
-      call: () => bbps.pay({ userId: user.id, ...parsed.data })
+      call: () => bbps.pay({
+        userId: user.id,
+        ...parsed.data,
+        remark: `Pay by NxtGenPay ${user.userCode ?? user.id}`,
+      })
     });
 
     const httpStatus = result.status === "SUCCESS" ? 200 : result.status === "PROCESSING" ? 202 : 502;

@@ -19,9 +19,9 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   try {
     const user = await requireAuth();
-    if (user.role !== "RETAILER") throw new AuthError("Credit Card Payment is available for retailers only", 403);
+    if (user.role !== "RETAILER") throw new AuthError("Credit Card Bill Payment-2 is available for retailers only", 403);
     await assertServiceEnabled(SERVICE_KEYS.RECHARGEKIT_CC, {
-      name: "Credit Card Payment (RechargeKit)",
+      name: "Credit Card Bill Payment-2",
       userId: user.id,
       role: user.role,
     });

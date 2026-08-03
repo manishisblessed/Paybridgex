@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   let user;
   try {
     user = await requireAuth();
-    if (user.role !== "RETAILER") throw new AuthError("Credit Card Payment is available for retailers only", 403);
+    if (user.role !== "RETAILER") throw new AuthError("Credit Card Bill Payment-2 is available for retailers only", 403);
     await enforceRateLimit(`rk:status:${user.id}`, RATE_LIMITS.default);
   } catch (e) {
     return toErrorResponse(e);

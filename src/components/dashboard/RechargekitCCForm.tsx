@@ -171,7 +171,7 @@ export function RechargekitCCForm() {
           setPollStatus(null);
           setResult({
             refId: polling.refId,
-            service: `Credit Card Payment — ${bankName}`,
+            service: `Credit Card Bill Payment-2 — ${bankName}`,
             amount: Number(amount),
             customer: beneficiaryName,
             meta: {
@@ -279,7 +279,7 @@ export function RechargekitCCForm() {
       setPinOpen(false);
       setResult({
         refId: data.refId,
-        service: `Credit Card Payment — ${bankName}`,
+        service: `Credit Card Bill Payment-2 — ${bankName}`,
         amount: Number(amount),
         customer: beneficiaryName,
         meta: {

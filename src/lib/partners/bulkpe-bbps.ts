@@ -263,6 +263,7 @@ export const bulkpeBbps: BbpsProvider = {
       fetchId,
       amount: String(input.amount),
       reference: input.idempotencyKey,
+      ...(input.remark ? { remark: input.remark } : {}),
     });
     if (!r.ok) return r;
     const status = mapBulkpeBbpsStatus(r.data.status);

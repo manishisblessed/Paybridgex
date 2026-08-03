@@ -254,7 +254,7 @@ export const KNOWN_SERVICE_ROUTES: ServiceRouteSeed[] = [
   },
   {
     key: SERVICE_KEYS.RECHARGEKIT_CC,
-    name: "Credit Card Payment (RechargeKit)",
+    name: "Credit Card Bill Payment-2",
     type: "SERVICE",
     kind: "BBPS",
     provider: "SAMEDAY",

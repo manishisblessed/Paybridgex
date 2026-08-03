@@ -140,6 +140,8 @@ export interface BbpsBill {
 }
 export interface BbpsPayInput extends BbpsFetchInput {
   amount: Money;
+  /** Optional remark/narration sent to the provider (best-effort). */
+  remark?: string;
 }
 export interface BbpsPayOutput {
   txnReference: string;

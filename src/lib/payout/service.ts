@@ -246,6 +246,11 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
   });
   if (claim.count === 0) return;
 
+  const user = await prisma.user.findUnique({
+    where: { id: row.userId },
+    select: { userCode: true },
+  });
+
   const provider = getPartner("payout");
   const res = await provider.payout({
     idempotencyKey: row.bulkpeReferenceId,
@@ -253,7 +258,7 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
     mode: row.mode,
     amount: toNumber(row.amount),
     beneficiary: beneficiaryFor(row),
-    purpose: `Payout ${row.id}`,
+    purpose: `Pay by NxtGenPay ${user?.userCode ?? row.userId}`,
   });
 
   // Persist a safe request/response snapshot (no raw PII in request).
