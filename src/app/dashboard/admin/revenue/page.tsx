@@ -30,6 +30,16 @@ type TierRow = {
   creditCount: number;
 };
 
+type SettlementLegRow = {
+  leg: string;
+  settlementType: string | null;
+  txnCount: number;
+  totalVolume: number;
+  margin: number;
+  grossCommission: number;
+  companyNet: number;
+};
+
 type DailyRow = {
   date: string;
   txnCount: number;
@@ -67,6 +77,7 @@ type RevenueData = {
   byService: ServiceRow[];
   byTier: TierRow[];
   byDay: DailyRow[];
+  posByLeg: SettlementLegRow[];
   wallet: RevenueWallet;
   totals: {
     txnCount: number;
@@ -208,6 +219,43 @@ export default function RevenuePage() {
     },
   ];
 
+  const legColumns: Column<SettlementLegRow>[] = [
+    {
+      key: "leg",
+      header: "Settlement leg",
+      render: (r) => (
+        <Badge variant={r.settlementType === "T0" ? "brand" : r.settlementType === "T1" ? "default" : "warning"}>
+          {r.leg}
+        </Badge>
+      ),
+    },
+    { key: "txnCount", header: "Txns", render: (r) => <span>{formatNumber(r.txnCount)}</span> },
+    {
+      key: "totalVolume",
+      header: "Volume",
+      render: (r) => <span className="font-semibold">{formatINR(r.totalVolume)}</span>,
+    },
+    {
+      key: "margin",
+      header: "MDR Margin",
+      render: (r) => <span className="font-semibold text-emerald-600">{formatINR(r.margin)}</span>,
+    },
+    {
+      key: "grossCommission",
+      header: "Chain Commission",
+      render: (r) => <span className="text-ink-500">{formatINR(r.grossCommission)}</span>,
+    },
+    {
+      key: "companyNet",
+      header: "Company Net",
+      render: (r) => (
+        <span className={`font-bold ${r.companyNet >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+          {formatINR(r.companyNet)}
+        </span>
+      ),
+    },
+  ];
+
   const dailyColumns: Column<DailyRow>[] = [
     { key: "date", header: "Date", render: (r) => <span className="font-medium">{r.date}</span> },
     { key: "txnCount", header: "Txns", render: (r) => <span>{formatNumber(r.txnCount)}</span> },
@@ -278,7 +326,18 @@ export default function RevenuePage() {
     { key: "platformRevenue", header: "Platform Revenue", format: "money" },
   ];
 
+  const csvLegCols: ReportColumn<SettlementLegRow>[] = [
+    { key: "leg", header: "Settlement Leg" },
+    { key: "txnCount", header: "Transactions", format: "int" },
+    { key: "totalVolume", header: "Volume", format: "money" },
+    { key: "margin", header: "MDR Margin", format: "money" },
+    { key: "grossCommission", header: "Chain Commission", format: "money" },
+    { key: "companyNet", header: "Company Net", format: "money" },
+  ];
+
   const maxRevenue = Math.max(1, ...(data?.byDay ?? []).map((d) => Math.abs(d.platformRevenue)));
+  const instantMargin = (data?.posByLeg ?? []).find((r) => r.settlementType === "T0")?.margin ?? 0;
+  const t1Margin = (data?.posByLeg ?? []).find((r) => r.settlementType === "T1")?.margin ?? 0;
 
   return (
     <div className="space-y-6">
@@ -469,6 +528,34 @@ export default function RevenuePage() {
             </p>
             <DataTable columns={serviceColumns} data={data.byService} loading={loading} />
           </div>
+
+          {/* POS company margin by settlement leg (T+1 vs Instant) */}
+          {data.posByLeg.length > 0 && (
+            <div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-ink-800">
+                  POS company margin by settlement leg
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    downloadCSV(
+                      `pos-margin-by-leg-${data.from}-to-${data.to}`,
+                      data.posByLeg,
+                      csvLegCols
+                    )
+                  }
+                >
+                  <Download className="mr-2 h-4 w-4" /> CSV
+                </Button>
+              </div>
+              <div className="mb-3 grid grid-cols-2 gap-4">
+                <Stat label="Instant (T+0) margin" value={formatINR(instantMargin)} tone="good" />
+                <Stat label="T+1 margin" value={formatINR(t1Margin)} tone="good" />
+              </div>
+              <DataTable columns={legColumns} data={data.posByLeg} loading={loading} />
+            </div>
+          )}
 
           {/* Commission by tier */}
           <div>

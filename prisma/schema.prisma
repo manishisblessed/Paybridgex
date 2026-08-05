@@ -602,6 +602,10 @@ model Transaction {
   // partner details
   partner      String? // PAYSPRINT, RAZORPAY, etc.
   partnerTxnId String?
+  // Settlement leg for acquirer rails (POS/PG/QR): "T0" = instant, "T1" =
+  // next-day. Lets revenue reporting split the company MDR margin per leg.
+  // null for non-settlement services.
+  settlementType String?
   // arbitrary partner payload for audit / reconciliation
   request      Json?
   response     Json?

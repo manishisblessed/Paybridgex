@@ -23,6 +23,21 @@ export type TierCommissionRow = {
   creditCount: number;
 };
 
+/**
+ * POS company margin split by settlement leg (Instant T+0 vs next-day T+1).
+ * `margin` is the MDR margin (service − vendor) credited to the Revenue Wallet;
+ * `companyNet` = margin − grossCommission is what the company keeps on that leg.
+ */
+export type SettlementMarginRow = {
+  leg: string;
+  settlementType: string | null;
+  txnCount: number;
+  totalVolume: number;
+  margin: number;
+  grossCommission: number;
+  companyNet: number;
+};
+
 export type DailyRevenueRow = {
   date: string;
   txnCount: number;
@@ -60,6 +75,7 @@ export type RevenueReport = {
   byService: ServiceRevenueRow[];
   byTier: TierCommissionRow[];
   byDay: DailyRevenueRow[];
+  posByLeg: SettlementMarginRow[];
   wallet: RevenueWallet;
   totals: {
     txnCount: number;
@@ -206,6 +222,39 @@ export async function getRevenueReport(
     platformRevenue: sumRound(byService.map((r) => r.platformRevenue)),
   };
 
+  // POS company-margin split by settlement leg. Sourced from the synthetic POS
+  // settlement transaction (fee = MDR margin, commission = chain commission),
+  // grouped by settlementType. Skipped when a non-POS service filter is active.
+  const posLegAgg =
+    params.service && params.service !== "POS"
+      ? []
+      : await prisma.transaction.groupBy({
+          by: ["settlementType"],
+          where: {
+            service: "POS" as ServiceCode,
+            status: "SUCCESS",
+            createdAt: { gte: dateStart, lte: dateEnd },
+          },
+          _count: { _all: true },
+          _sum: { amount: true, fee: true, commission: true },
+        });
+
+  const posByLeg: SettlementMarginRow[] = posLegAgg
+    .map((r) => {
+      const margin = toNumber(dec(r._sum.fee ?? 0));
+      const grossCommission = toNumber(dec(r._sum.commission ?? 0));
+      return {
+        leg: legLabel(r.settlementType),
+        settlementType: r.settlementType,
+        txnCount: r._count._all,
+        totalVolume: toNumber(dec(r._sum.amount ?? 0)),
+        margin,
+        grossCommission,
+        companyNet: round2(margin - grossCommission),
+      };
+    })
+    .sort((a, b) => b.margin - a.margin);
+
   const wallet = await getRevenueWallet(dateStart, dateEnd);
 
   return {
@@ -214,9 +263,17 @@ export async function getRevenueReport(
     byService,
     byTier,
     byDay,
+    posByLeg,
     wallet,
     totals,
   };
+}
+
+/** Human label for a settlement leg code. */
+function legLabel(settlementType: string | null): string {
+  if (settlementType === "T0") return "Instant (T+0)";
+  if (settlementType === "T1") return "T+1 (next-day)";
+  return "Unspecified";
 }
 
 /**

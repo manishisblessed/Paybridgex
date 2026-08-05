@@ -407,6 +407,7 @@ async function distributeCommissionForPos(
           status: "SUCCESS",
           partner: "SAMEDAY_POS",
           partnerTxnId: transactionRef,
+          settlementType, // T0 = instant, T1 = next-day (for per-leg revenue split)
         },
       });
     } catch (e) {

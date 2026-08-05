@@ -663,9 +663,12 @@ function SchemeCard({
                           <th className="px-4 py-2 font-semibold">Mode</th>
                           <th className="px-4 py-2 font-semibold">Card</th>
                           <th className="px-4 py-2 font-semibold">Brand</th>
-                          <th className="px-4 py-2 text-right font-semibold">Service (MDR)</th>
-                          <th className="px-4 py-2 text-right font-semibold">Vendor</th>
-                          <th className="px-4 py-2 text-right font-semibold">Margin</th>
+                          <th className="px-4 py-2 text-right font-semibold">Service (T+1)</th>
+                          <th className="px-4 py-2 text-right font-semibold">Vendor (T+1)</th>
+                          <th className="px-4 py-2 text-right font-semibold">Margin (T+1)</th>
+                          <th className="px-4 py-2 text-right font-semibold text-sky-600">Service (T+0)</th>
+                          <th className="px-4 py-2 text-right font-semibold text-sky-600">Vendor (T+0)</th>
+                          <th className="px-4 py-2 text-right font-semibold text-sky-600">Margin (Instant)</th>
                           <th className="px-4 py-2 text-right font-semibold">DIST</th>
                           <th className="px-4 py-2 text-right font-semibold">M.DIST</th>
                           <th className="px-4 py-2 text-right font-semibold">S.DIST</th>
@@ -674,7 +677,18 @@ function SchemeCard({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-ink-100 text-ink-800">
-                        {mdrSlabs.map((s) => (
+                        {mdrSlabs.map((s) => {
+                          // Instant (T+0) settlement uses the dedicated T0 rate,
+                          // falling back to the T+1 value when unset — mirroring
+                          // the resolver (slabMdrValue / slabVendorValue) so the
+                          // margin shown equals what actually credits on capture.
+                          const t0MdrInherited = !(s.mdrValueT0 > 0);
+                          const t0VendorInherited = !(s.vendorChargeT0 > 0);
+                          const t0Mdr = t0MdrInherited ? s.mdrValue : s.mdrValueT0;
+                          const t0Vendor = t0VendorInherited ? s.vendorCharge : s.vendorChargeT0;
+                          const marginT1 = Math.max(0, s.mdrValue - s.vendorCharge);
+                          const marginT0 = Math.max(0, t0Mdr - t0Vendor);
+                          return (
                           <tr key={s.id} className="hover:bg-orange-50/30">
                             <td className="px-4 py-2.5 font-medium">{s.company ?? "All"}</td>
                             <td className="px-4 py-2.5">{s.paymentMode === "*" ? "Any" : s.paymentMode}</td>
@@ -683,7 +697,24 @@ function SchemeCard({
                             <td className="px-4 py-2.5 text-right font-semibold">{fmtRate(s.mdrType, s.mdrValue)}</td>
                             <td className="px-4 py-2.5 text-right text-ink-500">{fmtRate(s.mdrType, s.vendorCharge)}</td>
                             <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">
-                              {fmtRate(s.mdrType, Math.max(0, s.mdrValue - s.vendorCharge))}
+                              {fmtRate(s.mdrType, marginT1)}
+                            </td>
+                            <td
+                              className="px-4 py-2.5 text-right"
+                              title={t0MdrInherited ? "Inherited from T+1 (no distinct instant rate set)" : "Explicit instant (T+0) rate"}
+                            >
+                              {fmtRate(s.mdrType, t0Mdr)}
+                              {t0MdrInherited && <span className="ml-1 text-[10px] text-ink-400">(T+1)</span>}
+                            </td>
+                            <td
+                              className="px-4 py-2.5 text-right text-ink-500"
+                              title={t0VendorInherited ? "Inherited from T+1 (no distinct instant vendor set)" : "Explicit instant (T+0) vendor"}
+                            >
+                              {fmtRate(s.mdrType, t0Vendor)}
+                              {t0VendorInherited && <span className="ml-1 text-[10px] text-ink-400">(T+1)</span>}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-semibold text-sky-600">
+                              {fmtRate(s.mdrType, marginT0)}
                             </td>
                             <td className="px-4 py-2.5 text-right">{fmtRate(s.commissionType, s.commissionDistributor)}</td>
                             <td className="px-4 py-2.5 text-right">{fmtRate(s.commissionType, s.commissionMaster)}</td>
@@ -710,7 +741,8 @@ function SchemeCard({
                               </div>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
