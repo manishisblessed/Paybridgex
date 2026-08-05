@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
 import { requireRole, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { bumpTokenVersion } from "@/lib/security/session";
+import { generateRandomPassword } from "@/lib/utils";
 
 const PatchBody = z
   .object({
-    action: z.enum(["suspend", "activate", "update-tabs"]),
-    allowedTabs: z.array(z.string()).optional(),
+    // Master-admins always have full access, so there is no tab scoping here.
+    action: z.enum(["suspend", "activate", "reset-password", "reset-2fa"]),
   })
   .strict();
 
@@ -48,26 +50,55 @@ export async function PATCH(
   if (!parsed.success)
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { action, allowedTabs } = parsed.data;
-  let update: Record<string, unknown> = {};
+  const { action } = parsed.data;
 
-  switch (action) {
-    case "suspend":
-      update = { status: "SUSPENDED" };
-      break;
-    case "activate":
-      update = { status: "ACTIVE" };
-      break;
-    case "update-tabs":
-      if (!allowedTabs) {
-        return NextResponse.json(
-          { error: "allowedTabs required for update-tabs action" },
-          { status: 400 }
-        );
-      }
-      update = { allowedTabs };
-      break;
+  if (action === "reset-password") {
+    const password = generateRandomPassword(14);
+    const passwordHash = await bcrypt.hash(password, 12);
+    await prisma.user.update({ where: { id: params.id }, data: { passwordHash } });
+    await bumpTokenVersion(params.id, { swallow: true });
+    await prisma.auditLog.create({
+      data: {
+        userId: caller.id,
+        action: "master_admin.password_reset",
+        entity: "User",
+        entityId: params.id,
+        meta: { name: target.name },
+        ip: clientIp(req),
+      },
+    });
+    // Returned once for out-of-band delivery; never stored in plain text.
+    return NextResponse.json({ ok: true, password });
   }
+
+  if (action === "reset-2fa") {
+    await prisma.user.update({
+      where: { id: params.id },
+      data: {
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        twoFactorBackupCodes: [],
+        twoFactorVerifiedAt: null,
+      },
+    });
+    await bumpTokenVersion(params.id, { swallow: true });
+    await prisma.auditLog.create({
+      data: {
+        userId: caller.id,
+        action: "master_admin.2fa_reset",
+        entity: "User",
+        entityId: params.id,
+        meta: { name: target.name },
+        ip: clientIp(req),
+      },
+    });
+    return NextResponse.json({
+      ok: true,
+      message: "2FA reset. The master admin must set up a new authenticator on next login.",
+    });
+  }
+
+  const update = { status: action === "suspend" ? "SUSPENDED" : "ACTIVE" };
 
   const updated = await prisma.user.update({
     where: { id: params.id },
@@ -89,7 +120,7 @@ export async function PATCH(
       action: `master_admin.${action}`,
       entity: "User",
       entityId: params.id,
-      meta: { action, allowedTabs },
+      meta: { action },
       ip: clientIp(req),
     },
   });

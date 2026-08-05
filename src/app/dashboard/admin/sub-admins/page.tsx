@@ -15,6 +15,7 @@ import {
   Eye,
   EyeOff,
   ListChecks,
+  Smartphone,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
@@ -48,6 +49,7 @@ export default function AdminSubAdminsPage() {
   } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SubAdmin | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [resetPwd, setResetPwd] = useState<{ name: string; password: string } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -81,6 +83,49 @@ export default function AdminSubAdminsPage() {
       refresh();
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleResetPassword(r: SubAdmin) {
+    try {
+      const res = await fetch(`/api/admin/sub-admins/${r.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset-password" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(typeof data.error === "string" ? data.error : "Failed to reset password");
+        return;
+      }
+      setResetPwd({ name: r.name, password: data.password });
+    } catch {
+      toast.error("Network error. Please try again.");
+    }
+  }
+
+  async function handleReset2fa(r: SubAdmin) {
+    if (
+      !confirm(
+        `Reset 2FA for ${r.name}? They will set up a new authenticator on next login.`
+      )
+    )
+      return;
+    try {
+      const res = await fetch(`/api/admin/sub-admins/${r.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset-2fa" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(typeof data.error === "string" ? data.error : "Failed to reset 2FA");
+        return;
+      }
+      toast.success(`2FA reset for ${r.name}. They must re-enroll on next login.`);
+      refresh();
+    } catch {
+      toast.error("Network error. Please try again.");
     }
   }
 
@@ -159,6 +204,20 @@ export default function AdminSubAdminsPage() {
             title="Assign tabs"
           >
             <ListChecks className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => handleResetPassword(r)}
+            className="grid h-8 w-8 place-items-center rounded-lg text-amber-700 hover:bg-amber-50"
+            title="Reset password"
+          >
+            <KeyRound className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => handleReset2fa(r)}
+            className="grid h-8 w-8 place-items-center rounded-lg text-amber-700 hover:bg-amber-50"
+            title="Reset 2FA"
+          >
+            <Smartphone className="h-4 w-4" />
           </button>
           {r.status === "ACTIVE" ? (
             <button
@@ -262,6 +321,14 @@ export default function AdminSubAdminsPage() {
           record={issued.record}
           password={issued.password}
           onClose={() => setIssued(null)}
+        />
+      )}
+
+      {resetPwd && (
+        <ResetPasswordDialog
+          name={resetPwd.name}
+          password={resetPwd.password}
+          onClose={() => setResetPwd(null)}
         />
       )}
 
@@ -648,6 +715,95 @@ function CredentialsDialog({
               <Copy className="h-4 w-4" />
             )}
             Copy all
+          </Button>
+          <Button onClick={onClose}>Done</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResetPasswordDialog({
+  name,
+  password,
+  onClose,
+}: {
+  name: string;
+  password: string;
+  onClose: () => void;
+}) {
+  const [showPwd, setShowPwd] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4">
+      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 bg-gradient-to-br from-amber-50 to-white px-6 py-5">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-700">
+              Password reset
+            </p>
+            <h3 className="mt-1 font-display text-lg font-bold text-ink-900">{name}</h3>
+            <p className="mt-1 text-xs text-ink-600">
+              A new password was generated for this sub-admin. All existing sessions
+              have been signed out.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 hover:bg-ink-100"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-3 px-6 py-5">
+          <Field
+            label="New password"
+            mono
+            value={showPwd ? password : "••••••••••"}
+            action={
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setShowPwd((s) => !s)}
+                  className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 hover:bg-ink-100"
+                  title={showPwd ? "Hide" : "Show"}
+                >
+                  {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={copy}
+                  className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 hover:bg-ink-100"
+                  title="Copy password"
+                >
+                  {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                </button>
+              </div>
+            }
+          />
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+            For security, this password will <strong>not be shown again</strong>. Copy it
+            now and send it to the sub-admin via a secure channel.
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-ink-100 bg-ink-50/40 px-6 py-3">
+          <Button variant="outline" onClick={copy}>
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            Copy password
           </Button>
           <Button onClick={onClose}>Done</Button>
         </div>

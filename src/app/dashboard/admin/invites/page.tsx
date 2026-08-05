@@ -80,6 +80,7 @@ type Invite = {
   role: string;
   status: string;
   parentId: string | null;
+  userId: string | null;
   userCode: string | null;
   createdAt: string;
   expiresAt: string;
@@ -154,6 +155,7 @@ export default function AdminInvitesPage() {
   const [selectedInvite, setSelectedInvite] = useState<string | null>(null);
   const [detailData, setDetailData] = useState<any>(null);
   const [resending, setResending] = useState<string | null>(null);
+  const [resharing, setResharing] = useState<string | null>(null);
   const [editingInvite, setEditingInvite] = useState<Invite | null>(null);
   const [rejectTarget, setRejectTarget] = useState<string | null>(null);
   const [rejectBusy, setRejectBusy] = useState(false);
@@ -228,6 +230,44 @@ export default function AdminInvitesPage() {
     }
   }
 
+  // Regenerate a fresh, unexpired link for someone who couldn't finish their
+  // onboarding (typically an EXPIRED invite) and copy it so it can be reshared
+  // immediately in addition to the email + SMS the server sends.
+  async function handleReshare(id: string) {
+    setResharing(id);
+    try {
+      const res = await fetch(`/api/admin/invite/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reshare" }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        let copied = false;
+        if (data.onboardingLink) {
+          try {
+            await navigator.clipboard.writeText(data.onboardingLink);
+            copied = true;
+          } catch {
+            // Clipboard can be blocked — the link still went out via email/SMS.
+          }
+        }
+        toast.success(
+          data.emailSent
+            ? `Fresh onboarding link generated and sent.${copied ? " Link copied to clipboard." : ""}`
+            : `Fresh onboarding link generated${copied ? " and copied to clipboard" : ""}. Email delivery failed — share the link manually.`
+        );
+        fetchInvites();
+      } else {
+        toast.error(typeof data.error === "string" ? data.error : "Failed to reshare invite");
+      }
+    } catch {
+      toast.error("Network error — could not reshare invite");
+    } finally {
+      setResharing(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -251,6 +291,7 @@ export default function AdminInvitesPage() {
           <option value="VERIFIED">Verified</option>
           <option value="APPROVED">Approved</option>
           <option value="REJECTED">Rejected</option>
+          <option value="EXPIRED">Expired</option>
         </Select>
         <span className="ml-auto text-sm text-ink-500">
           {total} invite{total !== 1 ? "s" : ""}
@@ -287,8 +328,15 @@ export default function AdminInvitesPage() {
             setDetailData(null);
           }}
           onAction={(action) => {
-            if (action === "reject") setRejectTarget(selectedInvite);
-            else handleAction(selectedInvite, action);
+            if (action === "reject") {
+              setRejectTarget(selectedInvite);
+            } else if (action === "reshare") {
+              handleReshare(selectedInvite);
+              setSelectedInvite(null);
+              setDetailData(null);
+            } else {
+              handleAction(selectedInvite, action);
+            }
           }}
         />
       )}
@@ -394,6 +442,20 @@ export default function AdminInvitesPage() {
                             )}
                           </button>
                         </>
+                      )}
+                      {inv.status === "EXPIRED" && (
+                        <button
+                          onClick={() => handleReshare(inv.id)}
+                          disabled={resharing === inv.id}
+                          title="Generate a fresh link & reshare (for users who couldn't finish onboarding)"
+                          className="rounded-lg p-1.5 text-amber-600 hover:bg-amber-50 disabled:opacity-50"
+                        >
+                          {resharing === inv.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Send className="h-4 w-4" />
+                          )}
+                        </button>
                       )}
                       <button
                         onClick={() => viewDetail(inv.id)}
@@ -846,7 +908,7 @@ function InviteDetail({
     declarationApprovals?: DeclarationApprovalRow[];
   };
   onClose: () => void;
-  onAction: (action: "approve" | "reject") => void;
+  onAction: (action: "approve" | "reject" | "reshare") => void;
 }) {
   const { invite, invitedBy, onboardingLink, verifications, registeredUser } = data;
   const documents = data.documents ?? [];
@@ -941,9 +1003,20 @@ function InviteDetail({
             </a>
           </div>
           {!ACTIVE_LINK_STATUSES.includes(invite.status) && (
-            <p className="mt-2 text-xs text-ink-500">
-              This invite is {invite.status.toLowerCase()} — the link may no longer be usable.
-            </p>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-ink-500">
+                This invite is {invite.status.toLowerCase()} — the link may no longer be usable.
+              </p>
+              {invite.status === "EXPIRED" && !invite.userId && (
+                <button
+                  type="button"
+                  onClick={() => onAction("reshare")}
+                  className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+                >
+                  <Send className="h-3.5 w-3.5" /> Generate fresh link & reshare
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

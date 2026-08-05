@@ -60,12 +60,10 @@ export function LogoMark({
 
 export function Logo({
   className,
-  variant = "dark",
-  showTagline = true
+  variant = "dark"
 }: {
   className?: string;
   variant?: "dark" | "light";
-  showTagline?: boolean;
 }) {
   return (
     <Link
@@ -73,29 +71,14 @@ export function Logo({
       className={cn("group inline-flex items-center gap-2.5", className)}
       aria-label="NextGenPay home"
     >
-      <LogoMark
-        size={34}
-        className={cn(variant === "light" ? "text-white" : "text-accent-500")}
-      />
-      <span className="flex flex-col leading-tight">
-        <span
-          className={cn(
-            "font-display text-[18px] font-extrabold tracking-tight",
-            variant === "light" ? "text-white" : "text-ink-900"
-          )}
-        >
-          NextGenPay
-        </span>
-        {showTagline ? (
-          <span
-            className={cn(
-              "text-[10px] font-semibold uppercase tracking-[0.22em]",
-              variant === "light" ? "text-white/70" : "text-ink-500"
-            )}
-          >
-            PG · POS · QR Payments
-          </span>
-        ) : null}
+      <LogoMark size={34} className="text-[#7367F0]" />
+      <span
+        className={cn(
+          "font-display text-[20px] font-extrabold tracking-tight leading-none",
+          variant === "light" ? "text-white" : "text-ink-900"
+        )}
+      >
+        NextGenPay
       </span>
     </Link>
   );

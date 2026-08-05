@@ -45,7 +45,8 @@ export function Sidebar({
     // Admin/sub-admin: filter workspace tabs by allowedTabs. Tab links may sit
     // under /dashboard/admin/, /dashboard/master-admin/ or /dashboard/sub-admin/
     // depending on the nav — match by slug regardless of prefix.
-    if ((role === "master-admin" || role === "admin" || role === "sub-admin") && allowedTabs.length > 0) {
+    // Master-admins always have full access and are never scoped.
+    if ((role === "admin" || role === "sub-admin") && allowedTabs.length > 0) {
       const prefixes = [
         "/dashboard/admin/",
         "/dashboard/master-admin/",

@@ -13,7 +13,9 @@ const CreateBody = z.object({
   email: z.string().email(),
   phone: z.string().min(10).max(15),
   password: z.string().min(8),
-  allowedTabs: z.array(z.string()).max(100).default([]),
+  // Accepted for backward compatibility but ignored — master-admins always
+  // have full access and are never tab-scoped.
+  allowedTabs: z.array(z.string()).max(100).optional(),
 });
 
 export async function GET(req: Request) {
@@ -69,7 +71,7 @@ export async function POST(req: Request) {
   if (!parsed.success)
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { name, email, phone, password, allowedTabs } = parsed.data;
+  const { name, email, phone, password } = parsed.data;
 
   const existing = await prisma.user.findFirst({
     where: { OR: [{ email: email.toLowerCase() }, { phone }], deletedAt: null },
@@ -91,7 +93,7 @@ export async function POST(req: Request) {
       passwordHash,
       role: "MASTER_ADMIN",
       status: "ACTIVE",
-      allowedTabs,
+      allowedTabs: [],
     },
     select: {
       id: true,

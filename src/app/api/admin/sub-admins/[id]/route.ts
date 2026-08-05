@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
 import { requireRole, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { bumpTokenVersion } from "@/lib/security/session";
+import { generateRandomPassword } from "@/lib/utils";
 
 const PatchBody = z.object({
-  action: z.enum(["suspend", "activate", "update-tabs"]),
+  action: z.enum(["suspend", "activate", "update-tabs", "reset-password", "reset-2fa"]),
   allowedTabs: z.array(z.string()).optional(),
 }).strict();
 
@@ -40,6 +42,52 @@ export async function PATCH(
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
   const { action, allowedTabs } = parsed.data;
+
+  if (action === "reset-password") {
+    const password = generateRandomPassword(10);
+    const passwordHash = await bcrypt.hash(password, 12);
+    await prisma.user.update({ where: { id: params.id }, data: { passwordHash } });
+    await bumpTokenVersion(params.id, { swallow: true });
+    await prisma.auditLog.create({
+      data: {
+        userId: admin.id,
+        action: "sub-admin.password_reset",
+        entity: "User",
+        entityId: params.id,
+        meta: { name: target.name },
+        ip: clientIp(req),
+      },
+    });
+    // Returned once for out-of-band delivery; never stored in plain text.
+    return NextResponse.json({ ok: true, password });
+  }
+
+  if (action === "reset-2fa") {
+    await prisma.user.update({
+      where: { id: params.id },
+      data: {
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        twoFactorBackupCodes: [],
+        twoFactorVerifiedAt: null,
+      },
+    });
+    await bumpTokenVersion(params.id, { swallow: true });
+    await prisma.auditLog.create({
+      data: {
+        userId: admin.id,
+        action: "sub-admin.2fa_reset",
+        entity: "User",
+        entityId: params.id,
+        meta: { name: target.name },
+        ip: clientIp(req),
+      },
+    });
+    return NextResponse.json({
+      ok: true,
+      message: "2FA reset. The sub-admin must set up a new authenticator on next login.",
+    });
+  }
 
   let update: Record<string, unknown>;
   if (action === "update-tabs") {

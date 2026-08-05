@@ -110,7 +110,9 @@ export const ASSIGNABLE_ADMIN_TABS = [
   { href: "billers", label: "Billers / Routing" },
   { href: "commissions", label: "Commission Master" },
   { href: "schemes", label: "Scheme Manager" },
+  { href: "brands", label: "Brands & MDR" },
   { href: "settlement-ops", label: "Settlement Ops" },
+  { href: "pos-settlement", label: "POS Settlement" },
   { href: "reversals", label: "Reversal Desk" },
   { href: "aeps", label: "AEPS Centre" },
   { href: "qr", label: "QR Collections" },
@@ -135,19 +137,10 @@ export const ASSIGNABLE_MASTER_ADMIN_TABS = [
   ...ASSIGNABLE_ADMIN_TABS,
 ] as const;
 
-/** Tab slugs an admin (or master-admin) can grant to a sub-admin. Matches the
- *  sub-admin nav below — all links live under /dashboard/admin/. */
-export const ASSIGNABLE_SUB_ADMIN_TABS = [
-  { href: "users", label: "Users" },
-  { href: "pg", label: "Payment Gateway" },
-  { href: "pos", label: "POS Fleet" },
-  { href: "kyc", label: "KYC Approvals" },
-  { href: "billers", label: "Billers / Routing" },
-  { href: "qr", label: "QR Collections" },
-  { href: "disputes", label: "Disputes & Support" },
-  { href: "services", label: "On/Off Services" },
-  { href: "slider", label: "Slider & Pop-ups" },
-] as const;
+/** Tab slugs an admin (or master-admin) can grant to a sub-admin. Sub-admins
+ *  can now be granted any admin tab; sensitive money-movement pages stay
+ *  view-only for the SUPPORT role via the per-endpoint requireRole guards. */
+export const ASSIGNABLE_SUB_ADMIN_TABS = ASSIGNABLE_ADMIN_TABS;
 
 /** Money / operations tabs shared by master-admin and admin. */
 const adminMoneyOps: NavItem[] = [
@@ -165,6 +158,31 @@ const adminMoneyOps: NavItem[] = [
   { href: "/dashboard/admin/agreements", label: "Agreements Vault", icon: FileSignature, badge: "New" },
   { href: "/dashboard/admin/verify", label: "Identity Toolkit", icon: ScanSearch, badge: "New" },
   { href: "/dashboard/admin/controls", label: "Platform Controls", icon: SlidersHorizontal, badge: "New" },
+];
+
+/** Workspace tabs shared by admin and sub-admin. Sub-admins are scoped down
+ *  through their allowedTabs; with none set they inherit the full menu. */
+const adminWorkspace: NavItem[] = [
+  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/dashboard/admin/invites", label: "Onboarding Invites", icon: PackagePlus, badge: "New" },
+  { href: "/dashboard/admin/users", label: "Users", icon: Users },
+  { href: "/dashboard/admin/network", label: "Network Manager", icon: Users, badge: "New" },
+  { href: "/dashboard/admin/sub-admins", label: "Sub-Admins", icon: UserCog },
+  { href: "/dashboard/admin/pg", label: "Payment Gateway", icon: CreditCard, badge: "New" },
+  { href: "/dashboard/admin/pos", label: "POS Fleet", icon: Monitor, badge: "New" },
+  { href: "/dashboard/admin/kyc", label: "KYC Approvals", icon: ShieldCheck, badge: "8" },
+  { href: "/dashboard/admin/billers", label: "Billers / Routing", icon: Boxes },
+  { href: "/dashboard/admin/commissions", label: "Commission Master", icon: CircleDollarSign },
+  { href: "/dashboard/admin/schemes", label: "Scheme Manager", icon: Layers, badge: "New" },
+  { href: "/dashboard/admin/qr", label: "QR Collections", icon: QrCode, badge: "New" },
+  { href: "/dashboard/admin/disputes", label: "Disputes & Support", icon: LifeBuoy, badge: "New" },
+  { href: "/dashboard/admin/aml", label: "AML Monitoring", icon: ShieldAlert, badge: "New" },
+  { href: "/dashboard/payout-approvals", label: "Payout Approvals", icon: ListChecks },
+  { href: "/dashboard/admin/services", label: "On/Off Services", icon: Power, badge: "New" },
+  { href: "/dashboard/admin/slider", label: "Slider & Pop-ups", icon: Images, badge: "New" },
+  { href: "/dashboard/admin/audit", label: "Audit Log", icon: ScrollText },
+  { href: "/dashboard/admin/system", label: "System Health", icon: ServerCog },
+  { href: "/dashboard/reports", label: "Reports", icon: BarChart3 }
 ];
 
 export const navByRole: Record<Role, NavGroup[]> = {
@@ -294,31 +312,7 @@ export const navByRole: Record<Role, NavGroup[]> = {
   ],
 
   admin: [
-    {
-      heading: "Workspace",
-      items: [
-        { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-        { href: "/dashboard/admin/invites", label: "Onboarding Invites", icon: PackagePlus, badge: "New" },
-        { href: "/dashboard/admin/users", label: "Users", icon: Users },
-        { href: "/dashboard/admin/network", label: "Network Manager", icon: Users, badge: "New" },
-        { href: "/dashboard/admin/sub-admins", label: "Sub-Admins", icon: UserCog },
-        { href: "/dashboard/admin/pg", label: "Payment Gateway", icon: CreditCard, badge: "New" },
-        { href: "/dashboard/admin/pos", label: "POS Fleet", icon: Monitor, badge: "New" },
-        { href: "/dashboard/admin/kyc", label: "KYC Approvals", icon: ShieldCheck, badge: "8" },
-        { href: "/dashboard/admin/billers", label: "Billers / Routing", icon: Boxes },
-        { href: "/dashboard/admin/commissions", label: "Commission Master", icon: CircleDollarSign },
-        { href: "/dashboard/admin/schemes", label: "Scheme Manager", icon: Layers, badge: "New" },
-        { href: "/dashboard/admin/qr", label: "QR Collections", icon: QrCode, badge: "New" },
-        { href: "/dashboard/admin/disputes", label: "Disputes & Support", icon: LifeBuoy, badge: "New" },
-        { href: "/dashboard/admin/aml", label: "AML Monitoring", icon: ShieldAlert, badge: "New" },
-        { href: "/dashboard/payout-approvals", label: "Payout Approvals", icon: ListChecks },
-        { href: "/dashboard/admin/services", label: "On/Off Services", icon: Power, badge: "New" },
-        { href: "/dashboard/admin/slider", label: "Slider & Pop-ups", icon: Images, badge: "New" },
-        { href: "/dashboard/admin/audit", label: "Audit Log", icon: ScrollText },
-        { href: "/dashboard/admin/system", label: "System Health", icon: ServerCog },
-        { href: "/dashboard/reports", label: "Reports", icon: BarChart3 }
-      ]
-    },
+    { heading: "Workspace", items: adminWorkspace },
     { heading: "Money & Ops", items: adminMoneyOps },
     { heading: "Account", items: account }
   ],
@@ -340,22 +334,8 @@ export const navByRole: Record<Role, NavGroup[]> = {
   ],
 
   "sub-admin": [
-    {
-      heading: "Workspace",
-      items: [
-        { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-        { href: "/dashboard/admin/users", label: "Users", icon: Users },
-        { href: "/dashboard/admin/pg", label: "Payment Gateway", icon: CreditCard },
-        { href: "/dashboard/admin/pos", label: "POS Fleet", icon: Monitor },
-        { href: "/dashboard/admin/kyc", label: "KYC Approvals", icon: ShieldCheck, badge: "8" },
-        { href: "/dashboard/admin/billers", label: "Billers / Routing", icon: Boxes },
-        { href: "/dashboard/admin/qr", label: "QR Collections", icon: QrCode, badge: "New" },
-        { href: "/dashboard/admin/disputes", label: "Disputes & Support", icon: LifeBuoy, badge: "New" },
-        { href: "/dashboard/payout-approvals", label: "Payout Approvals", icon: ListChecks },
-        { href: "/dashboard/admin/services", label: "On/Off Services", icon: Power, badge: "New" },
-        { href: "/dashboard/admin/slider", label: "Slider & Pop-ups", icon: Images, badge: "New" }
-      ]
-    },
+    { heading: "Workspace", items: adminWorkspace },
+    { heading: "Money & Ops", items: adminMoneyOps },
     { heading: "Account", items: account }
   ]
 };

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { nanoid } from "nanoid";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
@@ -8,13 +9,16 @@ import { env } from "@/lib/env";
 import { renderInviteEmail, renderAccountApprovedEmail } from "@/lib/email/templates";
 import { adminInviteInScope } from "@/lib/security/ownership";
 
+// Keep in sync with the create route — how long a fresh onboarding link stays valid.
+const INVITE_EXPIRY_DAYS = 15;
+
 // A plain admin needs the master-admin-granted "invites" tab to touch invites.
 function adminLacksInvitePermission(user: { role: string; allowedTabs?: string[] }): boolean {
   return user.role === "ADMIN" && !(user.allowedTabs ?? []).includes("invites");
 }
 
 const PatchBody = z.object({
-  action: z.enum(["approve", "reject", "resend", "update"]),
+  action: z.enum(["approve", "reject", "resend", "update", "reshare"]),
   reason: z.string().optional(),
   phone: z.string().min(10).max(15).optional(),
   email: z.string().email().optional(),
@@ -233,6 +237,104 @@ export async function PATCH(
       message: emailSent
         ? "Onboarding email resent successfully"
         : `Failed to send email${emailError ? ` — ${emailError}` : " — please check email provider configuration"}`,
+    });
+  }
+
+  // Reshare regenerates a fresh, unexpired onboarding link for an applicant who
+  // never finished. Only PENDING (link still alive but the invitee stalled) and
+  // EXPIRED (link timed out) invites qualify — anything further along has a real
+  // User attached and shouldn't have its onboarding restarted.
+  if (parsed.data.action === "reshare") {
+    if (invite.status !== "PENDING" && invite.status !== "EXPIRED") {
+      return NextResponse.json(
+        { error: `Cannot reshare invite with status ${invite.status}` },
+        { status: 400 }
+      );
+    }
+    if (invite.userId) {
+      return NextResponse.json(
+        { error: "This applicant has already registered — reshare is not available" },
+        { status: 400 }
+      );
+    }
+
+    // Issue a brand-new token so any previously shared (now dead/leaked) link is
+    // invalidated, and reset the clock + status so the invitee can start over.
+    const freshToken = nanoid(24);
+    const updated = await prisma.invite.update({
+      where: { id },
+      data: {
+        token: freshToken,
+        status: "PENDING",
+        expiresAt: new Date(Date.now() + INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    const appUrl = env.NEXT_PUBLIC_APP_URL;
+    const onboardingLink = `${appUrl}/onboard?token=${updated.token}`;
+    let emailSent = false;
+    let emailError: string | undefined;
+
+    try {
+      const emailProvider = getPartner("email");
+      const { subject, html } = renderInviteEmail({
+        name: updated.name ?? undefined,
+        role: updated.role,
+        onboardingLink,
+        expiresAt: updated.expiresAt,
+        isReminder: true,
+      });
+      const result = await emailProvider.send({
+        from: process.env.EMAIL_FROM_INFO || process.env.EMAIL_FROM,
+        to: updated.email,
+        subject,
+        html,
+      });
+      emailSent = result.ok;
+      if (!result.ok) emailError = `${result.code}: ${result.message}`;
+    } catch (e) {
+      emailError = (e as Error).message;
+    }
+
+    try {
+      const smsProvider = getPartner("sms");
+      await smsProvider.sendTransactional({
+        phone: updated.phone,
+        templateId: "onboard_invite",
+        variables: {
+          link: onboardingLink,
+          role: updated.role.replace(/_/g, " "),
+        },
+      });
+    } catch {
+      // SMS failure shouldn't block resharing — the admin still gets the link back.
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "invite.reshared",
+        entity: "Invite",
+        entityId: id,
+        meta: {
+          previousStatus: invite.status,
+          email: updated.email,
+          emailSent,
+          emailError,
+        },
+        ip: clientIp(req),
+      },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      invite: updated,
+      onboardingLink,
+      emailSent,
+      ...(emailError ? { emailError } : {}),
+      message: emailSent
+        ? "Fresh onboarding link generated and sent"
+        : `Fresh onboarding link generated${emailError ? ` — email failed: ${emailError}` : ", but email delivery failed"}`,
     });
   }
 
