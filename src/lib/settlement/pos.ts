@@ -91,6 +91,29 @@ async function priceMdr(args: {
       settlementType: args.settlementType,
     });
     if (!brandMdr) return null;
+    // Revenue guard: a branded capture prices the MERCHANT MDR off the brand
+    // rate card, but the company margin + upline (DT/MD/SD) commission are
+    // priced off the retailer's own scheme (see distributeCommissionForPos →
+    // getEffectiveMdr). If the retailer has NO scheme that resolves for this
+    // capture, settling would credit the merchant while booking ZERO revenue
+    // and ZERO commission — a silent loss. Refuse to settle here (park as
+    // NO_SCHEME, exactly like the non-branded path) so admin assigns a scheme
+    // and the capture is replayed. The POS ingest sweep surfaces these as
+    // `noScheme` and alerts ops to add the missing scheme/MDR slab.
+    const revenueBasis = await getEffectiveMdr(
+      args.userId,
+      "POS" as MdrServiceKind,
+      args.grossAmount,
+      {
+        paymentMode: args.paymentMode,
+        settlementType: args.settlementType,
+        company: args.dims?.company ?? null,
+        cardType: args.dims?.cardType ?? null,
+        brandType: args.dims?.brandType ?? null,
+        classification: args.dims?.classification ?? null,
+      }
+    );
+    if (revenueBasis.source === "NONE") return null;
     result = {
       mdrAmount: round(brandMdr.mdr),
       brandId: args.brandId,

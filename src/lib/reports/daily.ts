@@ -5,13 +5,18 @@
  *   opening balance  → last WalletTxn.balanceAfter (PRIMARY) before dayStart
  *   credits          → grouped by WalletReason (TOPUP, COMMISSION, REVERSAL, …)
  *   debits by service→ grouped from Transaction.service where status=SUCCESS
+ *                      (DISPLAY ONLY — this omits fee/GST, so it must not drive
+ *                      the recon math)
  *   other debits     → PAYOUT / PARENT_PULL / PENALTY / FEE from WalletTxn
  *   commission       → grouped from CommissionCredit by service (gross / TDS / net)
  *   closing balance  → last WalletTxn.balanceAfter (PRIMARY) at or before dayEnd
  *
  * Reconciliation invariant per row:
  *   opening + Σcredits − Σdebits ≡ closing
- * The delta is surfaced so ops can spot ledger drift immediately.
+ * Both Σcredits and Σdebits are taken from the WalletTxn LEDGER (the same source
+ * as opening/closing), so the delta is a TRUE integrity canary: it stays ~0
+ * unless a balanceAfter chain genuinely drifts, and never trips merely because
+ * a service charged a fee. (The per-service Transaction breakdown is display.)
  *
  * All queries are grouped/aggregated in the DB against existing indexes; user
  * data is stitched in memory. Never loops per-user against the DB.
@@ -241,7 +246,15 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
 
   // 2..7) Fire every aggregate query in parallel — none of them depend on
   //       each other, so the wall-clock is one Postgres round-trip.
-  const [openingRows, closingRows, creditsGrouped, debitsGrouped, commissionGrouped, otherDebitsGrouped] =
+  const [
+    openingRows,
+    closingRows,
+    creditsGrouped,
+    debitsGrouped,
+    commissionGrouped,
+    otherDebitsGrouped,
+    serviceLedgerDebitGrouped,
+  ] =
     await Promise.all([
       lastBalancesBefore(userIds, dayStart),
       lastBalancesAtOrBefore(userIds, dayEnd),
@@ -291,11 +304,34 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
         },
         _sum: { amount: true },
       }),
+      // Actual wallet debit for service transactions (reason=TRANSACTION). This
+      // is the reserved `amount + fee` written by the service handler — the
+      // authoritative money movement — so reconciliation matches the ledger
+      // exactly (the per-service Transaction breakdown below is display-only and
+      // omits fee/GST, which is why it must NOT drive the recon math).
+      prisma.walletTxn.groupBy({
+        by: ["userId"],
+        where: {
+          userId: { in: userIds },
+          walletType: "PRIMARY",
+          direction: "DEBIT",
+          reason: "TRANSACTION",
+          createdAt: { gte: dayStart, lte: dayEnd },
+        },
+        _sum: { amount: true },
+      }),
     ]);
 
   // Build index maps for O(users) stitching.
   const openingByUser = new Map(openingRows.map((r) => [r.userId, r.balanceAfter]));
   const closingByUser = new Map(closingRows.map((r) => [r.userId, r.balanceAfter]));
+
+  // Authoritative service wallet debit (reason=TRANSACTION) per user — used for
+  // the reconciliation math so it ties out to the ledger, not the fee-excluding
+  // Transaction table.
+  const serviceLedgerDebitByUser = new Map(
+    serviceLedgerDebitGrouped.map((r) => [r.userId, toNumber(dec(r._sum.amount ?? 0))])
+  );
 
   const creditsByUser = new Map<string, CreditsBreakdown>();
   for (const g of creditsGrouped) {
@@ -369,10 +405,14 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
     const serviceDebits = (debitsByUser.get(u.id) ?? []).sort((a, b) => b.amount - a.amount);
     const commissionRows = (commissionByUser.get(u.id) ?? []).sort((a, b) => b.net - a.net);
 
-    // service debits total (Transaction.amount only — fee/gst are shown but
-    // are part of the same wallet debit written by the service handler).
-    const serviceDebitTotal = serviceDebits.reduce((n, r) => n + r.amount, 0);
-    const totalDebits = serviceDebitTotal + otherDebits.total;
+    // Total debits from the LEDGER (authoritative money movement): the
+    // service wallet debit (reason=TRANSACTION, which is amount + fee) plus the
+    // non-service ledger debits. Driving recon from the ledger — the same
+    // source as opening/closing/credits — makes the delta a true integrity
+    // canary (it only fires on genuine balanceAfter drift), instead of falsely
+    // flagging the fee/GST the display breakdown omits.
+    const serviceLedgerDebit = serviceLedgerDebitByUser.get(u.id) ?? 0;
+    const totalDebits = toNumber(add(dec(serviceLedgerDebit), dec(otherDebits.total)));
 
     // Closing preference: authoritative ledger value if we saw activity,
     // else opening (user was quiet today).

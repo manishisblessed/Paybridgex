@@ -724,8 +724,10 @@ function ExpandedDrawer({ row }: { row: DailyRow }) {
             rows={[
               ...row.debitsByService.map((d) => ({
                 label: humanize(d.service),
-                value: d.amount,
-                sub: `${d.txns} txn${d.txns === 1 ? "" : "s"}${d.fee > 0 ? ` · fee ${formatINRFull(d.fee)}` : ""}`,
+                // Wallet impact = amount + fee (what was actually debited), so
+                // this breakdown ties out to the ledger-driven debit total.
+                value: d.amount + d.fee,
+                sub: `${d.txns} txn${d.txns === 1 ? "" : "s"}${d.fee > 0 ? ` · incl. fee ${formatINRFull(d.fee)}` : ""}`,
               })),
               ...otherDebitRows(row.otherDebits),
             ]}
