@@ -13,11 +13,13 @@ export const REPORT_TYPES = [
   "fund",
   "pg",
   "payout",
+  "bill-payment",
   "credit-card",
   "qr",
   "pos",
   "wallet-settlement",
   "commission",
+  "tds",
   "account",
 ] as const;
 
@@ -36,7 +38,9 @@ export type ReportFieldFormat =
   | "percent"
   | "date"
   | "datetime"
-  | "badge";
+  | "badge"
+  /** Bank / operator logo: renders an <img> when the value is a URL, else an initials chip. */
+  | "avatar";
 
 /** Normalised query parameters every report query accepts. */
 export type ReportParams = {

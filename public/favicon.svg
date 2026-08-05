@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="NextGenPay">
   <defs>
     <linearGradient id="fvBg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#1a1a2e"/>
@@ -9,11 +9,9 @@
       <stop offset="100%" stop-color="#d4a843"/>
     </linearGradient>
   </defs>
-
   <rect width="64" height="64" rx="14" fill="url(#fvBg)"/>
-
-  <!-- Bold "N" -->
-  <rect x="14" y="15" width="8" height="34" rx="2" fill="#ffffff"/>
-  <rect x="42" y="15" width="8" height="34" rx="2" fill="#ffffff"/>
-  <path d="M14 15 L22 15 L50 49 L42 49 Z" fill="url(#fvBolt)"/>
+  <g transform="translate(15 20.3) scale(1.0625)">
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M0.00172773 0V6.85398C0.00172773 6.85398 -0.133178 9.01207 1.98092 10.8388L13.6912 21.9964L19.7809 21.9181L18.8042 9.88248L16.4951 7.17289L9.23799 0H0.00172773Z" fill="url(#fvBolt)"/>
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M7.77295 16.3566L23.6563 0H32V6.88383C32 6.88383 31.8262 9.17836 30.6591 10.4057L19.7824 22H13.6938L7.77295 16.3566Z" fill="#ffffff"/>
+  </g>
 </svg>

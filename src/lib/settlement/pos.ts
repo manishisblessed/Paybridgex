@@ -5,6 +5,7 @@ import { resolveBrandMdr } from "@/lib/brand/mdr";
 import { distributeMdrCommission } from "@/lib/commission/distribute";
 import { isAboveMdrFloor } from "@/lib/mdr/floor";
 import { dec, sub, gte, toNumber, round, gt, eq } from "@/lib/money";
+import { recordPayin } from "@/lib/wallet/payin";
 import { getSetting } from "@/lib/settings";
 import { SETTLED_VIA, type SettledVia } from "@/lib/settlement/engine";
 import type { MdrServiceKind, ServiceCode } from "@prisma/client";
@@ -237,6 +238,16 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   const netAmount = round(sub(input.grossAmount, priced.mdrAmount));
   if (!gt(netAmount, 0)) return { status: "SKIPPED" };
 
+  // Mirror the GROSS into the company payin wallet (best-effort live monitor),
+  // once per canonical capture — regardless of instant vs T+1 settlement.
+  await recordPayin({
+    rail: "POS",
+    grossAmount: input.grossAmount,
+    refType: "PosSettlementEntry",
+    refId: input.transactionRef,
+    note: `POS payin (${paymentMode})`,
+  });
+
   const capturedAt = input.capturedAt ? new Date(input.capturedAt) : new Date();
   const capturedAtValid = !Number.isNaN(capturedAt.getTime());
 
@@ -360,10 +371,28 @@ async function distributeCommissionForPos(
   dims?: Omit<MdrDimensions, "paymentMode" | "settlementType">,
   settlementType: "T0" | "T1" = "T1"
 ) {
+  const mdrDims: MdrDimensions = {
+    paymentMode: paymentMode ?? "*",
+    company: dims?.company ?? null,
+    cardType: dims?.cardType ?? null,
+    brandType: dims?.brandType ?? null,
+    classification: dims?.classification ?? null,
+    settlementType,
+  };
+
+  // Resolve the company MDR margin (MDR − vendor) from the SAME scheme the
+  // commission is priced against, so the synthetic settlement transaction can
+  // record it as the POS "fee". This makes the revenue "by service" breakdown
+  // attribute POS correctly (platform revenue = fee − commission = margin −
+  // commission), matching the Revenue Wallet.
+  const mdr = await getEffectiveMdr(userId, "POS" as MdrServiceKind, grossAmount, mdrDims);
+  const marginFee = round(mdr.margin);
+
   // We need a Transaction row for the CommissionCredit FK. Create a synthetic
-  // settlement-type entry. The refId is 1:1 with the canonical capture ref (NO
-  // truncation — a slice could collide two distinct captures onto one refId and
-  // silently drop the second's commission). Idempotent per capture via @unique.
+  // settlement entry keyed 1:1 with the canonical capture ref (NO truncation —
+  // a slice could collide two distinct captures onto one refId and silently
+  // drop the second's commission). service = POS (first-class) so earnings and
+  // commission attribute per-service. Idempotent per capture via @unique.
   const refId = `POS:${transactionRef}`;
   let txn = await prisma.transaction.findUnique({ where: { refId } });
   if (!txn) {
@@ -372,8 +401,9 @@ async function distributeCommissionForPos(
         data: {
           refId,
           userId,
-          service: "WALLET_TOPUP" as ServiceCode, // POS settlement doesn't have its own ServiceCode; use placeholder
+          service: "POS" as ServiceCode,
           amount: dec(grossAmount),
+          fee: marginFee,
           status: "SUCCESS",
           partner: "SAMEDAY_POS",
           partnerTxnId: transactionRef,
@@ -389,21 +419,25 @@ async function distributeCommissionForPos(
     }
   }
 
-  await distributeMdrCommission(
+  const results = await distributeMdrCommission(
     txn.id,
     userId,
     "POS" as MdrServiceKind,
     grossAmount,
     txn.service,
-    {
-      paymentMode: paymentMode ?? "*",
-      company: dims?.company ?? null,
-      cardType: dims?.cardType ?? null,
-      brandType: dims?.brandType ?? null,
-      classification: dims?.classification ?? null,
-      settlementType,
-    }
+    mdrDims
   );
+
+  // Record the total GROSS commission distributed on the settlement transaction
+  // so per-service commission and platform revenue (fee − commission) read
+  // cleanly from this single row. Idempotent: replays resolve the same figure.
+  const grossComm = results.reduce((sum, r) => sum + r.gross, 0);
+  if (grossComm > 0) {
+    await prisma.transaction.update({
+      where: { id: txn.id },
+      data: { commission: dec(round(grossComm)) },
+    });
+  }
 }
 
 /** Start of the current IST calendar day, as a UTC Date. */

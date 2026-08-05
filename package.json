@@ -23,7 +23,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
-    "db:seed:services": "tsx prisma/seedServiceRoutes.ts"
+    "db:seed:services": "tsx prisma/seedServiceRoutes.ts",
+    "db:seed:logos": "tsx prisma/seedOperatorLogos.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.4",

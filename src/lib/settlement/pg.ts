@@ -3,6 +3,7 @@ import { creditWallet } from "@/lib/ledger";
 import { distributeMdrCommission } from "@/lib/commission/distribute";
 import { railScopeKey } from "@/lib/mdr/floor";
 import { dec, gte, gt, round, toNumber } from "@/lib/money";
+import { recordPayin } from "@/lib/wallet/payin";
 import { getSetting } from "@/lib/settings";
 import {
   priceSchemeSettlement,
@@ -103,6 +104,16 @@ export async function handlePgCapture(input: PgCaptureInput): Promise<PgCaptureR
 
   const netAmount = round(price.netAmount);
   if (!gt(netAmount, 0)) return { status: "SKIPPED" };
+
+  // Mirror the GROSS into the company payin wallet (best-effort live monitor),
+  // once per confirmation — regardless of instant vs T+1 settlement.
+  await recordPayin({
+    rail: "PG",
+    grossAmount: input.grossAmount,
+    refType: "PgSettlementEntry",
+    refId: input.transactionRef,
+    note: `PG payin (${paymentMode})`,
+  });
 
   const capturedAt = input.capturedAt ? new Date(input.capturedAt) : new Date();
   const capturedAtValid = !Number.isNaN(capturedAt.getTime());

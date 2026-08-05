@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Select, Label } from "@/components/ui/Input";
 import { REPORTS } from "@/lib/reports/registry";
+import { brandLogoUrl, brandBadge } from "@/lib/brand/logos";
 import type { ReportColumnDef, Accent } from "@/lib/reports/registry";
 import type { ReportType, ReportResult } from "@/lib/reports/types";
 import type { ReportColumn } from "@/lib/reports";
@@ -65,8 +66,53 @@ function badgeVariant(raw: string): "success" | "warning" | "danger" | "brand" |
   return "default";
 }
 
+/** Coloured wordmark/monogram tile used when no logo image is available. */
+function BrandBadge({ name }: { name: string }) {
+  const badge = brandBadge(name);
+  const label = badge.label.length > 6 ? badge.label.slice(0, 6) : badge.label;
+  return (
+    <span
+      title={name || undefined}
+      style={{ backgroundColor: badge.bg, color: badge.fg }}
+      className="mx-auto inline-flex h-7 min-w-[2.5rem] items-center justify-center rounded-md px-1.5 text-[9px] font-bold tracking-wide"
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
+ * Bank / operator logo cell. Renders the real brand logo when we can resolve
+ * one (from a stored URL or the brand table), and gracefully falls back to a
+ * coloured monogram if the value is missing or the image fails to load.
+ */
+function AvatarCell({ value }: { value: string }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const s = String(value ?? "").trim();
+  if (!s || s === "—") return <span className="text-ink-400">—</span>;
+
+  const isUrl = /^https?:\/\//i.test(s) || s.startsWith("/");
+  const url = isUrl ? s : brandLogoUrl(s);
+
+  if (url && !imgFailed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={url}
+        alt=""
+        onError={() => setImgFailed(true)}
+        className="mx-auto h-7 w-7 rounded-md bg-white object-contain ring-1 ring-ink-100"
+      />
+    );
+  }
+  // No logo (or it failed): show a branded monogram. When the value was a URL
+  // we have no name to derive initials from, so render a neutral placeholder.
+  return isUrl ? <span className="text-ink-400">—</span> : <BrandBadge name={s} />;
+}
+
 /** Display node for the on-screen table. */
 function displayCell(value: unknown, format?: ReportColumnDef["format"]) {
+  if (format === "avatar") return <AvatarCell value={String(value ?? "")} />;
   if (value === null || value === undefined || value === "") return <span className="text-ink-400">—</span>;
   switch (format) {
     case "money":
@@ -103,6 +149,8 @@ function toDateTimeStr(value: unknown): string {
 function exportString(value: unknown, format?: ReportColumnDef["format"]): string {
   if (value === null || value === undefined) return "";
   switch (format) {
+    case "avatar":
+      return "";
     case "money":
       return typeof value === "number" ? inr2(value) : String(value);
     case "percent":

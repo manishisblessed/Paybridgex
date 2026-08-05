@@ -22,8 +22,12 @@ const state = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({
   prisma: {
     user: {
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        state.users.get(where.id) ?? null,
+      findUnique: async ({ where }: { where: { id?: string; email?: string } }) => {
+        // getTdsAccountId resolves the system TDS Payable account by email.
+        if (where.email === "tds-payable@system.nextgen") return { id: "tdsacct" };
+        if (where.id) return state.users.get(where.id) ?? null;
+        return null;
+      },
       findFirst: async ({ where }: { where: Record<string, unknown> }) => {
         // getRevenueAccountId: oldest MASTER_ADMIN
         if (where.role === "MASTER_ADMIN") return { id: "revacct" };
@@ -173,6 +177,32 @@ describe("distributeMdrCommission (chain, revenue-wallet funded)", () => {
     expect(state.tdsEntries).toHaveLength(3);
     const totalTds = state.tdsEntries.reduce((sum, t) => sum + Number(t.tdsAmount), 0);
     expect(totalTds).toBeCloseTo(0.7); // 0.4 + 0.2 + 0.1
+  });
+
+  it("moves the withheld TDS into the TDS Payable account", async () => {
+    await distributeMdrCommission("txnTds", "rt", "POS", 10000, "UPI_COLLECT" as never);
+    const tdsCredits = state.walletCredits.filter((w) => w.reason === "TDS_WITHHELD");
+    expect(tdsCredits).toHaveLength(3);
+    for (const c of tdsCredits) expect(c.userId).toBe("tdsacct");
+    const totalTdsHeld = tdsCredits.reduce((sum, w) => sum + Number(w.amount), 0);
+    expect(totalTdsHeld).toBeCloseTo(0.7); // 0.4 + 0.2 + 0.1
+  });
+
+  it("conserves money: revenue debited (gross) == payee net + TDS held", async () => {
+    await distributeMdrCommission("txnConserve", "rt", "POS", 10000, "UPI_COLLECT" as never);
+    const grossDebited = state.walletDebits
+      .filter((w) => w.reason === "COMMISSION_PAYOUT")
+      .reduce((s, w) => s + Number(w.amount), 0);
+    const payeeNet = state.walletCredits
+      .filter((w) => w.reason === "COMMISSION")
+      .reduce((s, w) => s + Number(w.amount), 0);
+    const tdsHeld = state.walletCredits
+      .filter((w) => w.reason === "TDS_WITHHELD")
+      .reduce((s, w) => s + Number(w.amount), 0);
+    // gross out of the revenue wallet is fully accounted for: net to payees +
+    // TDS held in the TDS Payable account. No rupee leaks.
+    expect(payeeNet + tdsHeld).toBeCloseTo(grossDebited);
+    expect(grossDebited).toBeCloseTo(35); // 20 + 10 + 5
   });
 
   it("does not pay the transacting retailer any commission", async () => {

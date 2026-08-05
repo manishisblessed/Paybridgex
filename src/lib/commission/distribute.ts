@@ -11,6 +11,7 @@ import {
   debitRevenueForCommission,
 } from "@/lib/commission/revenue";
 import { recordTds } from "@/lib/commission/tds";
+import { creditTdsWithheld } from "@/lib/commission/tdsAccount";
 
 /**
  * Flat commission distribution engine (admin-assigned model).
@@ -103,7 +104,7 @@ export async function distributeCommission(
   }
 
   const p = tx ?? prisma;
-  await p.commissionCredit.create({
+  const cc = await p.commissionCredit.create({
     data: {
       transactionId: txnId,
       userId,
@@ -116,7 +117,22 @@ export async function distributeCommission(
       service,
       txnAmount: dec(txnAmount),
     },
+    select: { id: true },
   });
+
+  // Book the 2% TDS as a liability (filing record) and hold the withheld rupees
+  // in the TDS Payable account; the platform keeps charge − gross.
+  await recordTds({
+    txnId,
+    userId,
+    service,
+    tier: "DIRECT",
+    gross,
+    tds,
+    commissionCreditId: cc.id,
+    tx,
+  });
+  await creditTdsWithheld(txnId, userId, tds, service, tx);
 
   await creditPlatformRevenue(txnId, service, rate.charge, gross, tx);
 
@@ -265,7 +281,10 @@ export async function distributeMdrCommission(
       commissionCreditId = cc.id;
     }
 
-    // TDS liability ledger.
+    // TDS liability ledger (the filing record) + move the withheld rupees into
+    // the TDS Payable account so the money is held and remittable. The revenue
+    // wallet was debited the GROSS above, so: gross out = net (payee) + tds
+    // (TDS account) — money is conserved.
     await recordTds({
       txnId,
       userId: item.recipientId,
@@ -276,6 +295,7 @@ export async function distributeMdrCommission(
       commissionCreditId,
       tx,
     });
+    await creditTdsWithheld(txnId, item.recipientId, tds, service, tx);
 
     results.push({
       userId: item.recipientId,

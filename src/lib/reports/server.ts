@@ -488,6 +488,181 @@ async function reportPayout(user: SessionUser, params: ReportParams): Promise<Re
 }
 
 /* --------------------------------------------------------------------- */
+/*  4b · Bill Payment (BBPS line items)                                   */
+/* --------------------------------------------------------------------- */
+
+/** BBPS categories + broadband — the services this report covers. */
+const BILL_SERVICES: ServiceCode[] = [
+  "BILL_ELECTRICITY", "BILL_WATER", "BILL_GAS", "BILL_CREDIT_CARD",
+  "BILL_EDUCATION", "BILL_INSURANCE", "RECHARGE_BROADBAND",
+];
+
+/** All BBPS charges are stored GST-inclusive (18%); split for display. */
+const GST_DIVISOR = new Prisma.Decimal("1.18");
+
+/** Flatten a Transaction.request payload (+ nested customerParams) to one bag. */
+function billRequestBag(request: Prisma.JsonValue | null): Record<string, string> {
+  if (!request || typeof request !== "object" || Array.isArray(request)) return {};
+  const base = request as Record<string, unknown>;
+  const params =
+    base.customerParams && typeof base.customerParams === "object" && !Array.isArray(base.customerParams)
+      ? (base.customerParams as Record<string, unknown>)
+      : {};
+  const bag: Record<string, string> = {};
+  for (const [k, v] of Object.entries({ ...params, ...base })) {
+    if (v == null) continue;
+    if (typeof v === "string" || typeof v === "number") bag[k.toLowerCase()] = String(v);
+  }
+  return bag;
+}
+
+/** First non-empty value among candidate (lower-cased) keys, or fuzzy contains. */
+function pickField(bag: Record<string, string>, keys: string[], contains: string[] = []): string | null {
+  for (const k of keys) {
+    const v = bag[k.toLowerCase()];
+    if (v && v.trim()) return v.trim();
+  }
+  for (const key of Object.keys(bag)) {
+    if (contains.some((c) => key.includes(c)) && bag[key]?.trim()) return bag[key].trim();
+  }
+  return null;
+}
+
+/** Mask a card/account to its last 4 digits. */
+function maskCard(value: string | null): string | null {
+  if (!value) return null;
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 4) return value;
+  return `•••• ${digits.slice(-4)}`;
+}
+
+/** Provider reference: partner txn id, else common NPCI/RRN fields in response. */
+function billReference(partnerTxnId: string | null, response: Prisma.JsonValue | null): string | null {
+  if (partnerTxnId) return partnerTxnId;
+  if (!response || typeof response !== "object" || Array.isArray(response)) return null;
+  const r = response as Record<string, unknown>;
+  const data = r.data && typeof r.data === "object" && !Array.isArray(r.data) ? (r.data as Record<string, unknown>) : {};
+  const candidate =
+    r.npciRef ?? r.npci_txn_id ?? r.rrn ?? r.utr ?? r.receipt ?? data.npciRef ?? data.rrn ?? data.receipt ?? data.txnRefId;
+  return candidate != null ? String(candidate) : null;
+}
+
+async function reportBillPayment(user: SessionUser, params: ReportParams): Promise<ReportResult> {
+  const ids = await allowedUserIds(user);
+  const createdAt = dateFilter(params);
+  const serviceFilter =
+    params.service && BILL_SERVICES.includes(params.service as ServiceCode)
+      ? (params.service as ServiceCode)
+      : { in: BILL_SERVICES };
+
+  const where: Prisma.TransactionWhereInput = {
+    service: serviceFilter,
+    ...(ids ? { userId: { in: ids } } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(params.status ? { status: params.status as TxnStatus } : {}),
+    ...(params.q
+      ? {
+          OR: [
+            { refId: { contains: params.q, mode: "insensitive" } },
+            { customer: { contains: params.q, mode: "insensitive" } },
+            { operator: { contains: params.q, mode: "insensitive" } },
+            { partnerTxnId: { contains: params.q, mode: "insensitive" } },
+            { user: { userCode: { contains: params.q, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
+  };
+
+  const [list, total, agg, successN] = await Promise.all([
+    prisma.transaction.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: { user: { select: { userCode: true, name: true } } },
+      ...paginate(params),
+    }),
+    prisma.transaction.count({ where }),
+    prisma.transaction.aggregate({ where, _sum: { amount: true, fee: true } }),
+    prisma.transaction.count({ where: { AND: [where, { status: "SUCCESS" }] } }),
+  ]);
+
+  // Resolve display names + logos for the biller/operator codes on this page.
+  const codes = [...new Set(list.map((r) => r.operator).filter((c): c is string => !!c))];
+  const [billers, operators] = await Promise.all([
+    codes.length ? prisma.biller.findMany({ where: { code: { in: codes } }, select: { code: true, name: true } }) : [],
+    codes.length ? prisma.operator.findMany({ where: { code: { in: codes } }, select: { code: true, logoUrl: true } }) : [],
+  ]);
+  const billerName = new Map(billers.map((b) => [b.code, b.name]));
+  const logoUrl = new Map(operators.map((o) => [o.code, o.logoUrl]));
+
+  const startNo = params.forExport ? 0 : (params.page - 1) * params.pageSize;
+
+  const rows = list.map((r, i) => {
+    const bag = billRequestBag(r.request);
+    const bank =
+      pickField(bag, ["bankname", "biller", "billername"]) ??
+      (r.operator ? billerName.get(r.operator) : null) ??
+      r.operator ??
+      "—";
+    const charge = dec(r.fee).div(GST_DIVISOR);
+    const gst = sub(dec(r.fee), charge);
+    return {
+      sno: startNo + i + 1,
+      retailerId: r.user?.userCode ?? r.userId.slice(0, 8).toUpperCase(),
+      refId: r.refId,
+      operator: r.operator ?? "—",
+      bankName: bank,
+      bankLogo: (r.operator ? logoUrl.get(r.operator) : null) ?? bank,
+      customerName:
+        pickField(bag, ["customername", "name", "consumername", "beneficiaryname", "customer_name"]) ?? "—",
+      card:
+        maskCard(pickField(bag, ["cardlast4", "cardnumber", "card", "accountno", "number"], ["card"])) ?? "—",
+      mobile: pickField(bag, ["mobileno", "mobile", "customermobile", "phone", "msisdn"], ["mobile"]) ?? "—",
+      charge: toNumber(charge),
+      gst: toNumber(gst),
+      totalDebit: toNumber(add(r.amount, r.fee)),
+      referenceNo: billReference(r.partnerTxnId, r.response) ?? "—",
+      status: r.status,
+    };
+  });
+
+  const volume = dec(agg._sum.amount ?? 0);
+  const feeTotal = dec(agg._sum.fee ?? 0);
+  const chargeTotal = feeTotal.div(GST_DIVISOR);
+  const gstTotal = sub(feeTotal, chargeTotal);
+  const totalDebitTotal = add(volume, feeTotal);
+
+  const { from, to } = effectiveRange(params);
+  const trend = trendToSeries(
+    await dailyTrend({
+      table: "Transaction", dateCol: "createdAt", valueExpr: `"amount"`, userCol: "userId",
+      ids, from, to, extra: Prisma.sql`AND "service"::text IN (${Prisma.join(BILL_SERVICES)})`,
+    }),
+    "Daily bill payments", "#f97606"
+  );
+
+  return {
+    rows,
+    total,
+    page: params.page,
+    pageSize: params.pageSize,
+    totals: {
+      sno: "Total",
+      charge: toNumber(chargeTotal),
+      gst: toNumber(gstTotal),
+      totalDebit: toNumber(totalDebitTotal),
+    },
+    summary: [
+      count("Payments", total, "violet"),
+      money("Bill value", volume, "brand"),
+      money("Charge + GST", feeTotal, "accent"),
+      percent("Success rate", total ? (successN / total) * 100 : 0, "emerald"),
+    ],
+    trend,
+    note: total === 0 ? "No bill payments were found for this range." : null,
+  };
+}
+
+/* --------------------------------------------------------------------- */
 /*  5 · Credit Card (credit-card bill payments)                          */
 /* --------------------------------------------------------------------- */
 
@@ -520,16 +695,34 @@ async function reportCreditCard(user: SessionUser, params: ReportParams): Promis
   const fees = dec(agg._sum.fee ?? 0);
   const commission = dec(agg._sum.commission ?? 0);
 
-  const rows = list.map((r) => ({
-    date: r.createdAt.toISOString(),
-    refId: r.refId,
-    operator: r.operator ?? "—",
-    customer: r.customer ?? "—",
-    amount: toNumber(r.amount),
-    fee: toNumber(r.fee),
-    commission: toNumber(r.commission),
-    status: r.status,
-  }));
+  // Resolve issuer display names + logos for the codes on this page.
+  const codes = [...new Set(list.map((r) => r.operator).filter((c): c is string => !!c))];
+  const [billers, operators] = await Promise.all([
+    codes.length ? prisma.biller.findMany({ where: { code: { in: codes } }, select: { code: true, name: true } }) : [],
+    codes.length ? prisma.operator.findMany({ where: { code: { in: codes } }, select: { code: true, logoUrl: true } }) : [],
+  ]);
+  const billerName = new Map(billers.map((b) => [b.code, b.name]));
+  const logoUrl = new Map(operators.map((o) => [o.code, o.logoUrl]));
+
+  const rows = list.map((r) => {
+    const bag = billRequestBag(r.request);
+    const bank =
+      pickField(bag, ["bankname", "biller", "billername"]) ??
+      (r.operator ? billerName.get(r.operator) : null) ??
+      r.operator ??
+      "—";
+    return {
+      date: r.createdAt.toISOString(),
+      refId: r.refId,
+      bankLogo: (r.operator ? logoUrl.get(r.operator) : null) ?? bank,
+      operator: bank,
+      customer: r.customer ?? "—",
+      amount: toNumber(r.amount),
+      fee: toNumber(r.fee),
+      commission: toNumber(r.commission),
+      status: r.status,
+    };
+  });
 
   const { from, to } = effectiveRange(params);
   const trend = trendToSeries(
@@ -811,6 +1004,119 @@ async function reportCommission(user: SessionUser, params: ReportParams): Promis
 }
 
 /* --------------------------------------------------------------------- */
+/*  9b · TDS (Section 194H withholding — filing / Form 26Q prep)           */
+/* --------------------------------------------------------------------- */
+/**
+ * Per-deductee TDS withheld over the selected range (set it to a quarter for
+ * Form 26Q). One row per payee (DT/MD/SD) with their PAN, number of deductions,
+ * gross commission and TDS withheld — the line items a 26Q return needs. Admins
+ * see every deductee; a network user sees only their own withholding (their TDS
+ * certificate data). Aggregated in the DB; payee details stitched in memory
+ * (the deductee set is small and bounded by the network size).
+ */
+async function reportTds(user: SessionUser, params: ReportParams): Promise<ReportResult> {
+  const ids = await allowedUserIds(user);
+  const createdAt = dateFilter(params);
+  const where: Prisma.TdsLedgerEntryWhereInput = {
+    ...(ids ? { userId: { in: ids } } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(params.service ? { service: params.service as ServiceCode } : {}),
+  };
+
+  const grouped = await prisma.tdsLedgerEntry.groupBy({
+    by: ["userId"],
+    where,
+    _sum: { grossAmount: true, tdsAmount: true },
+    _count: { _all: true },
+  });
+
+  const payeeIds = grouped.map((g) => g.userId);
+  const users = payeeIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: payeeIds } },
+        select: {
+          id: true,
+          name: true,
+          userCode: true,
+          role: true,
+          kyc: { select: { panNumber: true } },
+        },
+      })
+    : [];
+  const userById = new Map(users.map((u) => [u.id, u]));
+
+  const q = params.q?.trim().toLowerCase() ?? null;
+  const allRows = grouped
+    .map((g) => {
+      const u = userById.get(g.userId);
+      return {
+        deductee: u?.name ?? "—",
+        code: u?.userCode ?? g.userId.slice(0, 8).toUpperCase(),
+        pan: u?.kyc?.panNumber ?? "—",
+        role: u?.role ?? "—",
+        section: "194H",
+        deductions: g._count._all,
+        gross: toNumber(dec(g._sum.grossAmount ?? 0)),
+        tds: toNumber(dec(g._sum.tdsAmount ?? 0)),
+      };
+    })
+    .filter((r) =>
+      q
+        ? r.deductee.toLowerCase().includes(q) ||
+          r.pan.toLowerCase().includes(q) ||
+          r.code.toLowerCase().includes(q)
+        : true
+    )
+    .sort((a, b) => b.tds - a.tds);
+
+  let tGross = dec(0), tTds = dec(0), tDed = 0;
+  for (const r of allRows) {
+    tGross = add(tGross, dec(r.gross));
+    tTds = add(tTds, dec(r.tds));
+    tDed += r.deductions;
+  }
+
+  const total = allRows.length;
+  const rows = params.forExport
+    ? allRows
+    : allRows.slice((params.page - 1) * params.pageSize, (params.page - 1) * params.pageSize + params.pageSize);
+
+  const { from, to } = effectiveRange(params);
+  const trend = trendToSeries(
+    await dailyTrend({
+      table: "TdsLedgerEntry", dateCol: "createdAt", valueExpr: `"tdsAmount"`, userCol: "userId",
+      ids, from, to,
+    }),
+    "Daily TDS withheld", "#dc2626"
+  );
+
+  return {
+    rows,
+    total,
+    page: params.page,
+    pageSize: params.pageSize,
+    totals: {
+      deductee: "Total",
+      section: "",
+      deductions: tDed,
+      gross: toNumber(tGross),
+      tds: toNumber(tTds),
+    },
+    summary: [
+      money("TDS withheld", tTds, "accent"),
+      money("Gross commission", tGross, "brand"),
+      count("Deductees", total, "violet"),
+      count("Deductions", tDed, "emerald"),
+    ],
+    trend,
+    note:
+      total === 0
+        ? "No TDS was withheld in this range. Pick a quarter's date range to prepare a Form 26Q filing."
+        : "Section 194H withholding. Set the date range to a quarter and export for Form 26Q. Each row is one deductee (PAN-wise).",
+  };
+}
+
+/* --------------------------------------------------------------------- */
 /* 10 · Account (wallet passbook from the ledger)                         */
 /* --------------------------------------------------------------------- */
 
@@ -968,11 +1274,13 @@ const RUNNERS: Record<ReportType, (u: SessionUser, p: ReportParams) => Promise<R
   fund: reportFund,
   pg: reportPg,
   payout: reportPayout,
+  "bill-payment": reportBillPayment,
   "credit-card": reportCreditCard,
   qr: reportQr,
   pos: reportPos,
   "wallet-settlement": reportWalletSettlement,
   commission: reportCommission,
+  tds: reportTds,
   account: reportAccount,
 };
 

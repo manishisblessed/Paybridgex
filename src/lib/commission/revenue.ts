@@ -43,6 +43,19 @@ export async function getRevenueAccountId(
 }
 
 /**
+ * The account that holds the company PAYIN monitoring wallet. This is the same
+ * platform-owner account that holds the REVENUE book (the oldest MASTER_ADMIN)
+ * — the PAYIN book lives alongside REVENUE on that account, discriminated by
+ * WalletTxn.walletType so the two never mix. Returns null when no MASTER_ADMIN
+ * exists (payin mirroring is then a no-op rather than an error).
+ */
+export async function getPayinAccountId(
+  tx?: Prisma.TransactionClient
+): Promise<string | null> {
+  return getRevenueAccountId(tx);
+}
+
+/**
  * Credit the platform's margin for a transaction to the revenue account.
  *
  * @param txnId       Transaction.id (for refs + idempotency)

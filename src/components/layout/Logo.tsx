@@ -40,22 +40,35 @@ export function LogoMark({
       <rect width="64" height="64" rx="14" fill="url(#ngpBg)" />
       <rect width="64" height="64" rx="14" fill="url(#ngpGlow)" />
       <rect width="64" height="64" rx="14" fill="url(#ngpShine)" />
-      {/* N monogram — diagonal as a gradient "next" bolt */}
-      <rect x="14" y="15" width="8" height="34" rx="2" fill="#ffffff" />
-      <rect x="42" y="15" width="8" height="34" rx="2" fill="#ffffff" />
-      <path d="M14 15 L22 15 L50 49 L42 49 Z" fill="url(#ngpBolt)" />
-      {/* forward chevron — momentum */}
-      <path d="M53 20 L58 24.5 L53 29" fill="none" stroke="#d4a843" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="52" cy="52" r="3.2" fill="#34d399" />
-      <circle
-        cx="52"
-        cy="52"
-        r="3.2"
-        fill="none"
-        stroke="#ffffff"
-        strokeOpacity="0.25"
-        strokeWidth="1"
-      />
+      {/* NextGenPay brand mark (client-provided), centered in badge */}
+      <g transform="translate(15 20.3) scale(1.0625)">
+        <path
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M0.00172773 0V6.85398C0.00172773 6.85398 -0.133178 9.01207 1.98092 10.8388L13.6912 21.9964L19.7809 21.9181L18.8042 9.88248L16.4951 7.17289L9.23799 0H0.00172773Z"
+          fill="url(#ngpBolt)"
+        />
+        <path
+          opacity="0.08"
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M7.69824 16.4364L12.5199 3.23696L16.5541 7.25596L7.69824 16.4364Z"
+          fill="#000000"
+        />
+        <path
+          opacity="0.08"
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M8.07751 15.9175L13.9419 4.63989L16.5849 7.28475L8.07751 15.9175Z"
+          fill="#000000"
+        />
+        <path
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M7.77295 16.3566L23.6563 0H32V6.88383C32 6.88383 31.8262 9.17836 30.6591 10.4057L19.7824 22H13.6938L7.77295 16.3566Z"
+          fill="#ffffff"
+        />
+      </g>
     </svg>
   );
 }

@@ -18,6 +18,11 @@ import {
   ShieldCheck,
   Lock,
   ShieldAlert,
+  Activity,
+  CreditCard,
+  QrCode,
+  Landmark,
+  ArrowDownToLine,
 } from "lucide-react";
 
 /* ---------------------------------------------------------------- types */
@@ -117,7 +122,7 @@ const inputCls =
 /* ---------------------------------------------------------------- page */
 
 export default function WalletOpsPage() {
-  const [tab, setTab] = useState<"balances" | "operate" | "liens" | "history">("balances");
+  const [tab, setTab] = useState<"balances" | "payin" | "operate" | "liens" | "history">("balances");
   const [masked, setMasked] = useState(false);
   const [cumulative, setCumulative] = useState<Cumulative | null>(null);
   const notify = useCallback((text: string, ok: boolean) => {
@@ -203,6 +208,7 @@ export default function WalletOpsPage() {
         {(
           [
             ["balances", "User-wise balances"],
+            ["payin", "Live payin"],
             ["operate", "Push / Pull"],
             ["liens", "Liens"],
             ["history", "Operations history"],
@@ -223,6 +229,7 @@ export default function WalletOpsPage() {
       </div>
 
       {tab === "balances" && <UserBalancesTab money={money} />}
+      {tab === "payin" && <PayinTab money={money} />}
       {tab === "operate" && (
         <OperateTab
           onDone={(msg, ok) => {
@@ -250,6 +257,168 @@ function MiniStat({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-ink-100 bg-white p-4">
       <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">{label}</p>
       <p className="mt-1 font-display text-2xl font-bold text-ink-900">{value}</p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- payin tab */
+
+type PayinRailStat = { rail: string; label: string; count: number; amount: number };
+type PayinSummary = {
+  accountId: string | null;
+  balance: number;
+  period: string;
+  since: string;
+  totalCount: number;
+  totalAmount: number;
+  rails: PayinRailStat[];
+  asOf: string;
+};
+
+const PAYIN_PERIODS = [
+  ["today", "Today"],
+  ["week", "This week"],
+  ["month", "This month"],
+  ["year", "This year"],
+] as const;
+
+const RAIL_ICON: Record<string, typeof CreditCard> = {
+  POS: CreditCard,
+  PG: Landmark,
+  QR: QrCode,
+  TOPUP: ArrowDownToLine,
+  OTHER: Wallet,
+};
+
+const RAIL_ACCENT: Record<string, string> = {
+  POS: "from-sky-500 to-blue-600",
+  PG: "from-violet-500 to-purple-600",
+  QR: "from-emerald-500 to-teal-600",
+  TOPUP: "from-amber-500 to-orange-600",
+  OTHER: "from-ink-400 to-ink-600",
+};
+
+function PayinTab({ money }: { money: (n: number) => string }) {
+  const [period, setPeriod] = useState<string>("today");
+  const [data, setData] = useState<PayinSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/wallet/aggregates?view=payin&period=${period}`);
+      if (res.ok) setData(await res.json());
+    } finally {
+      setLoading(false);
+    }
+  }, [period]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Live monitor — refresh on an interval so master-admin sees business as it lands.
+  useEffect(() => {
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const periodLabel =
+    PAYIN_PERIODS.find(([k]) => k === period)?.[1]?.toLowerCase() ?? "today";
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 rounded-xl border border-ink-100 bg-white p-1">
+          {PAYIN_PERIODS.map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setPeriod(key)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                period === key ? "bg-brand-600 text-white" : "text-ink-500 hover:text-ink-800"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="ml-auto flex items-center gap-2 text-xs text-ink-400">
+          <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+          Live · auto-refreshes every 30s
+        </div>
+        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+
+      {/* Headline cards */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="rounded-2xl border border-transparent bg-gradient-to-br from-brand-600 to-violet-600 p-4 text-white shadow-soft">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-white/80" />
+            <p className="text-[10px] font-bold uppercase tracking-widest text-white/70">
+              Business {periodLabel}
+            </p>
+          </div>
+          <p className="mt-1 font-display text-2xl font-bold">{money(data?.totalAmount ?? 0)}</p>
+          <p className="text-[11px] text-white/70">
+            {formatNumber(data?.totalCount ?? 0)} inbound transactions
+          </p>
+        </div>
+        <MiniStat label="All-time payin (mirrored)" value={money(data?.balance ?? 0)} />
+        <MiniStat
+          label="Avg ticket size"
+          value={money(
+            data && data.totalCount > 0 ? data.totalAmount / data.totalCount : 0
+          )}
+        />
+      </div>
+
+      {/* Per-rail business */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {(data?.rails ?? []).map((r) => {
+          const Icon = RAIL_ICON[r.rail] ?? Wallet;
+          const accent = RAIL_ACCENT[r.rail] ?? RAIL_ACCENT.OTHER;
+          const share =
+            data && data.totalAmount > 0 ? Math.round((r.amount / data.totalAmount) * 100) : 0;
+          return (
+            <div key={r.rail} className="rounded-2xl border border-ink-100 bg-white p-4">
+              <div className="flex items-center justify-between">
+                <div
+                  className={`flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br ${accent} text-white`}
+                >
+                  <Icon className="h-5 w-5" />
+                </div>
+                <Badge>{formatNumber(r.count)}</Badge>
+              </div>
+              <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-ink-500">
+                {r.label}
+              </p>
+              <p className="mt-0.5 font-display text-xl font-bold text-ink-900">{money(r.amount)}</p>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-100">
+                <div
+                  className={`h-full rounded-full bg-gradient-to-r ${accent}`}
+                  style={{ width: `${share}%` }}
+                />
+              </div>
+              <p className="mt-1 text-[11px] text-ink-400">{share}% of {periodLabel}&rsquo;s volume</p>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-sky-600" />
+          <p className="text-sm font-bold text-sky-800">Company payin wallet</p>
+        </div>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-sky-800">
+          Every live inbound — POS captures, PG collections, QR settlements and wallet top-ups —
+          mirrors its gross into this company wallet the instant it is recognised, giving you a
+          real-time view of how much business is flowing through each rail. It is a monitor only:
+          it never moves retailer funds and is reconciled nightly as its own ledger book.
+        </p>
+      </div>
     </div>
   );
 }

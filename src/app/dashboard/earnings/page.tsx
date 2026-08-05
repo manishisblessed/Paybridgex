@@ -58,7 +58,8 @@ function serviceName(code: string) {
     DMT_NEFT: "NEFT",
     AEPS_WITHDRAW: "AePS Withdraw",
     PAN_CARD: "PAN Card",
-    WALLET_TOPUP: "POS Settlement",
+    POS: "POS Settlement",
+    WALLET_TOPUP: "Wallet Top-up",
   };
   return map[code] ?? code.replace(/_/g, " ");
 }

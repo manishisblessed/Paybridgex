@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getPartner } from "@/lib/partners";
 import { requireAuth } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -8,6 +7,7 @@ import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { assertLivenessReady } from "@/lib/security/livenessGate";
 import { toErrorResponse } from "@/lib/security/apiErrors";
+import { initiatePgCollect, PgCollectError } from "@/lib/wallet/pgCollect";
 
 const Body = z.object({
   amount: z.number().positive().max(100000),
@@ -36,29 +36,44 @@ export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const upi = getPartner("upi");
-  const r = await upi.collect({
-    userId: user.id,
-    idempotencyKey: parsed.data.idempotencyKey,
-    amount: parsed.data.amount,
-    vpa: parsed.data.vpa,
-    note: parsed.data.note,
-    customerEmail: parsed.data.customerEmail,
-    customerPhone: parsed.data.customerPhone,
-    callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL}/upi/callback`
-  });
-
-  // Audit the collect request (idempotency-keyed; the inbound credit posts to
-  // the ledger later via the PG webhook, not here).
-  await prisma.auditLog.create({
-    data: {
+  // Persist a UPI_COLLECT Transaction (refId `PGC…`) and fire the provider
+  // collect. The inbound credit posts to the ledger later — the BulkPe PG
+  // webhook / status poll resolve this reference and settle it through the PG
+  // engine (net credit + company payin mirror).
+  try {
+    const collect = await initiatePgCollect({
       userId: user.id,
-      action: r.ok ? "upi.collect_requested" : "upi.collect_failed",
-      entity: "UpiCollect",
-      entityId: r.ok ? r.data.orderId : parsed.data.idempotencyKey,
-      meta: { amount: parsed.data.amount, ok: r.ok, code: r.ok ? undefined : r.code },
-    },
-  });
-
-  return r.ok ? NextResponse.json(r.data) : NextResponse.json({ error: r.message, code: r.code }, { status: 502 });
+      amount: parsed.data.amount,
+      vpa: parsed.data.vpa,
+      note: parsed.data.note,
+      customerEmail: parsed.data.customerEmail,
+      customerPhone: parsed.data.customerPhone,
+      ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined,
+    });
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "upi.collect_requested",
+        entity: "Transaction",
+        entityId: collect.refId,
+        meta: { amount: parsed.data.amount, orderId: collect.orderId },
+      },
+    });
+    return NextResponse.json(collect);
+  } catch (e) {
+    const err = e instanceof PgCollectError ? e : null;
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "upi.collect_failed",
+        entity: "UpiCollect",
+        entityId: parsed.data.idempotencyKey,
+        meta: { amount: parsed.data.amount, ok: false, code: err?.code ?? "PG_COLLECT_ERROR" },
+      },
+    });
+    return NextResponse.json(
+      { error: err?.message ?? "Collection failed", code: err?.code ?? "PG_COLLECT_ERROR" },
+      { status: err?.statusCode ?? 502 }
+    );
+  }
 }

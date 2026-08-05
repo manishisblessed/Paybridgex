@@ -1281,9 +1281,11 @@ function MdrRateModal({
   const remainingT0 = poolT0 - allocT0;
   const belowMinT1 = isPos && posLock.locked && minT1 - svcT1Val > POOL_EPS;
   const belowMinT0 = isPos && posLock.locked && minT0 - svcT0Val > POOL_EPS;
-  const unbalancedT1 = isPos && posLock.locked && !belowMinT1 && Math.abs(remainingT1) > POOL_EPS;
-  const unbalancedT0 = isPos && posLock.locked && !belowMinT0 && Math.abs(remainingT0) > POOL_EPS;
-  const posInvalid = belowMinT1 || belowMinT0 || unbalancedT1 || unbalancedT0;
+  // Flexible residual model: only OVER-allocation (commissions exceed the pool)
+  // is invalid. Under-allocation is allowed — the remainder is company earning.
+  const overAllocT1 = isPos && posLock.locked && !belowMinT1 && remainingT1 < -POOL_EPS;
+  const overAllocT0 = isPos && posLock.locked && !belowMinT0 && remainingT0 < -POOL_EPS;
+  const posInvalid = belowMinT1 || belowMinT0 || overAllocT1 || overAllocT0;
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -1518,8 +1520,9 @@ function MdrRateModal({
                 <>
                   The service charge (MDR) is deducted from the gross before crediting the retailer. It can never be
                   set below the brand's <span className="font-medium">Minimum MDR</span> (the floor shown above). The
-                  company keeps Min MDR − vendor cost; anything priced above the minimum is the commission pool.
-                  T+0 applies to instant settlement; leave 0 to use the T+1 rate.
+                  company keeps Min MDR − vendor cost; anything priced above the minimum is the commission pool the
+                  chain can earn from — any part of it you don't allocate stays with the company. T+0 applies to
+                  instant settlement; leave 0 to use the T+1 rate.
                 </>
               ) : (
                 <>
@@ -1541,7 +1544,8 @@ function MdrRateModal({
                 <span className="font-semibold">{company}</span>. The service charge (MDR) can never be set below the
                 brand's <span className="font-semibold">Minimum MDR of {rateUnit(minT1)} (T+1)</span>
                 {minT0 !== minT1 && <> / <span className="font-semibold">{rateUnit(minT0)} (T+0)</span></>}. The company
-                keeps {rateUnit(Math.max(0, companyMarginT1))} margin; anything above the minimum is the commission pool.
+                keeps {rateUnit(Math.max(0, companyMarginT1))} margin plus any part of the pool you leave unallocated;
+                anything above the minimum is the commission pool the chain can earn from.
               </p>
             )}
             {(belowMinT1 || belowMinT0) && (
@@ -1617,30 +1621,28 @@ function MdrRateModal({
             {isPos && posLock.locked && (
               <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                 {([
-                  { leg: "T+1", pool: poolT1, alloc: allocT1, remaining: remainingT1, below: belowMinT1, unbalanced: unbalancedT1 },
-                  { leg: "T+0", pool: poolT0, alloc: allocT0, remaining: remainingT0, below: belowMinT0, unbalanced: unbalancedT0 },
+                  { leg: "T+1", pool: poolT1, alloc: allocT1, remaining: remainingT1, below: belowMinT1, over: overAllocT1 },
+                  { leg: "T+0", pool: poolT0, alloc: allocT0, remaining: remainingT0, below: belowMinT0, over: overAllocT0 },
                 ] as const).map((l) => (
                   <div
                     key={l.leg}
                     className={`rounded-lg border p-2 ${
-                      l.below || l.unbalanced
+                      l.below || l.over
                         ? "border-rose-200 bg-rose-50 text-rose-700"
                         : "border-emerald-200 bg-emerald-50 text-emerald-700"
                     }`}
                   >
                     <p className="font-semibold uppercase tracking-wider">{l.leg} commission pool</p>
                     <p className="mt-0.5">Pool (Service − Min MDR): <span className="font-semibold">{rateUnit(Math.max(0, l.pool))}</span></p>
-                    <p>Allocated: <span className="font-semibold">{rateUnit(l.alloc)}</span></p>
+                    <p>Allocated to chain: <span className="font-semibold">{rateUnit(l.alloc)}</span></p>
                     {l.below ? (
                       <p className="font-semibold">Service is below the Minimum MDR.</p>
+                    ) : l.remaining < -1e-6 ? (
+                      <p className="font-semibold">Over by {rateUnit(-l.remaining)} — reduce to fit the pool.</p>
+                    ) : l.remaining > 1e-6 ? (
+                      <p>Company keeps <span className="font-semibold">{rateUnit(l.remaining)}</span> extra.</p>
                     ) : (
-                      <p>
-                        {Math.abs(l.remaining) < 1e-6
-                          ? "Balanced ✓"
-                          : l.remaining > 0
-                          ? `Short by ${rateUnit(l.remaining)} — allocate more.`
-                          : `Over by ${rateUnit(-l.remaining)} — reduce.`}
-                      </p>
+                      <p>Fully allocated to chain ✓</p>
                     )}
                   </div>
                 ))}
@@ -1650,7 +1652,7 @@ function MdrRateModal({
               Commission paid up the chain per transaction — DIST → distributor, M.DIST → master distributor,
               S.DIST → super distributor. Paid out of the Revenue Wallet, net of 2% TDS.{" "}
               {isPos
-                ? "For POS, the total of each leg must EQUAL that leg's commission pool (Service − Minimum MDR); the company keeps Minimum MDR − Vendor. Set T+0 values explicitly."
+                ? "For POS, each leg may allocate UP TO its commission pool (Service − Minimum MDR); anything left unallocated is kept by the company on top of Minimum MDR − Vendor. Set T+0 values explicitly (they don't fall back to T+1)."
                 : "Total must not exceed the company margin (service − vendor). The T+0 row falls back to the matching T+1 value when left 0."}{" "}
               The transacting retailer earns no commission.
             </p>

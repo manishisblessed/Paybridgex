@@ -23,7 +23,9 @@ import {
   Gift,
   Trophy,
   PartyPopper,
+  Receipt,
 } from "lucide-react";
+import { SettlementReportTab } from "./SettlementReportTab";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
@@ -113,7 +115,7 @@ function fmtTime(iso: string) {
   });
 }
 
-type Tab = "machines" | "transactions" | "settlements" | "free-rent";
+type Tab = "machines" | "transactions" | "settlements" | "report" | "free-rent";
 
 export default function PosPage() {
   const { data: authSession } = useSession();
@@ -124,6 +126,7 @@ export default function PosPage() {
     const base: { id: Tab; label: string; icon: typeof ArrowLeftRight }[] = [
       { id: "transactions", label: "Live Transactions", icon: ArrowLeftRight },
       { id: "settlements", label: "Instant Settlement", icon: Banknote },
+      { id: "report", label: "Settlement Report", icon: Receipt },
       { id: "machines", label: "POS Machines", icon: Monitor },
     ];
     if (isRetailer) base.push({ id: "free-rent", label: "Free Rent Target", icon: Gift });
@@ -165,6 +168,8 @@ export default function PosPage() {
         <TransactionsTab />
       ) : activeTab === "settlements" ? (
         <SettlementsTab />
+      ) : activeTab === "report" ? (
+        <SettlementReportTab />
       ) : activeTab === "free-rent" ? (
         <FreeRentTab />
       ) : (

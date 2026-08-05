@@ -1,3 +1,4 @@
+import type { WalletType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { dec, eq, toFixedString, type Money } from "@/lib/money";
 import { sendOpsAlert } from "@/lib/monitoring/alerts";
@@ -29,7 +30,16 @@ import { logger } from "@/lib/logger";
 
 export type IntegrityFinding = {
   userId: string;
-  check: "BALANCE_VS_LEDGER" | "PASSBOOK_CONTINUITY" | "HELD_VS_INFLIGHT" | "LIEN_VS_ACTIVE";
+  check:
+    | "BALANCE_VS_LEDGER"
+    | "AEPS_VS_LEDGER"
+    | "REVENUE_VS_LEDGER"
+    | "PAYIN_VS_LEDGER"
+    | "PASSBOOK_CONTINUITY"
+    | "HELD_VS_INFLIGHT"
+    | "LIEN_VS_ACTIVE";
+  /** Which wallet book the finding relates to (for the per-book ledger checks). */
+  book?: WalletType;
   expected: string;
   actual: string;
 };
@@ -41,30 +51,63 @@ export type IntegrityReport = {
   ok: boolean;
 };
 
-/** Σ(CREDIT) − Σ(DEBIT) per user, computed in the database. */
-async function ledgerNetByUser(): Promise<Map<string, Money>> {
+/** The wallet books tracked per user, mapped to their denormalized column. */
+const BOOK_COLUMN: Record<WalletType, "walletBalance" | "aepsBalance" | "revenueBalance" | "payinBalance"> = {
+  PRIMARY: "walletBalance",
+  AEPS: "aepsBalance",
+  REVENUE: "revenueBalance",
+  PAYIN: "payinBalance",
+};
+
+const BOOK_CHECK: Record<WalletType, IntegrityFinding["check"]> = {
+  PRIMARY: "BALANCE_VS_LEDGER",
+  AEPS: "AEPS_VS_LEDGER",
+  REVENUE: "REVENUE_VS_LEDGER",
+  PAYIN: "PAYIN_VS_LEDGER",
+};
+
+type BookMap = Map<string, Map<WalletType, Money>>;
+
+function setBook(map: BookMap, userId: string, book: WalletType, value: Money) {
+  let inner = map.get(userId);
+  if (!inner) {
+    inner = new Map();
+    map.set(userId, inner);
+  }
+  inner.set(book, value);
+}
+
+/**
+ * Σ(CREDIT) − Σ(DEBIT) per user PER WALLET BOOK. Each book (PRIMARY / AEPS /
+ * REVENUE / PAYIN) keeps its own balanceAfter chain and denormalized column, so
+ * reconciliation is per-book — mixing them would flag every multi-book account
+ * (e.g. the platform-owner account that holds REVENUE + PAYIN).
+ */
+async function ledgerNetByUserBook(): Promise<BookMap> {
   const grouped = await prisma.walletTxn.groupBy({
-    by: ["userId", "direction"],
+    by: ["userId", "walletType", "direction"],
     _sum: { amount: true },
   });
-  const net = new Map<string, Money>();
+  const net: BookMap = new Map();
   for (const row of grouped) {
-    const prev = net.get(row.userId) ?? dec(0);
+    const inner = net.get(row.userId) ?? new Map<WalletType, Money>();
+    const prev = inner.get(row.walletType) ?? dec(0);
     const sum = dec(row._sum.amount ?? 0);
-    net.set(row.userId, row.direction === "CREDIT" ? prev.add(sum) : prev.sub(sum));
+    inner.set(row.walletType, row.direction === "CREDIT" ? prev.add(sum) : prev.sub(sum));
+    net.set(row.userId, inner);
   }
   return net;
 }
 
-/** Latest balanceAfter per user in a single scan (DISTINCT ON). */
-async function latestBalanceAfterByUser(): Promise<Map<string, Money>> {
-  const rows = await prisma.$queryRaw<{ userId: string; balanceAfter: unknown }[]>`
-    SELECT DISTINCT ON ("userId") "userId", "balanceAfter"
+/** Latest balanceAfter per user PER WALLET BOOK in a single scan (DISTINCT ON). */
+async function latestBalanceAfterByUserBook(): Promise<BookMap> {
+  const rows = await prisma.$queryRaw<{ userId: string; walletType: WalletType; balanceAfter: unknown }[]>`
+    SELECT DISTINCT ON ("userId", "walletType") "userId", "walletType", "balanceAfter"
     FROM "WalletTxn"
-    ORDER BY "userId", "createdAt" DESC, "id" DESC
+    ORDER BY "userId", "walletType", "createdAt" DESC, "id" DESC
   `;
-  const map = new Map<string, Money>();
-  for (const row of rows) map.set(row.userId, dec(String(row.balanceAfter)));
+  const map: BookMap = new Map();
+  for (const row of rows) setBook(map, row.userId, row.walletType, dec(String(row.balanceAfter)));
   return map;
 }
 
@@ -105,38 +148,55 @@ export async function runLedgerIntegrityAudit(): Promise<IntegrityReport> {
   const [users, ledgerNet, lastBalanceAfter, held, activeLien] = await Promise.all([
     prisma.user.findMany({
       where: { deletedAt: null },
-      select: { id: true, walletBalance: true, heldBalance: true, lienBalance: true },
+      select: {
+        id: true,
+        walletBalance: true,
+        aepsBalance: true,
+        revenueBalance: true,
+        payinBalance: true,
+        heldBalance: true,
+        lienBalance: true,
+      },
     }),
-    ledgerNetByUser(),
-    latestBalanceAfterByUser(),
+    ledgerNetByUserBook(),
+    latestBalanceAfterByUserBook(),
     heldByUser(),
     activeLienByUser(),
   ]);
 
   const findings: IntegrityFinding[] = [];
+  const BOOKS: WalletType[] = ["PRIMARY", "AEPS", "REVENUE", "PAYIN"];
 
   for (const user of users) {
     const balance = dec(user.walletBalance);
     const heldBalance = dec(user.heldBalance);
+    const netByBook = ledgerNet.get(user.id);
+    const lastByBook = lastBalanceAfter.get(user.id);
 
-    const net = ledgerNet.get(user.id) ?? dec(0);
-    if (!eq(balance, net)) {
-      findings.push({
-        userId: user.id,
-        check: "BALANCE_VS_LEDGER",
-        expected: toFixedString(net),
-        actual: toFixedString(balance),
-      });
-    }
-
-    const lastAfter = lastBalanceAfter.get(user.id);
-    if (lastAfter !== undefined && !eq(balance, lastAfter)) {
-      findings.push({
-        userId: user.id,
-        check: "PASSBOOK_CONTINUITY",
-        expected: toFixedString(lastAfter),
-        actual: toFixedString(balance),
-      });
+    // Per-book reconciliation: each book's column must equal Σ(CREDIT)−Σ(DEBIT)
+    // over that book's txns, and match the newest balanceAfter in that book.
+    for (const book of BOOKS) {
+      const column = dec(user[BOOK_COLUMN[book]]);
+      const net = netByBook?.get(book) ?? dec(0);
+      if (!eq(column, net)) {
+        findings.push({
+          userId: user.id,
+          check: BOOK_CHECK[book],
+          book,
+          expected: toFixedString(net),
+          actual: toFixedString(column),
+        });
+      }
+      const lastAfter = lastByBook?.get(book);
+      if (lastAfter !== undefined && !eq(column, lastAfter)) {
+        findings.push({
+          userId: user.id,
+          check: "PASSBOOK_CONTINUITY",
+          book,
+          expected: toFixedString(lastAfter),
+          actual: toFixedString(column),
+        });
+      }
     }
 
     const expectedHeld = held.get(user.id) ?? dec(0);
@@ -188,7 +248,7 @@ export async function runLedgerIntegrityAudit(): Promise<IntegrityReport> {
         action: "recon.ledger_mismatch",
         entity: "User",
         entityId: f.userId,
-        meta: { check: f.check, expected: f.expected, actual: f.actual, ranAt },
+        meta: { check: f.check, book: f.book ?? null, expected: f.expected, actual: f.actual, ranAt },
       },
     });
   }

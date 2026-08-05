@@ -14,13 +14,18 @@ const state = vi.hoisted(() => ({
   slabs: [] as Record<string, unknown>[],
   commissionCredits: [] as Record<string, unknown>[],
   walletCredits: [] as Record<string, unknown>[],
+  tdsEntries: [] as Record<string, unknown>[],
 }));
 
 vi.mock("@/lib/db", () => ({
   prisma: {
     user: {
-      findUnique: async ({ where }: { where: { id: string } }) =>
-        state.users.get(where.id) ?? null,
+      findUnique: async ({ where }: { where: { id?: string; email?: string } }) => {
+        // getTdsAccountId resolves the system TDS Payable account by email.
+        if (where.email === "tds-payable@system.nextgen") return { id: "tdsacct" };
+        if (where.id) return state.users.get(where.id) ?? null;
+        return null;
+      },
     },
     scheme: {
       findFirst: async ({ where }: { where: Record<string, unknown> }) => {
@@ -45,6 +50,14 @@ vi.mock("@/lib/db", () => ({
       create: async ({ data }: { data: Record<string, unknown> }) => {
         state.commissionCredits.push(data);
         return { id: `cc_${state.commissionCredits.length}` };
+      },
+    },
+    tdsLedgerEntry: {
+      findUnique: async ({ where }: { where: { idempotencyKey: string } }) =>
+        state.tdsEntries.find((t) => t.idempotencyKey === where.idempotencyKey) ?? null,
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        state.tdsEntries.push(data);
+        return { id: `tds_${state.tdsEntries.length}` };
       },
     },
   },
@@ -92,6 +105,7 @@ beforeEach(() => {
   state.slabs = [slab({})];
   state.commissionCredits = [];
   state.walletCredits = [];
+  state.tdsEntries = [];
 });
 
 describe("TDS calculation", () => {
@@ -121,8 +135,16 @@ describe("distributeCommission (flat model)", () => {
     expect(credits[0].gross).toBe(5);
     expect(credits[0].tds).toBeCloseTo(0.10);
     expect(credits[0].amount).toBeCloseTo(4.90);
-    expect(state.walletCredits).toHaveLength(1);
+    // One COMMISSION credit (net to payee) + one TDS_WITHHELD credit (held in
+    // the TDS Payable account) — money is conserved (net + TDS = gross).
+    const commissionCredit = state.walletCredits.filter((w) => w.reason === "COMMISSION");
+    const tdsCredit = state.walletCredits.filter((w) => w.reason === "TDS_WITHHELD");
+    expect(commissionCredit).toHaveLength(1);
+    expect(tdsCredit).toHaveLength(1);
+    expect(tdsCredit[0].userId).toBe("tdsacct");
+    expect(Number(tdsCredit[0].amount)).toBeCloseTo(0.10);
     expect(state.commissionCredits).toHaveLength(1);
+    expect(state.tdsEntries).toHaveLength(1);
   });
 
   it("does NOT distribute commission for BBPS service", async () => {

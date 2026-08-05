@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyBulkpeWebhook } from "@/lib/partners/bulkpe";
 import { settleTopup } from "@/lib/wallet/topup";
+import { settlePgCollect, isPgCollectRef } from "@/lib/wallet/pgCollect";
 
 /**
- * BulkPe Simple PG (collect) webhook — wallet top-up auto-credit.
+ * BulkPe Simple PG (collect) webhook — wallet top-up + PG collection auto-credit.
  *
  * Configure in the BulkPe dashboard alongside the payout webhook:
  *   URL    : https://app.jmpnextgenpay.com/api/webhooks/bulkpe-pg
@@ -50,9 +51,12 @@ export async function POST(req: Request) {
 
   const referenceId = pick(data, ["referenceId", "reference_id"]);
 
-  // Only top-up references are ours to settle; acknowledge everything else so
-  // BulkPe stops retrying payloads we cannot act on.
-  if (!referenceId || !referenceId.startsWith("TOPUP")) {
+  // We settle two kinds of reference: `TOPUP…` (wallet top-up) and `PGC…` (a
+  // retailer PG collection). Acknowledge everything else so BulkPe stops
+  // retrying payloads we cannot act on.
+  const isTopup = !!referenceId && referenceId.startsWith("TOPUP");
+  const isCollect = isPgCollectRef(referenceId);
+  if (!referenceId || (!isTopup && !isCollect)) {
     return NextResponse.json({ ok: true, matched: false });
   }
 
@@ -61,12 +65,14 @@ export async function POST(req: Request) {
       action: "webhook.bulkpe_pg",
       entity: "Transaction",
       entityId: referenceId,
-      meta: { status: pick(data, ["status", "state"]) ?? null },
+      meta: { status: pick(data, ["status", "state"]) ?? null, kind: isTopup ? "TOPUP" : "PG_COLLECT" },
     },
   });
 
   try {
-    const result = await settleTopup(referenceId);
+    const result = isTopup
+      ? await settleTopup(referenceId)
+      : await settlePgCollect(referenceId);
     return NextResponse.json({ ok: true, matched: true, status: result.status });
   } catch {
     // Unknown reference or provider hiccup — acknowledge; the user-facing

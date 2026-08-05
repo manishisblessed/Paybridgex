@@ -226,14 +226,15 @@ function validateMarginVsCommission(b: {
 const pct = (frac: number) => `${(frac * 100).toFixed(2)}%`;
 
 /**
- * POS-specific pricing rule (Brands "Minimum MDR" model):
+ * POS-specific pricing rule (Brands "Minimum MDR" model, flexible residual):
  *   - Service charge (MDR) can never be below the brand's Minimum MDR, so the
  *     company always keeps its guaranteed margin (Minimum MDR − vendor cost).
- *   - The commission pool distributed to DT/MD/SD is exactly what the scheme
- *     prices ABOVE the minimum: pool = Service − Minimum MDR. The three tiers
- *     must sum to it EXACTLY (per leg). T+0 uses its own service/minimum; an
- *     unset T+0 service falls back to T+1 (mirrors the rate resolver), but T+0
- *     commissions do NOT fall back — they must be explicit to balance the pool.
+ *   - The commission pool available to DT/MD/SD is what the scheme prices ABOVE
+ *     the minimum: pool = Service − Minimum MDR. The three tiers may sum to AT
+ *     MOST that pool (per leg); anything left UNallocated is additional company
+ *     earning. T+0 uses its own service/minimum; an unset T+0 service falls back
+ *     to T+1 (mirrors the rate resolver), but T+0 commissions do NOT fall back —
+ *     they must be set explicitly (a 0 T+0 tier earns nothing on instant legs).
  * All POS values are percentages (fractions); enforced Percent-only upstream.
  */
 function validatePosCommissionEquality(
@@ -269,19 +270,19 @@ function validatePosCommissionEquality(
   if (svcT0 - minT0 < -EPS)
     return `T+0 (instant) service charge ${pct(svcT0)} is below the T+0 Minimum MDR of ${pct(minT0)}. Raise it to at least ${pct(minT0)}.`;
 
-  // Commission pool = service − minimum; the chain must consume it exactly.
+  // Commission pool = service − minimum; the chain may consume UP TO it. Any
+  // unallocated remainder is kept by the company (flexible residual model), so
+  // only OVER-allocation is rejected.
   const poolT1 = svcT1 - minT1;
   const poolT0 = svcT0 - minT0;
   const sumT1 = b.commissionDistributor + b.commissionMaster + b.commissionSuperDistributor;
   const sumT0 = b.commissionDistributorT0 + b.commissionMasterT0 + b.commissionSuperDistributorT0;
 
-  if (Math.abs(sumT1 - poolT1) > EPS) {
-    const diff = sumT1 - poolT1;
-    return `Total DT+MD+SD commission (T+1) must equal the commission pool of ${pct(poolT1)} (Service ${pct(svcT1)} − Min MDR ${pct(minT1)}). It's currently ${pct(sumT1)} — ${diff > 0 ? "over" : "short"} by ${pct(Math.abs(diff))}.`;
+  if (sumT1 - poolT1 > EPS) {
+    return `Total DT+MD+SD commission (T+1) of ${pct(sumT1)} exceeds the commission pool of ${pct(poolT1)} (Service ${pct(svcT1)} − Min MDR ${pct(minT1)}). Reduce commissions by ${pct(sumT1 - poolT1)}.`;
   }
-  if (Math.abs(sumT0 - poolT0) > EPS) {
-    const diff = sumT0 - poolT0;
-    return `Total DT+MD+SD commission (T+0 instant) must equal the T+0 commission pool of ${pct(poolT0)} (Service ${pct(svcT0)} − Min MDR ${pct(minT0)}). It's currently ${pct(sumT0)} — ${diff > 0 ? "over" : "short"} by ${pct(Math.abs(diff))}.`;
+  if (sumT0 - poolT0 > EPS) {
+    return `Total DT+MD+SD commission (T+0 instant) of ${pct(sumT0)} exceeds the T+0 commission pool of ${pct(poolT0)} (Service ${pct(svcT0)} − Min MDR ${pct(minT0)}). Reduce commissions by ${pct(sumT0 - poolT0)}.`;
   }
   return null;
 }

@@ -170,6 +170,11 @@ export function CreditCardBillForm() {
           },
           amount: Number(amount),
           idempotencyKey: generateRefId("CCPAY"),
+          ...(bill.customerName ? { customerName: bill.customerName } : {}),
+          ...(() => {
+            const name = billers.find((b) => b.code === billerCode)?.name;
+            return name ? { billerName: name } : {};
+          })(),
         }),
       });
       const data = await res.json();

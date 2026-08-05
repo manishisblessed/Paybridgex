@@ -6,20 +6,32 @@ import {
   BALANCE_TIERS,
   type BalanceTier,
 } from "@/lib/wallet/aggregates";
+import { getPayinSummary, type PayinPeriod } from "@/lib/wallet/payin";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
+
+const PAYIN_PERIODS: readonly PayinPeriod[] = ["today", "week", "month", "year"];
 
 /**
  * GET /api/admin/wallet/aggregates
  *   ?view=cumulative                     → platform liability rollup by tier
  *   ?view=users&role=&q=&page=&pageSize= → user-wise balance listing
+ *   ?view=payin&period=today|week|month|year → live payin rollup by rail
  */
 export async function GET(req: Request) {
   try {
     await requireRole("MASTER_ADMIN", "ADMIN", "FINANCE");
     const { searchParams } = new URL(req.url);
     const view = searchParams.get("view") ?? "cumulative";
+
+    if (view === "payin") {
+      const periodParam = searchParams.get("period") ?? "today";
+      const period = (PAYIN_PERIODS as readonly string[]).includes(periodParam)
+        ? (periodParam as PayinPeriod)
+        : "today";
+      return NextResponse.json(await getPayinSummary(period));
+    }
 
     if (view === "users") {
       const roleParam = searchParams.get("role") ?? "ALL";

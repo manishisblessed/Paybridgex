@@ -20,7 +20,12 @@ const Body = z.object({
   category: z.enum(["ELECTRICITY", "WATER", "GAS", "CREDIT_CARD", "EDUCATION", "INSURANCE", "BROADBAND"]),
   customerParams: z.record(z.string()),
   amount: z.number().positive().max(500000),
-  idempotencyKey: z.string().min(8)
+  idempotencyKey: z.string().min(8),
+  // Display-only snapshots captured from the bill-fetch step so the payment
+  // record (and the Bill Payment Report) carries the human customer / biller
+  // name. Stored in Transaction.request; never forwarded to the partner.
+  customerName: z.string().trim().max(140).optional(),
+  billerName: z.string().trim().max(140).optional()
 }).strict();
 
 const SERVICE = {
@@ -72,6 +77,9 @@ export async function POST(req: Request) {
       ? toNumber(rate.charge)
       : toNumber(withGst(rate.charge, 18).total);
 
+    // Keep the display-only snapshots out of the partner payload.
+    const { customerName: _cn, billerName: _bn, ...payInput } = parsed.data;
+
     const result = await runTransaction({
       userId: user.id,
       service,
@@ -85,7 +93,7 @@ export async function POST(req: Request) {
       request: parsed.data,
       call: () => bbps.pay({
         userId: user.id,
-        ...parsed.data,
+        ...payInput,
         remark: `Pay by NxtGenPay ${user.userCode ?? user.id}`,
       })
     });

@@ -18,14 +18,9 @@
   <rect width="180" height="180" rx="40" fill="url(#aiBg)"/>
   <rect width="180" height="180" rx="40" fill="url(#aiShine)"/>
 
-  <!-- "N" centered, scaled up -->
-  <g transform="translate(26,26) scale(2)">
-    <rect x="14" y="15" width="8" height="34" rx="2" fill="#ffffff"/>
-    <rect x="42" y="15" width="8" height="34" rx="2" fill="#ffffff"/>
-    <path d="M14 15 L22 15 L50 49 L42 49 Z" fill="url(#aiBolt)"/>
+  <!-- NextGenPay brand mark, centered -->
+  <g transform="translate(40 55.6) scale(3.125)">
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M0.00172773 0V6.85398C0.00172773 6.85398 -0.133178 9.01207 1.98092 10.8388L13.6912 21.9964L19.7809 21.9181L18.8042 9.88248L16.4951 7.17289L9.23799 0H0.00172773Z" fill="url(#aiBolt)"/>
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M7.77295 16.3566L23.6563 0H32V6.88383C32 6.88383 31.8262 9.17836 30.6591 10.4057L19.7824 22H13.6938L7.77295 16.3566Z" fill="#ffffff"/>
   </g>
-
-  <!-- Status dot -->
-  <circle cx="146" cy="146" r="9" fill="#34d399"/>
-  <circle cx="146" cy="146" r="9" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="2"/>
 </svg>

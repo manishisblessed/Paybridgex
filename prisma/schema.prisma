@@ -132,6 +132,12 @@ model User {
   // here, and upline (DT/MD/SD) commissions are debited from here. Discriminated
   // by WalletTxn.walletType = REVENUE with its own balanceAfter chain.
   revenueBalance Decimal @default(0) @db.Decimal(14, 2)
+  // Company payin wallet — used ONLY on the platform owner (oldest MASTER_ADMIN)
+  // account. Credited the GROSS of every live inbound (POS / PG / QR / top-up)
+  // the instant it is recognised, giving master-admin a real-time view of how
+  // much business is flowing through each rail. Credit-only (never debited);
+  // discriminated by WalletTxn.walletType = PAYIN with its own balanceAfter chain.
+  payinBalance Decimal @default(0) @db.Decimal(14, 2)
 
   // login location tracking
   lastLoginLat Float?
@@ -502,15 +508,18 @@ enum WalletReason {
   COMMISSION_PAYOUT // Debit from the revenue wallet to fund an upline (DT/MD/SD) commission
   TDS_WITHHELD      // TDS withheld from a commission (moved to the TDS liability ledger)
   LIEN              // Admin lien recovery: funds swept from a user to the Company Suspense account
+  PAYIN_COLLECTION  // Gross inbound (POS/PG/QR/top-up) mirrored to the company payin wallet for live monitoring
 }
 
 /// Which wallet book a ledger entry belongs to. PRIMARY = the main spendable
 /// wallet (User.walletBalance); AEPS = the secondary AEPS proceeds wallet
-/// (User.aepsBalance). Each book keeps its own balanceAfter chain.
+/// (User.aepsBalance); REVENUE = the company margin wallet; PAYIN = the company
+/// live-inbound monitoring wallet. Each book keeps its own balanceAfter chain.
 enum WalletType {
   PRIMARY
   AEPS
   REVENUE
+  PAYIN
 }
 
 model WalletTxn {
@@ -565,6 +574,7 @@ enum ServiceCode {
   TRAVEL_TRAIN
   PAN_CARD
   INSURANCE
+  POS // POS acquirer settlement (first-class so earnings/commission attribute per-service)
 }
 
 enum TxnStatus {

@@ -37,10 +37,19 @@ export default async function OpengraphImage() {
               boxShadow: "0 20px 60px -10px rgba(233,69,96,0.45)"
             }}
           >
-            <svg width="62" height="62" viewBox="0 0 64 64">
-              <rect x="14" y="15" width="8" height="34" rx="2" fill="#ffffff" />
-              <rect x="42" y="15" width="8" height="34" rx="2" fill="#ffffff" />
-              <path d="M14 15 L22 15 L50 49 L42 49 Z" fill="#e94560" />
+            <svg width="62" height="62" viewBox="-8 -13 48 48">
+              <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M0.00172773 0V6.85398C0.00172773 6.85398 -0.133178 9.01207 1.98092 10.8388L13.6912 21.9964L19.7809 21.9181L18.8042 9.88248L16.4951 7.17289L9.23799 0H0.00172773Z"
+                fill="#e94560"
+              />
+              <path
+                fillRule="evenodd"
+                clipRule="evenodd"
+                d="M7.77295 16.3566L23.6563 0H32V6.88383C32 6.88383 31.8262 9.17836 30.6591 10.4057L19.7824 22H13.6938L7.77295 16.3566Z"
+                fill="#ffffff"
+              />
             </svg>
           </div>
           <div style={{ display: "flex", flexDirection: "column" }}>

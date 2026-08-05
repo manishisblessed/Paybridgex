@@ -204,6 +204,8 @@ export function BbpsBillForm({
           ),
           amount: Number(amount),
           idempotencyKey: generateRefId(`${refPrefix}P`),
+          ...(bill.customerName ? { customerName: bill.customerName } : {}),
+          ...(biller?.name ? { billerName: biller.name } : {}),
         }),
       });
       const data = await res.json();

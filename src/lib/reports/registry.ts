@@ -11,12 +11,14 @@ import {
   CreditCard,
   Landmark,
   Receipt,
+  ReceiptText,
   QrCode,
   Monitor,
   Banknote,
   CircleDollarSign,
   BookText,
   CalendarClock,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 import type { ReportType, ReportFieldFormat } from "./types";
@@ -83,7 +85,12 @@ const SERVICE_CODES = [
   "UPI_COLLECT", "UPI_PAYOUT", "WALLET_TOPUP", "WALLET_WITHDRAW",
   "RECHARGE_MOBILE", "RECHARGE_DTH", "RECHARGE_BROADBAND",
   "BILL_ELECTRICITY", "BILL_WATER", "BILL_GAS", "BILL_CREDIT_CARD", "BILL_EDUCATION", "BILL_INSURANCE",
-  "TRAVEL_FLIGHT", "TRAVEL_HOTEL", "TRAVEL_BUS", "TRAVEL_TRAIN", "PAN_CARD", "INSURANCE",
+  "TRAVEL_FLIGHT", "TRAVEL_HOTEL", "TRAVEL_BUS", "TRAVEL_TRAIN", "PAN_CARD", "INSURANCE", "POS",
+];
+/** Bill-payment service codes (BBPS categories + broadband), shared with the query layer. */
+export const BILL_SERVICE_CODES = [
+  "BILL_ELECTRICITY", "BILL_WATER", "BILL_GAS", "BILL_CREDIT_CARD",
+  "BILL_EDUCATION", "BILL_INSURANCE", "RECHARGE_BROADBAND",
 ];
 const NETWORK_ROLES = [
   "RETAILER", "DISTRIBUTOR", "MASTER_DISTRIBUTOR", "SUPER_DISTRIBUTOR",
@@ -215,6 +222,38 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
     },
   },
 
+  "bill-payment": {
+    type: "bill-payment",
+    title: "Bill Payment Report",
+    short: "Bill Payment",
+    description:
+      "Line-item BBPS bill payments (electricity, water, gas, credit-card, education, insurance, broadband) with charge, GST, total debit and provider reference for full traceability.",
+    icon: ReceiptText,
+    accent: "accent",
+    columns: [
+      { key: "sno", header: "S.No" },
+      { key: "retailerId", header: "Retailer ID", format: "mono" },
+      { key: "refId", header: "Transaction ID", format: "mono" },
+      { key: "operator", header: "Operator / Provider" },
+      { key: "bankName", header: "Bank" },
+      { key: "bankLogo", header: "Logo", format: "avatar", align: "center" },
+      { key: "customerName", header: "Customer" },
+      { key: "card", header: "Card No.", format: "mono" },
+      { key: "mobile", header: "Mobile", format: "mono" },
+      { key: "charge", header: "Charge", format: "money", align: "right" },
+      { key: "gst", header: "GST", format: "money", align: "right" },
+      { key: "totalDebit", header: "Total Debit", format: "money", align: "right" },
+      { key: "referenceNo", header: "Reference No", format: "mono" },
+      { key: "status", header: "Status", format: "badge" },
+    ],
+    filters: {
+      dateRange: true,
+      search: "Search txn / ref / retailer / bank…",
+      status: { label: "Status", options: opts(TXN_STATUS) },
+      service: { label: "Bill type", options: opts(BILL_SERVICE_CODES) },
+    },
+  },
+
   "credit-card": {
     type: "credit-card",
     title: "Credit Card Report",
@@ -225,6 +264,7 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
     columns: [
       { key: "date", header: "Date", format: "datetime" },
       { key: "refId", header: "Ref ID", format: "mono" },
+      { key: "bankLogo", header: "Logo", format: "avatar", align: "center" },
       { key: "operator", header: "Bank / Issuer" },
       { key: "customer", header: "Card", format: "mono" },
       { key: "amount", header: "Amount", format: "money", align: "right" },
@@ -319,6 +359,31 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       { key: "note", header: "Note" },
     ],
     filters: { dateRange: true, search: "Search note / reference…" },
+  },
+
+  tds: {
+    type: "tds",
+    title: "TDS Report (194H)",
+    short: "TDS (194H)",
+    description:
+      "Section 194H TDS withheld on commissions, per deductee (PAN-wise). Set the date range to a quarter and export for Form 26Q filing.",
+    icon: ShieldCheck,
+    accent: "accent",
+    columns: [
+      { key: "deductee", header: "Deductee" },
+      { key: "code", header: "User ID", format: "mono" },
+      { key: "pan", header: "PAN", format: "mono" },
+      { key: "role", header: "Role", format: "badge" },
+      { key: "section", header: "Section", format: "mono" },
+      { key: "deductions", header: "Deductions", format: "int", align: "right" },
+      { key: "gross", header: "Gross commission", format: "money", align: "right" },
+      { key: "tds", header: "TDS withheld", format: "money", align: "right" },
+    ],
+    filters: {
+      dateRange: true,
+      search: "Search deductee / PAN / ID…",
+      service: { label: "Service", options: opts(SERVICE_CODES) },
+    },
   },
 
   account: {

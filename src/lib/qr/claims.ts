@@ -25,6 +25,7 @@ import { getSetting } from "../settings";
 import { priceSchemeSettlement, startOfTodayIst, SETTLED_VIA } from "../settlement/engine";
 import { railScopeKey } from "../mdr/floor";
 import { distributeMdrCommission } from "../commission/distribute";
+import { recordPayin } from "../wallet/payin";
 
 export class QrClaimError extends Error {
   public statusCode: number;
@@ -386,6 +387,14 @@ async function settleClaim(
   // and the per-payee commission:<txn>:<user> ledger keys.
   if (credited !== null) {
     await distributeCommissionForQr(claim.id, claim.userId, Number(claim.amount), settlementType);
+    // Mirror the GROSS into the company payin wallet (best-effort live monitor).
+    await recordPayin({
+      rail: "QR",
+      grossAmount: Number(claim.amount),
+      refType: "QrClaim",
+      refId: claim.id,
+      note: `QR payin (UTR ${claim.utr})`,
+    });
   }
 
   return credited;

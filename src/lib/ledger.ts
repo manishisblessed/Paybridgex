@@ -67,6 +67,7 @@ async function lockUser(tx: Tx, userId: string) {
       lienBalance: true,
       aepsBalance: true,
       revenueBalance: true,
+      payinBalance: true,
     },
   });
   if (!user) throw new LedgerError("INVALID_AMOUNT", "User not found");
@@ -90,11 +91,12 @@ function primarySpendable(user: {
 
 /** The balance column backing a wallet book. */
 function bookBalance(
-  user: { walletBalance: Money; aepsBalance: Money; revenueBalance: Money },
+  user: { walletBalance: Money; aepsBalance: Money; revenueBalance: Money; payinBalance: Money },
   walletType: WalletType
 ): Money {
   if (walletType === "AEPS") return user.aepsBalance;
   if (walletType === "REVENUE") return user.revenueBalance;
+  if (walletType === "PAYIN") return user.payinBalance;
   return user.walletBalance;
 }
 
@@ -102,6 +104,7 @@ function bookBalance(
 function bookUpdate(walletType: WalletType, newBalance: Money) {
   if (walletType === "AEPS") return { aepsBalance: newBalance };
   if (walletType === "REVENUE") return { revenueBalance: newBalance };
+  if (walletType === "PAYIN") return { payinBalance: newBalance };
   return { walletBalance: newBalance };
 }
 
@@ -440,6 +443,7 @@ export async function getBalances(userId: string) {
       lienBalance: true,
       aepsBalance: true,
       revenueBalance: true,
+      payinBalance: true,
     },
   });
   if (!user) throw new LedgerError("INVALID_AMOUNT", "User not found");
@@ -449,6 +453,7 @@ export async function getBalances(userId: string) {
     lienBalance: user.lienBalance as Money,
     aepsBalance: user.aepsBalance as Money,
     revenueBalance: user.revenueBalance as Money,
+    payinBalance: user.payinBalance as Money,
     spendable: primarySpendable(user),
   };
 }

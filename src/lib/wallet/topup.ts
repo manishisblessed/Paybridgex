@@ -19,6 +19,7 @@ import { getPartner } from "../partners";
 import { round } from "../money";
 import { emitWebhookEvent } from "../platform/webhooks";
 import { assertPushWithinCap, WalletOpError } from "./operations";
+import { recordPayin } from "./payin";
 
 export type TopupState = "INITIATED" | "PROCESSING" | "SUCCESS" | "FAILED";
 
@@ -152,6 +153,15 @@ export async function settleTopup(refId: string): Promise<{ refId: string; statu
           meta: { refId, amount: txn.amount.toString(), provider: txn.partner },
         },
       });
+    });
+    // Mirror the GROSS into the company payin wallet (best-effort live monitor).
+    // Idempotency-keyed, so a webhook + poll race counts the top-up once.
+    await recordPayin({
+      rail: "TOPUP",
+      grossAmount: txn.amount,
+      refType: "Transaction",
+      refId: txn.id,
+      note: `Wallet top-up payin ${refId}`,
     });
     // Partner webhook (best-effort; never blocks or fails the credit).
     void emitWebhookEvent(txn.userId, "topup.credited", {
