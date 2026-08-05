@@ -782,26 +782,18 @@ function UserDrawer({
                       });
                       const data = await res.json();
                       if (!res.ok) throw new Error(data?.error ?? "Operation failed");
-                      const staged = data.operation?.status === "PENDING_APPROVAL";
 
-                      if (staged) {
-                        setDrawerNotice({
-                          kind: "pending",
-                          text: `Staged for approval — a different admin must approve this ${walletOpType.toLowerCase()} of ${formatINR(amt)}.`,
-                        });
-                      } else {
-                        // Optimistic balance update + pulse animation.
-                        const key = walletOpWalletType === "PRIMARY" ? "primary" : "aeps";
-                        setLiveBalances((prev) => ({
-                          ...prev,
-                          [key]: walletOpType === "PUSH" ? prev[key] + amt : prev[key] - amt,
-                        }));
-                        setPulse(key);
-                        setDrawerNotice({
-                          kind: "success",
-                          text: `${walletOpType === "PUSH" ? "Credited" : "Debited"} ${formatINR(amt)} ${walletOpType === "PUSH" ? "to" : "from"} ${user.name} — ledger entry written.`,
-                        });
-                      }
+                      // Optimistic balance update + pulse animation.
+                      const key = walletOpWalletType === "PRIMARY" ? "primary" : "aeps";
+                      setLiveBalances((prev) => ({
+                        ...prev,
+                        [key]: walletOpType === "PUSH" ? prev[key] + amt : prev[key] - amt,
+                      }));
+                      setPulse(key);
+                      setDrawerNotice({
+                        kind: "success",
+                        text: `${walletOpType === "PUSH" ? "Credited" : "Debited"} ${formatINR(amt)} ${walletOpType === "PUSH" ? "to" : "from"} ${user.name} — ledger entry written.`,
+                      });
 
                       setWalletOpAmount("");
                       setWalletOpRemarks("");

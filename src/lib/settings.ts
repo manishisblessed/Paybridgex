@@ -18,12 +18,15 @@ const SETTING_SCHEMAS = {
     amount: z.number().positive().default(500_000),
   }),
 
-  /** Admin wallet PUSH/PULL above this amount needs a second admin (₹). */
+  /** @deprecated No longer enforced — admin wallet PUSH/PULL executes
+   *  immediately for any authorized admin. Kept so existing stored rows
+   *  validate. */
   "wallet.ops_approval_threshold": z.object({
     amount: z.number().nonnegative().default(50_000),
   }),
 
-  /** Reversals above this amount need a second admin (₹). */
+  /** @deprecated No longer enforced — reversals execute immediately for any
+   *  authorized admin. Kept so existing stored rows validate. */
   "reversal.approval_threshold": z.object({
     amount: z.number().nonnegative().default(25_000),
   }),

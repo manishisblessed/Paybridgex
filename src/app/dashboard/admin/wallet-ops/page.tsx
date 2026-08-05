@@ -153,7 +153,7 @@ export default function WalletOpsPage() {
       <PageHeader
         eyebrow="Admin · Money"
         title="Wallet Operations"
-        description="Platform liability at a glance, user-wise balances, and audited admin credit/debit with maker-checker above the threshold."
+        description="Platform liability at a glance, user-wise balances, and audited admin credit/debit that executes immediately."
         actions={
           <>
             <Button variant="outline" onClick={() => setMasked((m) => !m)}>
@@ -647,11 +647,8 @@ function OperateTab({ onDone }: { onDone: (msg: string, ok: boolean) => void }) 
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "Operation failed");
-      const staged = data.operation?.status === "PENDING_APPROVAL";
       onDone(
-        staged
-          ? `Staged for approval — a different admin must approve this ${type.toLowerCase()} of ${formatINR(amt)}.`
-          : `${type === "PUSH" ? "Credited" : "Debited"} ${formatINR(amt)} ${type === "PUSH" ? "to" : "from"} ${selected.name} — ledger entry written.`,
+        `${type === "PUSH" ? "Credited" : "Debited"} ${formatINR(amt)} ${type === "PUSH" ? "to" : "from"} ${selected.name} — ledger entry written.`,
         true
       );
       setAmount("");
@@ -845,7 +842,7 @@ function OperateTab({ onDone }: { onDone: (msg: string, ok: boolean) => void }) 
           </div>
           <ul className="mt-2 space-y-1.5 text-[13px] leading-relaxed text-amber-800">
             <li>• Every operation writes a ledger entry with your identity and remarks.</li>
-            <li>• Amounts at/above the approval threshold stage as pending — a different admin must approve before money moves.</li>
+            <li>• Operations execute immediately — no second-admin approval is required.</li>
             <li>• A credit that would push the user above the wallet cap is refused.</li>
             <li>• Pulls are refused when the user lacks spendable balance — negative balances are impossible.</li>
           </ul>

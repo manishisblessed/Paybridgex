@@ -1,16 +1,17 @@
 import type { Reversal, WalletDirection, WalletType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { creditWallet, debitWallet, LedgerError } from "@/lib/ledger";
-import { add, dec, gte, toNumber } from "@/lib/money";
-import { getSetting } from "@/lib/settings";
+import { add, dec, toNumber } from "@/lib/money";
 
 /**
  * Reversal desk — admin-raised compensating movements against settled
  * entities. History is NEVER edited: a reversal posts an opposite-direction
  * ledger entry (reason REVERSAL) and links it here.
  *
- * Same money-safety contract as wallet operations: idempotent ledger leg
- * (`reversal:<id>`), maker-checker above the configured threshold, and the
+ * Authorization is tab-based (see `canManageReversals`): any staff member who
+ * holds the reversals tab may raise a reversal on their own — there is no
+ * second-admin (maker-checker) approval step. Same money-safety contract as
+ * wallet operations otherwise: idempotent ledger leg (`reversal:<id>`) and the
  * op row + movement commit together.
  */
 
@@ -19,6 +20,22 @@ export class ReversalError extends Error {
     super(message);
     this.name = "ReversalError";
   }
+}
+
+/**
+ * Authorization gate for raising / actioning reversals. Full admins always
+ * qualify; a sub-admin (DB role SUPPORT) qualifies when granted the reversals
+ * tab.
+ */
+export function canManageReversals(user: { role: string; allowedTabs?: string[] }): boolean {
+  if (user.role === "MASTER_ADMIN" || user.role === "ADMIN") return true;
+  if (user.role === "SUPPORT") return (user.allowedTabs ?? []).includes("reversals");
+  return false;
+}
+
+/** Read access — everyone write-capable, plus read-only FINANCE oversight. */
+export function canViewReversals(user: { role: string; allowedTabs?: string[] }): boolean {
+  return user.role === "FINANCE" || canManageReversals(user);
 }
 
 export type CreateReversalInput = {
@@ -89,9 +106,6 @@ export async function createReversal(input: CreateReversalInput): Promise<Revers
     );
   }
 
-  const threshold = await getSetting("reversal.approval_threshold");
-  const needsApproval = threshold.amount > 0 && gte(dec(input.amount), dec(threshold.amount));
-
   const rev = await prisma.reversal.create({
     data: {
       kind: input.kind,
@@ -104,35 +118,35 @@ export async function createReversal(input: CreateReversalInput): Promise<Revers
       walletType: input.walletType ?? "PRIMARY",
       amount: dec(input.amount),
       reason: input.reason.trim(),
-      status: needsApproval ? "PENDING_APPROVAL" : "COMPLETED",
+      status: "COMPLETED",
     },
   });
 
-  if (!needsApproval) {
-    try {
-      await executeReversal(rev);
-    } catch (e) {
-      await prisma.reversal.update({
-        where: { id: rev.id },
-        data: { status: "REJECTED", rejectedNote: e instanceof Error ? e.message : "ledger error" },
-      });
-      if (e instanceof LedgerError && e.code === "INSUFFICIENT_FUNDS") {
-        throw new ReversalError("INSUFFICIENT_FUNDS", "Target wallet has insufficient balance for this debit");
-      }
-      throw e;
+  try {
+    await executeReversal(rev);
+  } catch (e) {
+    await prisma.reversal.update({
+      where: { id: rev.id },
+      data: { status: "REJECTED", rejectedNote: e instanceof Error ? e.message : "ledger error" },
+    });
+    if (e instanceof LedgerError && e.code === "INSUFFICIENT_FUNDS") {
+      throw new ReversalError("INSUFFICIENT_FUNDS", "Target wallet has insufficient balance for this debit");
     }
+    throw e;
   }
 
   return (await prisma.reversal.findUnique({ where: { id: rev.id } }))!;
 }
 
+/**
+ * Approve a still-pending reversal (legacy rows only — new reversals execute
+ * on create). Any authorized admin may approve, including the maker.
+ */
 export async function approveReversal(revId: string, approverId: string): Promise<Reversal> {
   const rev = await prisma.reversal.findUnique({ where: { id: revId } });
   if (!rev) throw new ReversalError("NOT_FOUND", "Reversal not found", 404);
   if (rev.status !== "PENDING_APPROVAL")
     throw new ReversalError("BAD_STATE", `Reversal is ${rev.status}, not PENDING_APPROVAL`);
-  if (rev.actorId === approverId)
-    throw new ReversalError("SELF_APPROVAL", "A different admin must approve this reversal", 403);
 
   await prisma.reversal.update({
     where: { id: rev.id },
@@ -165,10 +179,6 @@ export async function closeReversal(
   if (!rev) throw new ReversalError("NOT_FOUND", "Reversal not found", 404);
   if (rev.status !== "PENDING_APPROVAL")
     throw new ReversalError("BAD_STATE", `Reversal is ${rev.status}, not PENDING_APPROVAL`);
-  if (action === "CANCEL" && rev.actorId !== byUserId)
-    throw new ReversalError("NOT_MAKER", "Only the maker can cancel", 403);
-  if (action === "REJECT" && rev.actorId === byUserId)
-    throw new ReversalError("SELF_REVIEW", "A different admin must review", 403);
 
   return prisma.reversal.update({
     where: { id: rev.id },

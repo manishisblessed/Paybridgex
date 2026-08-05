@@ -43,6 +43,7 @@ import {
   ScanSearch,
   SlidersHorizontal,
   Tag,
+  TrendingUp,
   type LucideIcon
 } from "lucide-react";
 import type { Role } from "@/lib/auth";
@@ -120,6 +121,7 @@ export const ASSIGNABLE_ADMIN_TABS = [
   { href: "aml", label: "AML Monitoring" },
   { href: "revenue", label: "Company Earnings" },
   { href: "commission-report", label: "Commission Distributed" },
+  { href: "earnings", label: "Per-Txn Earnings" },
   { href: "analytics", label: "Business Analytics" },
   { href: "agreements", label: "Agreements Vault" },
   { href: "verify", label: "Identity Toolkit" },
@@ -154,6 +156,7 @@ const adminMoneyOps: NavItem[] = [
   { href: "/dashboard/admin/pos-settlement", label: "POS Settlement", icon: CreditCard, badge: "New" },
   { href: "/dashboard/admin/revenue", label: "Company Earnings", icon: CircleDollarSign, badge: "New" },
   { href: "/dashboard/admin/commission-report", label: "Commission Distributed", icon: HandCoins, badge: "New" },
+  { href: "/dashboard/admin/earnings", label: "Per-Txn Earnings", icon: TrendingUp, badge: "New" },
   { href: "/dashboard/admin/analytics", label: "Business Analytics", icon: LineChart, badge: "New" },
   { href: "/dashboard/admin/agreements", label: "Agreements Vault", icon: FileSignature, badge: "New" },
   { href: "/dashboard/admin/verify", label: "Identity Toolkit", icon: ScanSearch, badge: "New" },
@@ -326,6 +329,7 @@ export const navByRole: Record<Role, NavGroup[]> = {
         { href: "/dashboard/admin/ledger", label: "Ledger Explorer", icon: BookOpenCheck },
         { href: "/dashboard/admin/revenue", label: "Company Earnings", icon: CircleDollarSign },
         { href: "/dashboard/admin/commission-report", label: "Commission Distributed", icon: HandCoins },
+        { href: "/dashboard/admin/earnings", label: "Per-Txn Earnings", icon: TrendingUp },
         { href: "/dashboard/admin/analytics", label: "Business Analytics", icon: LineChart },
         { href: "/dashboard/reports", label: "Reports", icon: BarChart3 }
       ]

@@ -680,20 +680,31 @@ async function reportCreditCard(user: SessionUser, params: ReportParams): Promis
             { refId: { contains: params.q, mode: "insensitive" } },
             { customer: { contains: params.q, mode: "insensitive" } },
             { operator: { contains: params.q, mode: "insensitive" } },
+            { partnerTxnId: { contains: params.q, mode: "insensitive" } },
+            { user: { userCode: { contains: params.q, mode: "insensitive" } } },
           ],
         }
       : {}),
   };
 
-  const [list, total, agg] = await Promise.all([
-    prisma.transaction.findMany({ where, orderBy: { createdAt: "desc" }, ...paginate(params) }),
+  const [list, total, agg, successN] = await Promise.all([
+    prisma.transaction.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: { user: { select: { userCode: true, name: true } } },
+      ...paginate(params),
+    }),
     prisma.transaction.count({ where }),
     prisma.transaction.aggregate({ where, _sum: { amount: true, fee: true, commission: true } }),
+    prisma.transaction.count({ where: { AND: [where, { status: "SUCCESS" }] } }),
   ]);
 
   const volume = dec(agg._sum.amount ?? 0);
   const fees = dec(agg._sum.fee ?? 0);
   const commission = dec(agg._sum.commission ?? 0);
+  const chargeTotal = fees.div(GST_DIVISOR);
+  const gstTotal = sub(fees, chargeTotal);
+  const totalDebitTotal = add(volume, fees);
 
   // Resolve issuer display names + logos for the codes on this page.
   const codes = [...new Set(list.map((r) => r.operator).filter((c): c is string => !!c))];
@@ -704,22 +715,32 @@ async function reportCreditCard(user: SessionUser, params: ReportParams): Promis
   const billerName = new Map(billers.map((b) => [b.code, b.name]));
   const logoUrl = new Map(operators.map((o) => [o.code, o.logoUrl]));
 
-  const rows = list.map((r) => {
+  const startNo = params.forExport ? 0 : (params.page - 1) * params.pageSize;
+
+  const rows = list.map((r, i) => {
     const bag = billRequestBag(r.request);
     const bank =
       pickField(bag, ["bankname", "biller", "billername"]) ??
       (r.operator ? billerName.get(r.operator) : null) ??
       r.operator ??
       "—";
+    const charge = dec(r.fee).div(GST_DIVISOR);
+    const gst = sub(dec(r.fee), charge);
     return {
-      date: r.createdAt.toISOString(),
+      sno: startNo + i + 1,
+      retailerId: r.user?.userCode ?? r.userId.slice(0, 8).toUpperCase(),
       refId: r.refId,
-      bankLogo: (r.operator ? logoUrl.get(r.operator) : null) ?? bank,
       operator: bank,
-      customer: r.customer ?? "—",
-      amount: toNumber(r.amount),
-      fee: toNumber(r.fee),
-      commission: toNumber(r.commission),
+      bankName: bank,
+      bankLogo: (r.operator ? logoUrl.get(r.operator) : null) ?? bank,
+      customerName:
+        pickField(bag, ["customername", "name", "consumername", "beneficiaryname", "customer_name"]) ?? "—",
+      card: maskCard(pickField(bag, ["cardlast4", "cardnumber", "card", "accountno", "number"], ["card"]) ?? r.customer) ?? "—",
+      mobile: pickField(bag, ["mobileno", "mobile", "customermobile", "phone", "msisdn"], ["mobile"]) ?? "—",
+      charge: toNumber(charge),
+      gst: toNumber(gst),
+      totalDebit: toNumber(add(r.amount, r.fee)),
+      referenceNo: billReference(r.partnerTxnId, r.response) ?? "—",
       status: r.status,
     };
   });
@@ -738,11 +759,16 @@ async function reportCreditCard(user: SessionUser, params: ReportParams): Promis
     total,
     page: params.page,
     pageSize: params.pageSize,
-    totals: { date: "Total", amount: toNumber(volume), fee: toNumber(fees), commission: toNumber(commission) },
+    totals: {
+      sno: "Total",
+      charge: toNumber(chargeTotal),
+      gst: toNumber(gstTotal),
+      totalDebit: toNumber(totalDebitTotal),
+    },
     summary: [
       count("Payments", total, "violet"),
       money("Volume", volume, "brand"),
-      money("Fees", fees, "accent"),
+      money("Charge + GST", fees, "accent"),
       money("Commission", commission, "emerald"),
     ],
     trend,

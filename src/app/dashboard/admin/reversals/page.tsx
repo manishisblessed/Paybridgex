@@ -130,12 +130,7 @@ export default function ReversalDeskPage() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Failed to raise reversal");
-      notify(
-        d.reversal.status === "PENDING_APPROVAL"
-          ? "Reversal staged — a second admin must approve it."
-          : "Reversal executed and posted to the ledger.",
-        true
-      );
+      notify("Reversal executed and posted to the ledger.", true);
       setForm((f) => ({ ...f, refId: "", refLabel: "", targetUserId: "", targetLabel: "", amount: "", reason: "" }));
       setLookupRef("");
       load();

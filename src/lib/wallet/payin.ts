@@ -25,7 +25,8 @@ export type PayinRail = "POS" | "PG" | "QR" | "TOPUP";
 
 /** Map a PAYIN WalletTxn.refType back to its rail (only recordPayin writes this book). */
 const RAIL_BY_REF_TYPE: Record<string, PayinRail> = {
-  PosSettlementEntry: "POS",
+  PosTransactionMirror: "POS", // POS payin now mirrors the RAW captured feed (matches the POS Fleet volume)
+  PosSettlementEntry: "POS", // legacy: earlier POS payin was recorded at the settlement point
   PgSettlementEntry: "PG",
   QrClaim: "QR",
   Transaction: "TOPUP",

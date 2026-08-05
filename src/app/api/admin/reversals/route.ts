@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import {
   createReversal,
   reversalInputFromTransaction,
+  canManageReversals,
+  canViewReversals,
   ReversalError,
 } from "@/lib/reversal/service";
 import { dec, toNumber } from "@/lib/money";
@@ -16,7 +18,9 @@ export const dynamic = "force-dynamic";
 /** GET — reversal history with status filter + lookup helper. */
 export async function GET(req: Request) {
   try {
-    await requireRole("MASTER_ADMIN", "ADMIN", "SUPPORT", "FINANCE");
+    const admin = await requireAuth();
+    if (!canViewReversals(admin))
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const url = new URL(req.url);
 
@@ -101,16 +105,18 @@ const CreateBody = z.object({
   reason: z.string().min(5).max(300),
 });
 
-/** POST — raise a reversal (maker). */
+/** POST — raise a reversal (executes immediately for the actor). */
 export async function POST(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAuth();
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: e.message }, { status: e.statusCode });
     throw e;
   }
+  if (!canManageReversals(admin))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = CreateBody.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)

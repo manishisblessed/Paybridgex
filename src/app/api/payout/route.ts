@@ -249,7 +249,10 @@ export async function POST(req: Request) {
         const accountLast4 = accountNumber.slice(-4);
         const bulkpeReferenceId = `PO${nanoid(18).toUpperCase()}`;
 
-        const autoApprove = user.role === "RETAILER";
+        // A payout always debits the requester's OWN held wallet balance —
+        // it is their own money, so no second-party approval is required.
+        // Every network role (retailer + distributor tiers) auto-approves.
+        const autoApprove = true;
 
         const created = await prisma.$transaction(async (tx) => {
           await holdFunds({ userId: user.id, amount: quote.totalDebit }, tx);

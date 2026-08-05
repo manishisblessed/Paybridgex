@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Select, Label } from "@/components/ui/Input";
 import { REPORTS } from "@/lib/reports/registry";
-import { brandLogoUrl, brandBadge } from "@/lib/brand/logos";
+import { brandLogoUrl, brandBadge, brandLocalLogos } from "@/lib/brand/logos";
 import type { ReportColumnDef, Accent } from "@/lib/reports/registry";
 import type { ReportType, ReportResult } from "@/lib/reports/types";
 import type { ReportColumn } from "@/lib/reports";
@@ -82,31 +82,34 @@ function BrandBadge({ name }: { name: string }) {
 }
 
 /**
- * Bank / operator logo cell. Renders the real brand logo when we can resolve
- * one (from a stored URL or the brand table), and gracefully falls back to a
- * coloured monogram if the value is missing or the image fails to load.
+ * Bank / operator logo cell. Resolves an image through a cascade and gracefully
+ * degrades on each failure:
+ *   self-hosted asset (/banks/<slug>.svg|png)  →  CDN logo  →  coloured monogram
+ * When the value is an explicit URL (e.g. a stored Operator.logoUrl) it is used
+ * directly, falling back to a neutral placeholder if it fails to load.
  */
 function AvatarCell({ value }: { value: string }) {
-  const [imgFailed, setImgFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const s = String(value ?? "").trim();
   if (!s || s === "—") return <span className="text-ink-400">—</span>;
 
   const isUrl = /^https?:\/\//i.test(s) || s.startsWith("/");
-  const url = isUrl ? s : brandLogoUrl(s);
+  const sources = isUrl
+    ? [s]
+    : [...brandLocalLogos(s), brandLogoUrl(s)].filter((u): u is string => !!u);
 
-  if (url && !imgFailed) {
+  if (attempt < sources.length) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={url}
+        src={sources[attempt]}
         alt=""
-        onError={() => setImgFailed(true)}
+        onError={() => setAttempt((a) => a + 1)}
         className="mx-auto h-7 w-7 rounded-md bg-white object-contain ring-1 ring-ink-100"
       />
     );
   }
-  // No logo (or it failed): show a branded monogram. When the value was a URL
-  // we have no name to derive initials from, so render a neutral placeholder.
+  // Everything failed: branded monogram for a name, neutral dash for a bare URL.
   return isUrl ? <span className="text-ink-400">—</span> : <BrandBadge name={s} />;
 }
 

@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import {
   createWalletOperation,
+  canManageWalletOps,
+  canViewWalletOps,
   WalletOpError,
   WALLET_OP_REASON_CODES,
 } from "@/lib/wallet/operations";
@@ -22,16 +24,18 @@ const CreateBody = z.object({
   remarks: z.string().min(3).max(500),
 });
 
-/** POST — create a wallet PUSH/PULL (auto-executes below the threshold). */
+/** POST — create a wallet PUSH/PULL (executes immediately for the actor). */
 export async function POST(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAuth();
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: e.message }, { status: e.statusCode });
     throw e;
   }
+  if (!canManageWalletOps(admin))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = CreateBody.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)
@@ -75,7 +79,9 @@ export async function POST(req: Request) {
 /** GET — operation history with filters. */
 export async function GET(req: Request) {
   try {
-    await requireRole("MASTER_ADMIN", "ADMIN", "FINANCE");
+    const admin = await requireAuth();
+    if (!canViewWalletOps(admin))
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
     const type = searchParams.get("type");

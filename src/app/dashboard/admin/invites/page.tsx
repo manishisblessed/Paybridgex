@@ -350,8 +350,8 @@ export default function AdminInvitesPage() {
           <p className="text-ink-500">No invites found.</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-2xl border border-ink-100 bg-white">
+          <table className="w-full min-w-[960px] text-sm">
             <thead className="border-b border-ink-100 bg-ink-50/50">
               <tr>
                 <th className="px-4 py-3 text-left font-semibold text-ink-700">Contact</th>
@@ -360,12 +360,12 @@ export default function AdminInvitesPage() {
                 <th className="px-4 py-3 text-left font-semibold text-ink-700">Upline</th>
                 <th className="px-4 py-3 text-left font-semibold text-ink-700">Status</th>
                 <th className="px-4 py-3 text-left font-semibold text-ink-700">Created</th>
-                <th className="px-4 py-3 text-right font-semibold text-ink-700">Actions</th>
+                <th className="sticky right-0 z-20 bg-ink-50 px-4 py-3 text-right font-semibold text-ink-700 shadow-[-8px_0_12px_-8px_rgba(14,22,38,0.12)]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-50">
               {invites.map((inv) => (
-                <tr key={inv.id} className="hover:bg-ink-50/30">
+                <tr key={inv.id} className="group hover:bg-ink-50/30">
                   <td className="px-4 py-3">
                     <div className="font-medium text-ink-900">{inv.name || inv.email}</div>
                     <div className="text-xs text-ink-500">{inv.phone}</div>
@@ -400,7 +400,7 @@ export default function AdminInvitesPage() {
                   <td className="px-4 py-3 text-ink-500">
                     {new Date(inv.createdAt).toLocaleDateString()}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="sticky right-0 z-10 bg-white px-4 py-3 text-right shadow-[-8px_0_12px_-8px_rgba(14,22,38,0.12)] group-hover:bg-ink-50">
                     <div className="flex items-center justify-end gap-2">
                       {inv.onboardingLink && ACTIVE_LINK_STATUSES.includes(inv.status) && (
                         <>

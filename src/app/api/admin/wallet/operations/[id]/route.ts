@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import {
   approveWalletOperation,
   closeWalletOperation,
+  canManageWalletOps,
   WalletOpError,
 } from "@/lib/wallet/operations";
 
@@ -21,12 +22,14 @@ const ActionBody = z.object({
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAuth();
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: e.message }, { status: e.statusCode });
     throw e;
   }
+  if (!canManageWalletOps(admin))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = ActionBody.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)

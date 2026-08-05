@@ -236,7 +236,7 @@ export default function PayoutApprovalsPage() {
       <PageHeader
         eyebrow="Approvals"
         title="Payout approvals"
-        description="Review and authorize payouts raised by your network. Maker-checker enforced — you cannot approve your own payout. Funds are released back if you reject."
+        description="Network self-withdrawals now auto-approve (a payout debits the requester's own wallet). This queue only holds any earlier requests still awaiting a decision; funds are released back if you reject."
         actions={
           <>
             <ReportActions

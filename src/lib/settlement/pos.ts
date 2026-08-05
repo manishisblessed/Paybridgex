@@ -5,7 +5,6 @@ import { resolveBrandMdr } from "@/lib/brand/mdr";
 import { distributeMdrCommission } from "@/lib/commission/distribute";
 import { isAboveMdrFloor } from "@/lib/mdr/floor";
 import { dec, sub, gte, toNumber, round, gt, eq } from "@/lib/money";
-import { recordPayin } from "@/lib/wallet/payin";
 import { getSetting } from "@/lib/settings";
 import { SETTLED_VIA, type SettledVia } from "@/lib/settlement/engine";
 import type { MdrServiceKind, ServiceCode } from "@prisma/client";
@@ -238,15 +237,11 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   const netAmount = round(sub(input.grossAmount, priced.mdrAmount));
   if (!gt(netAmount, 0)) return { status: "SKIPPED" };
 
-  // Mirror the GROSS into the company payin wallet (best-effort live monitor),
-  // once per canonical capture — regardless of instant vs T+1 settlement.
-  await recordPayin({
-    rail: "POS",
-    grossAmount: input.grossAmount,
-    refType: "PosSettlementEntry",
-    refId: input.transactionRef,
-    note: `POS payin (${paymentMode})`,
-  });
+  // NOTE: the company PAYIN monitor is credited at MIRROR INGEST (see
+  // src/lib/pos/mirror.ts), the first time a capture row lands as CAPTURED, so
+  // it tracks the RAW POS Fleet volume (every terminal) rather than only the
+  // settleable subset. Do NOT record payin here — that would under-count and
+  // double the concern.
 
   const capturedAt = input.capturedAt ? new Date(input.capturedAt) : new Date();
   const capturedAtValid = !Number.isNaN(capturedAt.getTime());

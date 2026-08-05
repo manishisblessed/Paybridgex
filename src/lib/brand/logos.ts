@@ -22,6 +22,8 @@ type BrandDef = {
   keywords: string[];
   /** Primary domain used to fetch the real logo from the CDN. */
   domain?: string;
+  /** Explicit local-asset slug; defaults to the first label of `domain`. */
+  slug?: string;
   /** Short monogram/wordmark shown when no image is available. */
   label: string;
   /** Brand background colour (hex). */
@@ -29,6 +31,9 @@ type BrandDef = {
   /** Brand foreground colour (hex); defaults to white. */
   fg?: string;
 };
+
+/** Public sub-directory (served from /public) where self-hosted logos live. */
+export const LOCAL_LOGO_DIR = "/banks";
 
 /**
  * Curated Indian bank / issuer / telecom / utility brands.
@@ -151,7 +156,7 @@ const BRANDS: BrandDef[] = [
   { keywords: ["uppcl", "uttar pradesh power"], domain: "uppcl.org", label: "UPPCL", bg: "#0B5CAB" },
   { keywords: ["bescom"], domain: "bescom.karnataka.gov.in", label: "BESCOM", bg: "#009639" },
   { keywords: ["wbsedcl"], domain: "wbsedcl.in", label: "WBSEDCL", bg: "#0072BC" },
-  { keywords: ["jvvnl", "jaipur vidyut"], domain: "energy.rajasthan.gov.in", label: "JVVNL", bg: "#C8102E" },
+  { keywords: ["jvvnl", "jaipur vidyut"], domain: "energy.rajasthan.gov.in", slug: "jvvnl", label: "JVVNL", bg: "#C8102E" },
   // ── Gas ─────────────────────────────────────────────────────────────
   { keywords: ["indane"], domain: "indane.co.in", label: "INDANE", bg: "#E1251B" },
   { keywords: ["hp gas", "hindustan petroleum"], domain: "hindustanpetroleum.com", label: "HP", bg: "#0072BC" },
@@ -193,6 +198,45 @@ export function brandLogoUrl(name: string | null | undefined): string | null {
   if (!name) return null;
   const b = findBrand(name);
   return b?.domain ? `${LOGO_CDN_ORIGIN}/${b.domain}` : null;
+}
+
+function slugForDomain(domain?: string): string | null {
+  if (!domain) return null;
+  return domain.split(".")[0] || null;
+}
+
+/** Stable slug used for a brand's self-hosted logo filename. */
+export function brandSlug(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const b = findBrand(name);
+  if (!b) return null;
+  return b.slug ?? slugForDomain(b.domain);
+}
+
+/**
+ * Candidate self-hosted logo paths for a brand (SVG preferred, then PNG),
+ * served from `/public${LOCAL_LOGO_DIR}`. Empty when the name is unknown.
+ * These are tried before the CDN so operators can override with their own art.
+ */
+export function brandLocalLogos(name: string | null | undefined): string[] {
+  const slug = brandSlug(name);
+  if (!slug) return [];
+  return [`${LOCAL_LOGO_DIR}/${slug}.svg`, `${LOCAL_LOGO_DIR}/${slug}.png`];
+}
+
+/**
+ * Deduped list of every self-hosted logo asset (slug + badge colours/label),
+ * used to pre-generate placeholder SVGs under `/public${LOCAL_LOGO_DIR}`.
+ * On a slug collision (e.g. shared domain) the later brand wins.
+ */
+export function brandAssetList(): Array<{ slug: string; label: string; bg: string; fg: string }> {
+  const bySlug = new Map<string, { slug: string; label: string; bg: string; fg: string }>();
+  for (const b of BRANDS) {
+    const slug = b.slug ?? slugForDomain(b.domain);
+    if (!slug) continue;
+    bySlug.set(slug, { slug, label: b.label, bg: b.bg, fg: b.fg ?? "#ffffff" });
+  }
+  return [...bySlug.values()];
 }
 
 /**

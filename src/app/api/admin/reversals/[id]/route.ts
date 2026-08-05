@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
-import { approveReversal, closeReversal, ReversalError } from "@/lib/reversal/service";
+import {
+  approveReversal,
+  closeReversal,
+  canManageReversals,
+  ReversalError,
+} from "@/lib/reversal/service";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -17,12 +22,14 @@ const Body = z.object({
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAuth();
   } catch (e) {
     if (e instanceof AuthError)
       return NextResponse.json({ error: e.message }, { status: e.statusCode });
     throw e;
   }
+  if (!canManageReversals(admin))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = Body.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)

@@ -24,8 +24,8 @@ import type { SessionUser } from "@/lib/auth-server";
 /**
  * Partner API v1 — /api/v1/payouts
  *   POST — create a payout (scope: payout.create). Requires an
- *          Idempotency-Key header; the request enters the same maker-checker
- *          flow as dashboard payouts (funds held, status PENDING_APPROVAL).
+ *          Idempotency-Key header; funds are held and the payout auto-approves
+ *          (it debits the requester's own wallet) then queues for disbursal.
  *   GET  — list recent payouts (scope: payout.read)
  */
 export const fetchCache = "force-no-store";
@@ -181,7 +181,9 @@ export async function POST(req: Request) {
         const accountLast4 = handle.replace(/@.*/, "").slice(-4);
         const bulkpeReferenceId = `PO${nanoid(18).toUpperCase()}`;
 
-        const autoApprove = ctx.user.role === "RETAILER";
+        // A payout always debits the requester's OWN held wallet balance —
+        // it is their own money, so no second-party approval is required.
+        const autoApprove = true;
 
         const created = await prisma.$transaction(async (tx) => {
           await holdFunds({ userId, amount: quote.totalDebit }, tx);

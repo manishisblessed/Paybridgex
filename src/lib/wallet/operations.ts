@@ -1,22 +1,43 @@
 import type { WalletOperation, WalletType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { creditWallet, debitWallet, LedgerError } from "@/lib/ledger";
-import { add, dec, gt, gte, toNumber } from "@/lib/money";
+import { add, dec, gt, toNumber } from "@/lib/money";
 import { getSetting } from "@/lib/settings";
 
 /**
  * Admin wallet operations (PUSH = credit a user, PULL = debit a user).
  *
+ * Authorization is tab-based (see `canManageWalletOps`): any staff member who
+ * holds the wallet-ops or network tab may execute an operation on their own —
+ * there is no second-admin (maker-checker) approval step.
+ *
  * Money-safety properties:
  *  - the WalletOperation row and the ledger movement commit in ONE DB
  *    transaction — you can never have money without a record or vice versa;
- *  - the ledger movement carries idempotencyKey `walletop:<opId>` so an
- *    approval retry can never double-move;
- *  - amounts >= the configured threshold stage as PENDING_APPROVAL and money
- *    moves only when a DIFFERENT admin approves (maker-checker);
+ *  - the ledger movement carries idempotencyKey `walletop:<opId>` so a retry
+ *    can never double-move;
  *  - a PUSH that would lift the target above the wallet cap is refused;
  *  - every state change is audit-logged by the calling route.
  */
+
+/**
+ * Authorization gate for creating / actioning wallet operations. Full admins
+ * always qualify; a sub-admin (DB role SUPPORT) qualifies when granted either
+ * the wallet-ops or network tab (both surfaces expose push/pull).
+ */
+export function canManageWalletOps(user: { role: string; allowedTabs?: string[] }): boolean {
+  if (user.role === "MASTER_ADMIN" || user.role === "ADMIN") return true;
+  if (user.role === "SUPPORT") {
+    const tabs = user.allowedTabs ?? [];
+    return tabs.includes("wallet-ops") || tabs.includes("network");
+  }
+  return false;
+}
+
+/** Read access — everyone write-capable, plus read-only FINANCE oversight. */
+export function canViewWalletOps(user: { role: string; allowedTabs?: string[] }): boolean {
+  return user.role === "FINANCE" || canManageWalletOps(user);
+}
 
 export const WALLET_OP_REASON_CODES = [
   "FUND_LOAD",
@@ -98,8 +119,8 @@ async function executeMovement(op: WalletOperation): Promise<string> {
 }
 
 /**
- * Create a wallet operation. Small amounts execute immediately; amounts at or
- * above the approval threshold stage as PENDING_APPROVAL.
+ * Create a wallet operation. Executes immediately for the acting admin — there
+ * is no second-admin approval step regardless of amount.
  */
 export async function createWalletOperation(input: CreateWalletOpInput): Promise<WalletOperation> {
   if (!(input.amount > 0)) throw new WalletOpError("INVALID_AMOUNT", "Amount must be > 0");
@@ -119,9 +140,6 @@ export async function createWalletOperation(input: CreateWalletOpInput): Promise
     await assertPushWithinCap(input.targetUserId, walletType, input.amount);
   }
 
-  const threshold = await getSetting("wallet.ops_approval_threshold");
-  const needsApproval = threshold.amount > 0 && gte(dec(input.amount), dec(threshold.amount));
-
   const op = await prisma.walletOperation.create({
     data: {
       targetUserId: input.targetUserId,
@@ -131,39 +149,38 @@ export async function createWalletOperation(input: CreateWalletOpInput): Promise
       amount: dec(input.amount),
       reasonCode: input.reasonCode,
       remarks: input.remarks.trim(),
-      status: needsApproval ? "PENDING_APPROVAL" : "COMPLETED",
+      status: "COMPLETED",
       ip: input.ip ?? undefined,
     },
   });
 
-  if (!needsApproval) {
-    try {
-      await executeMovement(op);
-    } catch (e) {
-      // Movement failed (e.g. insufficient funds on PULL) — mark the op so no
-      // dangling COMPLETED row exists without a ledger leg.
-      await prisma.walletOperation.update({
-        where: { id: op.id },
-        data: { status: "REJECTED", rejectedNote: e instanceof Error ? e.message : "ledger error" },
-      });
-      if (e instanceof LedgerError && e.code === "INSUFFICIENT_FUNDS") {
-        throw new WalletOpError("INSUFFICIENT_FUNDS", "Target wallet has insufficient spendable balance");
-      }
-      throw e;
+  try {
+    await executeMovement(op);
+  } catch (e) {
+    // Movement failed (e.g. insufficient funds on PULL) — mark the op so no
+    // dangling COMPLETED row exists without a ledger leg.
+    await prisma.walletOperation.update({
+      where: { id: op.id },
+      data: { status: "REJECTED", rejectedNote: e instanceof Error ? e.message : "ledger error" },
+    });
+    if (e instanceof LedgerError && e.code === "INSUFFICIENT_FUNDS") {
+      throw new WalletOpError("INSUFFICIENT_FUNDS", "Target wallet has insufficient spendable balance");
     }
+    throw e;
   }
 
   return (await prisma.walletOperation.findUnique({ where: { id: op.id } }))!;
 }
 
-/** Approve a staged operation — must be a different admin than the maker. */
+/**
+ * Approve a still-pending operation (legacy rows only — new operations execute
+ * on create). Any authorized admin may approve, including the maker.
+ */
 export async function approveWalletOperation(opId: string, approverId: string): Promise<WalletOperation> {
   const op = await prisma.walletOperation.findUnique({ where: { id: opId } });
   if (!op) throw new WalletOpError("NOT_FOUND", "Operation not found", 404);
   if (op.status !== "PENDING_APPROVAL")
     throw new WalletOpError("BAD_STATE", `Operation is ${op.status}, not PENDING_APPROVAL`);
-  if (op.actorId === approverId)
-    throw new WalletOpError("SELF_APPROVAL", "A different admin must approve this operation", 403);
 
   if (op.type === "PUSH") {
     await assertPushWithinCap(op.targetUserId, op.walletType, toNumber(dec(op.amount)));
@@ -201,10 +218,6 @@ export async function closeWalletOperation(
   if (!op) throw new WalletOpError("NOT_FOUND", "Operation not found", 404);
   if (op.status !== "PENDING_APPROVAL")
     throw new WalletOpError("BAD_STATE", `Operation is ${op.status}, not PENDING_APPROVAL`);
-  if (action === "CANCEL" && op.actorId !== byUserId)
-    throw new WalletOpError("NOT_MAKER", "Only the maker can cancel", 403);
-  if (action === "REJECT" && op.actorId === byUserId)
-    throw new WalletOpError("SELF_REVIEW", "A different admin must review", 403);
 
   return prisma.walletOperation.update({
     where: { id: op.id },

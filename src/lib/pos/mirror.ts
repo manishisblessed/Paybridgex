@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { recordPayin } from "@/lib/wallet/payin";
 import { canonicalPosCaptureRef } from "@/lib/partners/sameday-pos";
 import type {
   PosTransaction,
@@ -109,6 +110,48 @@ function feedRowToMirrorData(
 }
 
 /**
+ * Snapshot the CURRENT mirror status for a set of refs. Must be read BEFORE the
+ * upsert so we can tell whether a capture is landing as CAPTURED for the FIRST
+ * time (new row, or a prior AUTHORIZED→CAPTURED transition) versus a re-sweep of
+ * an already-CAPTURED row. Keyed on the canonical `transactionRef`.
+ */
+async function mirrorStatusByRef(refs: string[]): Promise<Map<string, string | undefined>> {
+  if (refs.length === 0) return new Map();
+  const rows = await prisma.posTransactionMirror.findMany({
+    where: { transactionRef: { in: refs } },
+    select: { transactionRef: true, status: true },
+  });
+  return new Map(rows.map((r) => [r.transactionRef, up(r.status)]));
+}
+
+/**
+ * Credit the company PAYIN monitor for every POS capture the FIRST time its
+ * mirror row reaches CAPTURED — so the PAYIN book tracks the RAW POS Fleet
+ * captured volume (every terminal), not just the settleable subset.
+ *
+ * Forward-only by construction: `priorStatus` is captured BEFORE the upsert, so
+ * rows that were already CAPTURED (e.g. today's existing captures) are skipped
+ * on every re-sweep of the lookback window — no accidental backfill. Best-effort
+ * and idempotency-keyed (`payin:pos:<ref>`), so retries never double count.
+ */
+async function recordPosPayinForCaptures(
+  entries: { transactionRef: string; status: string; amount: string; paymentMode: string }[],
+  priorStatus: Map<string, string | undefined>
+): Promise<void> {
+  for (const e of entries) {
+    if (e.status !== "CAPTURED") continue; // only captured swipes are business
+    if (priorStatus.get(e.transactionRef) === "CAPTURED") continue; // already counted
+    await recordPayin({
+      rail: "POS",
+      grossAmount: e.amount,
+      refType: "PosTransactionMirror",
+      refId: e.transactionRef,
+      note: `POS payin (${e.paymentMode})`,
+    });
+  }
+}
+
+/**
  * Upsert a batch of partner feed rows into the mirror. Feed data is
  * authoritative, so existing rows are refreshed with the feed's values (this is
  * how the sweep repairs / completes rows first seen via the webhook). Returns
@@ -124,6 +167,10 @@ export async function upsertMirrorFromFeed(
     .map((t) => feedRowToMirrorData(t))
     .filter((m): m is NonNullable<typeof m> => m !== null);
   skipped += rows.length - mapped.length;
+
+  // Snapshot prior statuses BEFORE writing so the payin monitor can fire only on
+  // the first CAPTURED transition (forward-only; re-sweeps never backfill).
+  const priorStatus = await mirrorStatusByRef(mapped.map((m) => m.transactionRef));
 
   const BATCH = 25;
   for (let i = 0; i < mapped.length; i += BATCH) {
@@ -144,6 +191,17 @@ export async function upsertMirrorFromFeed(
     );
     written += slice.length;
   }
+
+  // Mirror the GROSS of newly-captured rows into the company payin wallet.
+  await recordPosPayinForCaptures(
+    mapped.map(({ transactionRef, data }) => ({
+      transactionRef,
+      status: String(data.status ?? "CAPTURED"),
+      amount: String(data.amount),
+      paymentMode: String(data.paymentMode ?? "CARD"),
+    })),
+    priorStatus
+  );
 
   return { written, skipped };
 }
@@ -200,6 +258,17 @@ export async function upsertMirrorFromWebhook(input: {
     txnTime,
   } satisfies Prisma.PosTransactionMirrorUncheckedUpdateInput;
 
+  // Prior status BEFORE the upsert → detect the first CAPTURED transition for
+  // the payin monitor (forward-only; a re-delivered CAPTURED webhook is a no-op).
+  const priorStatus = up(
+    (
+      await prisma.posTransactionMirror.findUnique({
+        where: { transactionRef: input.transactionRef },
+        select: { status: true },
+      })
+    )?.status
+  );
+
   await prisma.posTransactionMirror.upsert({
     where: { transactionRef: input.transactionRef },
     create: {
@@ -211,6 +280,18 @@ export async function upsertMirrorFromWebhook(input: {
     },
     update: shared,
   });
+
+  // Mirror the GROSS into the company payin wallet the first time this capture
+  // lands as CAPTURED (matches the raw POS Fleet volume). Best-effort + keyed.
+  if (status === "CAPTURED" && priorStatus !== "CAPTURED") {
+    await recordPayin({
+      rail: "POS",
+      grossAmount: input.grossAmount,
+      refType: "PosTransactionMirror",
+      refId: input.transactionRef,
+      note: `POS payin (${paymentMode})`,
+    });
+  }
 }
 
 // ── Read side ──────────────────────────────────────────────────────────────

@@ -20,12 +20,12 @@ const LABELS: Record<string, { title: string; description: string }> = {
     description: "Maximum primary-wallet balance any network user may hold.",
   },
   "wallet.ops_approval_threshold": {
-    title: "Wallet ops approval threshold",
-    description: "Admin push/pull at or above this amount needs a second admin (maker-checker).",
+    title: "Wallet ops approval threshold (inactive)",
+    description: "No longer enforced — admin push/pull executes immediately for any authorized admin, regardless of amount.",
   },
   "reversal.approval_threshold": {
-    title: "Reversal approval threshold",
-    description: "Reversals at or above this amount need a second admin.",
+    title: "Reversal approval threshold (inactive)",
+    description: "No longer enforced — reversals execute immediately for any authorized admin, regardless of amount.",
   },
   "settlement.t1": {
     title: "T+1 settlement engine",
