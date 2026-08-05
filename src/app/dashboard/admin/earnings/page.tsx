@@ -16,6 +16,7 @@ import {
   ArrowLeftRight,
   IndianRupee,
   Scissors,
+  Banknote,
   HandCoins,
   TrendingUp,
   RefreshCw,
@@ -56,6 +57,10 @@ type ReportRow = {
   txnTime: string;
   retailer: Retailer | null;
   amount: number;
+  mdrAmount: number | null;
+  netSettled: number | null;
+  settlementStatus: string | null;
+  uplineDepth: number;
   companyMargin: number;
   commDistributor: number;
   commMaster: number;
@@ -83,6 +88,8 @@ type RollupRow = {
 type Summary = {
   totalTransactions: number;
   totalVolume: number;
+  totalMdr: number;
+  totalSettled: number;
   totalMargin: number;
   totalDistributor: number;
   totalMaster: number;
@@ -170,16 +177,32 @@ function merchantCell(r: { retailer: Retailer | null }) {
   );
 }
 
-function commissionCell(recipient: Recipient | null) {
-  if (!recipient || recipient.gross <= 0) return <span className="text-xs text-ink-300">—</span>;
+function commissionCell(recipient: Recipient | null, hasUpline: boolean) {
+  if (recipient && recipient.gross > 0) {
+    return (
+      <div className="flex flex-col items-end">
+        <span className="font-semibold text-ink-900">{formatINR(recipient.gross)}</span>
+        <span className="max-w-[110px] truncate text-[10px] text-ink-500">
+          {recipient.userCode ?? recipient.name}
+        </span>
+      </div>
+    );
+  }
+  // Upline exists at this tier but earned nothing (scheme pays ₹0 here).
+  if (hasUpline) return <span className="text-xs text-ink-400">{formatINR(0)}</span>;
+  // No ancestor at this tier — nobody to pay; the platform retains this share.
   return (
-    <div className="flex flex-col items-end">
-      <span className="font-semibold text-ink-900">{formatINR(recipient.gross)}</span>
-      <span className="max-w-[110px] truncate text-[10px] text-ink-500">
-        {recipient.userCode ?? recipient.name}
-      </span>
-    </div>
+    <span className="text-xs text-ink-300" title="No upline at this tier">
+      —
+    </span>
   );
+}
+
+function settlementBadge(status: string | null) {
+  if (!status) return <span className="text-xs text-ink-300">—</span>;
+  if (status === "SETTLED") return <Badge variant="success">Settled</Badge>;
+  if (status === "FAILED") return <Badge variant="danger">Failed</Badge>;
+  return <Badge variant="warning">Pending · T+1</Badge>;
 }
 
 type View = "transactions" | "rollup";
@@ -257,6 +280,9 @@ export default function AdminEarningsPage() {
     { key: "retailer", header: "Merchant", render: (r) => r.retailer?.shopName || r.retailer?.name || "" },
     { key: "userCode", header: "Merchant Code", render: (r) => r.retailer?.userCode ?? "" },
     { key: "amount", header: "Amount (INR)", format: "money", render: (r) => r.amount.toFixed(2) },
+    { key: "mdrAmount", header: "MDR (INR)", format: "money", render: (r) => (r.mdrAmount != null ? r.mdrAmount.toFixed(2) : "") },
+    { key: "netSettled", header: "Settled (INR)", format: "money", render: (r) => (r.netSettled != null ? r.netSettled.toFixed(2) : "") },
+    { key: "settlementStatus", header: "Settlement", render: (r) => r.settlementStatus ?? "" },
     { key: "companyMargin", header: "Company Margin (INR)", format: "money", render: (r) => r.companyMargin.toFixed(2) },
     { key: "commDistributor", header: "DT Commission (INR)", format: "money", render: (r) => r.commDistributor.toFixed(2) },
     { key: "commMaster", header: "MD Commission (INR)", format: "money", render: (r) => r.commMaster.toFixed(2) },
@@ -270,11 +296,14 @@ export default function AdminEarningsPage() {
     { key: "retailer", header: "Merchant", render: merchantCell },
     { key: "rail", header: "Rail", render: (r) => <Badge variant={RAIL_VARIANT[r.rail]}>{r.rail}</Badge> },
     { key: "amount", header: "Amount", align: "right", render: (r) => <span className="font-semibold text-ink-900">{formatINR(r.amount)}</span> },
+    { key: "mdrAmount", header: "MDR", align: "right", render: (r) => (r.mdrAmount != null ? <span className="text-rose-600">−{formatINR(r.mdrAmount)}</span> : <span className="text-xs text-ink-300">—</span>) },
+    { key: "netSettled", header: "Settled", align: "right", render: (r) => (r.netSettled != null ? <span className="font-semibold text-ink-900">{formatINR(r.netSettled)}</span> : <span className="text-xs text-ink-300">—</span>) },
     { key: "companyMargin", header: "Margin", align: "right", render: (r) => <span className="text-ink-700">{formatINR(r.companyMargin)}</span> },
-    { key: "commDistributor", header: "DT", align: "right", render: (r) => commissionCell(r.distributor) },
-    { key: "commMaster", header: "MD", align: "right", render: (r) => commissionCell(r.master) },
-    { key: "commSuper", header: "SD", align: "right", render: (r) => commissionCell(r.superDistributor) },
+    { key: "commDistributor", header: "DT", align: "right", render: (r) => commissionCell(r.distributor, r.uplineDepth >= 1) },
+    { key: "commMaster", header: "MD", align: "right", render: (r) => commissionCell(r.master, r.uplineDepth >= 2) },
+    { key: "commSuper", header: "SD", align: "right", render: (r) => commissionCell(r.superDistributor, r.uplineDepth >= 3) },
     { key: "platformEarning", header: "Platform Earning", align: "right", render: (r) => <span className="font-semibold text-emerald-700">{formatINR(r.platformEarning)}</span> },
+    { key: "settlementStatus", header: "Status", render: (r) => settlementBadge(r.settlementStatus) },
   ];
 
   const rollupCols: Column<RollupRow>[] = [
@@ -326,10 +355,11 @@ export default function AdminEarningsPage() {
       />
 
       {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard label="Transactions" value={summary ? summary.totalTransactions.toLocaleString("en-IN") : "..."} icon={ArrowLeftRight} accent="brand" />
         <StatCard label="Total Volume" value={summary ? formatINR(summary.totalVolume) : "..."} icon={IndianRupee} accent="violet" />
-        <StatCard label="Company Margin" value={summary ? formatINR(summary.totalMargin) : "..."} icon={Scissors} accent="accent" />
+        <StatCard label="MDR Collected" value={summary ? formatINR(summary.totalMdr) : "..."} icon={Scissors} accent="accent" />
+        <StatCard label="Settled to Merchants" value={summary ? formatINR(summary.totalSettled) : "..."} icon={Banknote} accent="violet" />
         <StatCard label="Commission Distributed" value={summary ? formatINR(summary.totalCommission) : "..."} icon={HandCoins} accent="brand" />
         <StatCard label="Platform Net Earning" value={summary ? formatINR(summary.totalPlatformEarning) : "..."} icon={TrendingUp} accent="emerald" />
       </div>

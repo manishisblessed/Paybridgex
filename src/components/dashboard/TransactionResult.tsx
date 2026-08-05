@@ -3,6 +3,14 @@
 import { CheckCircle2, X, Copy, Download } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { useAuth } from "@/lib/useAuth";
+
+/** Branding line shown on every payment result/receipt. */
+function payByLine(userCode?: string | null): string {
+  return userCode
+    ? `Pay by NxtGenPay by RT Code - ${userCode}`
+    : "Pay by NxtGenPay";
+}
 
 export type TxnResult = {
   refId: string;
@@ -12,7 +20,7 @@ export type TxnResult = {
   meta?: Record<string, string | number>;
 } | null;
 
-function buildReceiptHtml(r: NonNullable<TxnResult>): string {
+function buildReceiptHtml(r: NonNullable<TxnResult>, userCode?: string | null): string {
   const date = new Date().toLocaleString("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -32,7 +40,7 @@ function buildReceiptHtml(r: NonNullable<TxnResult>): string {
 ${r.customer ? `<tr><td style="padding:6px 0;color:#666;font-size:13px">Customer</td><td style="padding:6px 0;text-align:right;font-weight:600;font-size:13px">${r.customer}</td></tr>` : ""}
 ${metaRows}
 <tr><td style="padding:6px 0;color:#666;font-size:13px">Date</td><td style="padding:6px 0;text-align:right;font-weight:600;font-size:13px">${date}</td></tr></table></div>
-<div class="foot">NextGenPay — Powered by BBPS</div></div></body></html>`;
+<div class="foot"><div style="font-weight:600;color:#059669;margin-bottom:4px">${payByLine(userCode)}</div>NextGenPay — Powered by BBPS</div></div></body></html>`;
 }
 
 export function TransactionResult({
@@ -43,6 +51,8 @@ export function TransactionResult({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const { session } = useAuth();
+  const userCode = session?.userCode;
 
   useEffect(() => {
     if (!result) setCopied(false);
@@ -52,11 +62,11 @@ export function TransactionResult({
     if (!result) return;
     const w = window.open("", "_blank", "width=460,height=650");
     if (!w) return;
-    w.document.write(buildReceiptHtml(result));
+    w.document.write(buildReceiptHtml(result, userCode));
     w.document.close();
     w.addEventListener("afterprint", () => w.close());
     setTimeout(() => w.print(), 300);
-  }, [result]);
+  }, [result, userCode]);
 
   if (!result) return null;
 
@@ -140,7 +150,11 @@ export function TransactionResult({
               </div>
             ))}
 
-          <div className="flex gap-2 pt-2">
+          <p className="pt-1 text-center text-xs font-semibold text-emerald-600">
+            {payByLine(userCode)}
+          </p>
+
+          <div className="flex gap-2 pt-1">
             <Button type="button" variant="outline" className="flex-1" onClick={downloadReceipt}>
               <Download className="h-4 w-4" />
               Receipt

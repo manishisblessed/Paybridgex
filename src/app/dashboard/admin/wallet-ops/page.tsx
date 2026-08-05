@@ -365,7 +365,7 @@ function PayinTab({ money }: { money: (n: number) => string }) {
             {formatNumber(data?.totalCount ?? 0)} inbound transactions
           </p>
         </div>
-        <MiniStat label="All-time payin (mirrored)" value={money(data?.balance ?? 0)} />
+        <MiniStat label="All-time business (all rails)" value={money(data?.balance ?? 0)} />
         <MiniStat
           label="Avg ticket size"
           value={money(
@@ -414,9 +414,9 @@ function PayinTab({ money }: { money: (n: number) => string }) {
         </div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-sky-800">
           Every live inbound — POS captures, PG collections, QR settlements and wallet top-ups —
-          mirrors its gross into this company wallet the instant it is recognised, giving you a
-          real-time view of how much business is flowing through each rail. It is a monitor only:
-          it never moves retailer funds and is reconciled nightly as its own ledger book.
+          is counted here in real time, read straight from each rail&rsquo;s source feed so it
+          always matches your operational screens (POS mirrors the POS Fleet volume exactly). It
+          is a monitor only: it never moves retailer funds, and each period resets at IST midnight.
         </p>
       </div>
     </div>

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import { Bell, Menu, Search, Wallet, LogOut } from "lucide-react";
+import { Bell, Menu, Search, Wallet, LogOut, Activity } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { formatINR } from "@/lib/utils";
 import { toDisplayRole } from "@/lib/auth";
@@ -13,6 +13,7 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const { data: session } = useSession();
   const [open, setOpen] = useState(false);
   const [liveBalance, setLiveBalance] = useState<number | null>(null);
+  const [payinToday, setPayinToday] = useState<number | null>(null);
 
   const lastFetchedAt = useRef(0);
 
@@ -43,6 +44,32 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
       document.removeEventListener("visibilitychange", onFocus);
     };
   }, [fetchBalance]);
+
+  // Live company PAYIN (today) — master-admin only. Read straight from the rail
+  // sources so it mirrors the operational feeds and resets to ₹0 at IST midnight.
+  const isMaster = (session?.user as { role?: string } | undefined)?.role === "MASTER_ADMIN";
+  useEffect(() => {
+    if (!isMaster) return;
+    let active = true;
+    const load = async () => {
+      if (document.hidden) return;
+      try {
+        const res = await fetch("/api/admin/wallet/aggregates?view=payin-today");
+        if (!res.ok || !active) return;
+        const data = await res.json();
+        setPayinToday(typeof data.totalAmount === "number" ? data.totalAmount : null);
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 30_000);
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      active = false;
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [isMaster]);
 
   async function logout() {
     await signOut({ redirect: false });
@@ -82,6 +109,23 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
       </div>
 
       <div className="flex items-center gap-3">
+        {isMaster && (
+          <div
+            className="hidden items-center gap-2 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-2 md:flex"
+            title="Live company payin today (all rails) — resets to ₹0 at midnight"
+          >
+            <Activity className="h-4 w-4 text-emerald-700" />
+            <div className="flex flex-col leading-tight">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-700/80">
+                Payin · Today
+              </span>
+              <span className="font-display text-sm font-bold text-ink-900">
+                {formatINR(payinToday ?? 0)}
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="hidden items-center gap-2 rounded-2xl border border-ink-100 bg-gradient-to-r from-brand-50 to-accent-50 px-4 py-2 md:flex">
           <Wallet className="h-4 w-4 text-brand-700" />
           <div className="flex flex-col leading-tight">

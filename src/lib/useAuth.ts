@@ -43,6 +43,7 @@ export function useAuth() {
     role: toDisplayRole((user as any).role ?? "RETAILER"),
     walletBalance: (user as any).walletBalance ?? 0,
     loggedInAt: Date.now(),
+    userCode: (user as any).userCode ?? undefined,
     allowedTabs: (user as any).allowedTabs ?? [],
   };
 

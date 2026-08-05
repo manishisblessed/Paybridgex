@@ -616,7 +616,12 @@ async function reportBillPayment(user: SessionUser, params: ReportParams): Promi
         pickField(bag, ["customername", "name", "consumername", "beneficiaryname", "customer_name"]) ?? "—",
       card:
         maskCard(pickField(bag, ["cardlast4", "cardnumber", "card", "accountno", "number"], ["card"])) ?? "—",
-      mobile: pickField(bag, ["mobileno", "mobile", "customermobile", "phone", "msisdn"], ["mobile"]) ?? "—",
+      mobile:
+        pickField(
+          bag,
+          ["mobileno", "mobile", "customermobile", "customernumber", "registeredmobile", "contactnumber", "phone", "msisdn"],
+          ["mobile"]
+        ) ?? "—",
       charge: toNumber(charge),
       gst: toNumber(gst),
       totalDebit: toNumber(add(r.amount, r.fee)),
@@ -736,7 +741,12 @@ async function reportCreditCard(user: SessionUser, params: ReportParams): Promis
       customerName:
         pickField(bag, ["customername", "name", "consumername", "beneficiaryname", "customer_name"]) ?? "—",
       card: maskCard(pickField(bag, ["cardlast4", "cardnumber", "card", "accountno", "number"], ["card"]) ?? r.customer) ?? "—",
-      mobile: pickField(bag, ["mobileno", "mobile", "customermobile", "phone", "msisdn"], ["mobile"]) ?? "—",
+      mobile:
+        pickField(
+          bag,
+          ["mobileno", "mobile", "customermobile", "customernumber", "registeredmobile", "contactnumber", "phone", "msisdn"],
+          ["mobile"]
+        ) ?? "—",
       charge: toNumber(charge),
       gst: toNumber(gst),
       totalDebit: toNumber(add(r.amount, r.fee)),

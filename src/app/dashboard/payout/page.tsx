@@ -45,6 +45,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { TxnPinDialog } from "@/components/security/TxnPinDialog";
 import { formatINR } from "@/lib/utils";
+import { useAuth } from "@/lib/useAuth";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -1126,6 +1127,10 @@ function InfoTile({ label, value, mono }: { label: string; value: string; mono?:
 
 function PayoutReceipt({ result, onDone }: { result: PayoutResult; onDone: () => void }) {
   const [copied, setCopied] = useState(false);
+  const { session } = useAuth();
+  const payBy = session?.userCode
+    ? `Pay by NxtGenPay by RT Code - ${session.userCode}`
+    : "Pay by NxtGenPay";
   const isSuccess = result.status === "SUCCESS";
   const isFailed = result.status === "FAILED" || result.status === "REJECTED" || result.status === "REVERSED";
 
@@ -1143,7 +1148,9 @@ Account: ****${result.accountLast4}
 Mode: IMPS
 ${result.utr ? `UTR: ${result.utr}\n` : ""}Reference: ${result.reference || result.id}
 Charges (incl. GST): ₹${(result.serviceCharge + result.gst).toFixed(2)}
-Date: ${new Date(result.createdAt).toLocaleString("en-IN")}`;
+Date: ${new Date(result.createdAt).toLocaleString("en-IN")}
+
+${payBy}`;
 
   return (
     <motion.div
@@ -1193,6 +1200,8 @@ Date: ${new Date(result.createdAt).toLocaleString("en-IN")}`;
 
         <div className="my-5 border-t-2 border-dashed border-ink-200" />
 
+        <p className="mb-4 text-center text-sm font-semibold text-emerald-600">{payBy}</p>
+
         <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-ink-500">Share receipt</p>
         <div className="grid grid-cols-4 gap-2">
           <ShareBtn
@@ -1229,7 +1238,7 @@ Date: ${new Date(result.createdAt).toLocaleString("en-IN")}`;
             icon={<Printer className="h-5 w-5" />}
             label="Print"
             color="bg-ink-100 text-ink-800 hover:bg-ink-200"
-            onClick={() => printReceipt(result, summaryText, headerGradient)}
+            onClick={() => printReceipt(result, summaryText, headerGradient, payBy)}
           />
         </div>
 
@@ -1312,7 +1321,7 @@ function ShareBtn({
   );
 }
 
-function printReceipt(result: PayoutResult, text: string, gradient: string) {
+function printReceipt(result: PayoutResult, text: string, gradient: string, payBy: string) {
   const printWindow = window.open("", "_blank");
   if (!printWindow) return;
   printWindow.document.write(`
@@ -1346,7 +1355,7 @@ function printReceipt(result: PayoutResult, text: string, gradient: string) {
       })
       .join("")}
     <div class="div"></div>
-    <div class="foot">JMP NextGenPay · Payout Receipt</div>
+    <div class="foot"><div style="font-weight:600;color:#059669;margin-bottom:4px">${payBy}</div>JMP NextGenPay · Payout Receipt</div>
   </body>
 </html>`);
   printWindow.document.close();

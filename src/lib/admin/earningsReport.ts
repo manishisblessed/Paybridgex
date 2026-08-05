@@ -64,6 +64,18 @@ export type EarningsReportRow = {
   retailer: EarningsReportRetailer | null;
   /** Gross transaction amount (the swipe value). */
   amount: number;
+  /** Merchant-facing MDR deducted (from the rail's settlement entry). null when not tracked (QR/UPI). */
+  mdrAmount: number | null;
+  /** Net amount settled/credited to the merchant. null when not tracked (QR/UPI). */
+  netSettled: number | null;
+  /** Settlement status (SETTLED / PENDING / FAILED). null when no settlement entry. */
+  settlementStatus: string | null;
+  /**
+   * How many upline ancestors the merchant has (0–3): tier 1 = DT, 2 = MD, 3 = SD.
+   * Lets the UI distinguish "no upline at this tier" (—) from "upline exists but
+   * earned ₹0" for the commission columns.
+   */
+  uplineDepth: number;
   /** Company MDR margin booked to the Revenue Wallet for this txn. */
   companyMargin: number;
   /** Gross commission distributed to the Distributor (DT). */
@@ -98,6 +110,8 @@ export type EarningsRollupRow = {
 export type EarningsSummary = {
   totalTransactions: number;
   totalVolume: number;
+  totalMdr: number;
+  totalSettled: number;
   totalMargin: number;
   totalDistributor: number;
   totalMaster: number;
@@ -181,9 +195,82 @@ type SpineTxn = {
   refId: string;
   userId: string;
   service: string;
+  partnerTxnId: string | null;
   amount: Prisma.Decimal;
   createdAt: Date;
 };
+
+type SettlementInfo = { mdr: number; net: number; status: string };
+
+/**
+ * Merchant-facing MDR / net settled / status per transaction, keyed by the
+ * partner txn ref (= Transaction.partnerTxnId). Sourced from the POS and PG
+ * settlement-entry tables (both carry mdrAmount/netAmount/status). QR/UPI have
+ * no equivalent per-txn MDR record, so those rails resolve to null (UI shows —).
+ */
+async function loadSettlements(partnerRefs: string[]): Promise<Map<string, SettlementInfo>> {
+  const map = new Map<string, SettlementInfo>();
+  const refs = Array.from(new Set(partnerRefs.filter((r): r is string => Boolean(r))));
+  for (const ids of chunk(refs, 1000)) {
+    const [pos, pg] = await Promise.all([
+      prisma.posSettlementEntry.findMany({
+        where: { transactionRef: { in: ids } },
+        select: { transactionRef: true, mdrAmount: true, netAmount: true, status: true },
+      }),
+      prisma.pgSettlementEntry.findMany({
+        where: { transactionRef: { in: ids } },
+        select: { transactionRef: true, mdrAmount: true, netAmount: true, status: true },
+      }),
+    ]);
+    for (const e of pos) {
+      map.set(e.transactionRef, { mdr: toNumber(e.mdrAmount), net: toNumber(e.netAmount), status: e.status });
+    }
+    for (const e of pg) {
+      map.set(e.transactionRef, { mdr: toNumber(e.mdrAmount), net: toNumber(e.netAmount), status: e.status });
+    }
+  }
+  return map;
+}
+
+/**
+ * Depth of each merchant's upline chain (0–3): how many ancestors exist above
+ * them (DT = 1, MD = 2, SD = 3). Batched parent lookups (3 levels) so the report
+ * can tell "no upline at this tier" from "upline exists but earned ₹0".
+ */
+async function loadUplineDepth(retailerIds: string[]): Promise<Map<string, number>> {
+  const parentOf = new Map<string, string | null>();
+  let frontier = Array.from(new Set(retailerIds));
+  for (let level = 0; level < 3 && frontier.length > 0; level++) {
+    const need = frontier.filter((id) => !parentOf.has(id));
+    if (need.length === 0) break;
+    const next: string[] = [];
+    for (const ids of chunk(need, 1000)) {
+      const rows = await prisma.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, parentId: true },
+      });
+      for (const r of rows) {
+        parentOf.set(r.id, r.parentId ?? null);
+        if (r.parentId) next.push(r.parentId);
+      }
+    }
+    frontier = next;
+  }
+
+  const depthOf = new Map<string, number>();
+  for (const id of new Set(retailerIds)) {
+    let depth = 0;
+    let cur: string | null = id;
+    for (let i = 0; i < 3; i++) {
+      const p: string | null | undefined = cur ? parentOf.get(cur) : null;
+      if (!p) break;
+      depth++;
+      cur = p;
+    }
+    depthOf.set(id, depth);
+  }
+  return depthOf;
+}
 
 /** Sum of the REVENUE-book MDR_MARGIN credit per transaction id. */
 async function loadMargins(txnIds: string[]): Promise<Map<string, number>> {
@@ -278,7 +365,9 @@ function buildRow(
   txn: SpineTxn,
   margins: Map<string, number>,
   splits: Map<string, TierSplit>,
-  retailers: Map<string, EarningsReportRetailer>
+  retailers: Map<string, EarningsReportRetailer>,
+  settlements: Map<string, SettlementInfo>,
+  depths: Map<string, number>
 ): EarningsReportRow {
   const split = splits.get(txn.id) ?? {
     distributor: null,
@@ -290,6 +379,7 @@ function buildRow(
   const commSuper = split.superDistributor?.gross ?? 0;
   const totalCommission = commDistributor + commMaster + commSuper;
   const companyMargin = margins.get(txn.id) ?? 0;
+  const settlement = txn.partnerTxnId ? settlements.get(txn.partnerTxnId) ?? null : null;
 
   return {
     transactionId: txn.id,
@@ -298,6 +388,10 @@ function buildRow(
     txnTime: txn.createdAt.toISOString(),
     retailer: retailers.get(txn.userId) ?? null,
     amount: toNumber(txn.amount),
+    mdrAmount: settlement ? settlement.mdr : null,
+    netSettled: settlement ? settlement.net : null,
+    settlementStatus: settlement ? settlement.status : null,
+    uplineDepth: depths.get(txn.userId) ?? 0,
     companyMargin,
     commDistributor,
     commMaster,
@@ -314,6 +408,8 @@ function buildSummary(rows: EarningsReportRow[]): EarningsSummary {
   const s: EarningsSummary = {
     totalTransactions: rows.length,
     totalVolume: 0,
+    totalMdr: 0,
+    totalSettled: 0,
     totalMargin: 0,
     totalDistributor: 0,
     totalMaster: 0,
@@ -323,6 +419,8 @@ function buildSummary(rows: EarningsReportRow[]): EarningsSummary {
   };
   for (const r of rows) {
     s.totalVolume += r.amount;
+    s.totalMdr += r.mdrAmount ?? 0;
+    s.totalSettled += r.netSettled ?? 0;
     s.totalMargin += r.companyMargin;
     s.totalDistributor += r.commDistributor;
     s.totalMaster += r.commMaster;
@@ -375,20 +473,24 @@ async function loadAllRows(
     where,
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: WORKING_SET_CAP + 1,
-    select: { id: true, refId: true, userId: true, service: true, amount: true, createdAt: true },
+    select: { id: true, refId: true, userId: true, service: true, partnerTxnId: true, amount: true, createdAt: true },
   })) as SpineTxn[];
 
   const truncated = spine.length > WORKING_SET_CAP;
   const working = truncated ? spine.slice(0, WORKING_SET_CAP) : spine;
 
   const txnIds = working.map((t) => t.id);
-  const [margins, splits] = await Promise.all([
+  const partnerRefs = working.map((t) => t.partnerTxnId).filter((r): r is string => Boolean(r));
+  const retailerIds = Array.from(new Set(working.map((t) => t.userId)));
+  const [margins, splits, settlements, depths] = await Promise.all([
     loadMargins(txnIds),
     loadCommissionSplits(txnIds),
+    loadSettlements(partnerRefs),
+    loadUplineDepth(retailerIds),
   ]);
-  const retailers = await loadRetailers(Array.from(new Set(working.map((t) => t.userId))));
+  const retailers = await loadRetailers(retailerIds);
 
-  const rows = working.map((t) => buildRow(t, margins, splits, retailers));
+  const rows = working.map((t) => buildRow(t, margins, splits, retailers, settlements, depths));
   return { rows, truncated };
 }
 

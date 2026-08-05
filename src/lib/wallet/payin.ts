@@ -1,9 +1,8 @@
-import type { Prisma } from "@prisma/client";
+import { QrClaimStatus, type Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { creditWallet } from "@/lib/ledger";
 import { getPayinAccountId } from "@/lib/commission/revenue";
 import { add, dec, gt, toNumber, type Money } from "@/lib/money";
-import { periodStart } from "@/lib/wallet/aggregates";
 
 /**
  * Company PAYIN monitoring wallet.
@@ -22,17 +21,6 @@ import { periodStart } from "@/lib/wallet/aggregates";
 
 /** The live-inbound rails the payin wallet tracks. */
 export type PayinRail = "POS" | "PG" | "QR" | "TOPUP";
-
-/** Map a PAYIN WalletTxn.refType back to its rail (only recordPayin writes this book). */
-const RAIL_BY_REF_TYPE: Record<string, PayinRail> = {
-  PosTransactionMirror: "POS", // POS payin now mirrors the RAW captured feed (matches the POS Fleet volume)
-  PosSettlementEntry: "POS", // legacy: earlier POS payin was recorded at the settlement point
-  PgSettlementEntry: "PG",
-  QrClaim: "QR",
-  Transaction: "TOPUP",
-};
-
-const RAIL_ORDER: PayinRail[] = ["POS", "PG", "QR", "TOPUP"];
 
 const RAIL_LABEL: Record<PayinRail | "OTHER", string> = {
   POS: "POS",
@@ -103,70 +91,132 @@ export type PayinSummary = {
   asOf: string;
 };
 
-/**
- * Live payin rollup for the master-admin dashboard: lifetime balance plus a
- * per-rail (POS / PG / QR / Top-up) count + gross for the selected period.
- */
-export async function getPayinSummary(period: PayinPeriod): Promise<PayinSummary> {
-  const accountId = await getPayinAccountId();
-  const since = periodStart(period);
-  const asOf = new Date().toISOString();
-
-  const baseRails = (): Map<PayinRail | "OTHER", PayinRailStat> =>
-    new Map(RAIL_ORDER.map((r) => [r, { rail: r, label: RAIL_LABEL[r], count: 0, amount: 0 }]));
-
-  if (!accountId) {
-    return {
-      accountId: null,
-      balance: 0,
-      period,
-      since: since.toISOString(),
-      totalCount: 0,
-      totalAmount: 0,
-      rails: Array.from(baseRails().values()),
-      asOf,
-    };
+/** Start of the CURRENT IST period, as a UTC Date. Uses the SAME day boundary
+ *  the POS Fleet uses so figures match the operational feeds and reset cleanly
+ *  at IST midnight (today → 12:00 AM IST, week → Monday, month/year → the 1st). */
+function istPeriodStart(period: PayinPeriod, now = new Date()): Date {
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const year = ist.getUTCFullYear();
+  let month = ist.getUTCMonth();
+  let day = ist.getUTCDate();
+  switch (period) {
+    case "today":
+      break;
+    case "week":
+      day -= (ist.getUTCDay() + 6) % 7; // Monday-based week
+      break;
+    case "month":
+      day = 1;
+      break;
+    case "year":
+      month = 0;
+      day = 1;
+      break;
   }
+  return new Date(Date.UTC(year, month, day) - 5.5 * 60 * 60 * 1000);
+}
 
-  const [account, grouped] = await Promise.all([
-    prisma.user.findUnique({ where: { id: accountId }, select: { payinBalance: true } }),
-    prisma.walletTxn.groupBy({
-      by: ["refType"],
+/**
+ * Per-rail gross + count read from each rail's SOURCE table, optionally windowed
+ * to `since` (omit for all-time). This is the single source the live payin
+ * monitor reads, so every payin surface matches the operational feeds exactly:
+ * POS ← captured `PosTransactionMirror` (identical to the POS Fleet volume),
+ * PG ← `PgSettlementEntry`, QR ← non-rejected `QrClaim`, Top-up ← successful
+ * `WALLET_TOPUP` transactions. No PAYIN-ledger dependency → no forward-only lag.
+ */
+async function aggregateRailsFromSource(since?: Date): Promise<PayinRailStat[]> {
+  const window = since ? { gte: since } : undefined;
+  const [pos, pg, qr, topup] = await Promise.all([
+    prisma.posTransactionMirror.aggregate({
+      where: { status: "CAPTURED", ...(window ? { txnTime: window } : {}) },
+      _sum: { amount: true },
+      _count: true,
+    }),
+    prisma.pgSettlementEntry.aggregate({
+      where: { status: { not: "FAILED" }, ...(window ? { createdAt: window } : {}) },
+      _sum: { grossAmount: true },
+      _count: true,
+    }),
+    prisma.qrClaim.aggregate({
       where: {
-        userId: accountId,
-        walletType: "PAYIN",
-        direction: "CREDIT",
-        createdAt: { gte: since },
+        status: { notIn: [QrClaimStatus.REJECTED, QrClaimStatus.CLAWED_BACK] },
+        ...(window ? { createdAt: window } : {}),
       },
       _sum: { amount: true },
       _count: true,
     }),
+    prisma.transaction.aggregate({
+      where: { service: "WALLET_TOPUP", status: "SUCCESS", ...(window ? { createdAt: window } : {}) },
+      _sum: { amount: true },
+      _count: true,
+    }),
+  ]);
+  return [
+    { rail: "POS", label: RAIL_LABEL.POS, count: pos._count, amount: toNumber(dec(pos._sum.amount ?? 0)) },
+    { rail: "PG", label: RAIL_LABEL.PG, count: pg._count, amount: toNumber(dec(pg._sum.grossAmount ?? 0)) },
+    { rail: "QR", label: RAIL_LABEL.QR, count: qr._count, amount: toNumber(dec(qr._sum.amount ?? 0)) },
+    { rail: "TOPUP", label: RAIL_LABEL.TOPUP, count: topup._count, amount: toNumber(dec(topup._sum.amount ?? 0)) },
+  ];
+}
+
+function sumRails(rails: PayinRailStat[]): { count: number; amount: Money } {
+  let count = 0;
+  let amount: Money = dec(0);
+  for (const r of rails) {
+    count += r.count;
+    amount = add(amount, dec(r.amount));
+  }
+  return { count, amount };
+}
+
+/**
+ * Live payin rollup for the master-admin dashboard: per-rail (POS / PG / QR /
+ * Top-up) count + gross for the selected period, plus the all-time total — ALL
+ * computed from the rail sources (not the PAYIN ledger), so the tab matches the
+ * POS Fleet and the top-bar Payin chip exactly, with no forward-only lag.
+ */
+export async function getPayinSummary(period: PayinPeriod): Promise<PayinSummary> {
+  const accountId = await getPayinAccountId();
+  const since = istPeriodStart(period);
+  const asOf = new Date().toISOString();
+
+  const [rails, allTime] = await Promise.all([
+    aggregateRailsFromSource(since),
+    aggregateRailsFromSource(),
   ]);
 
-  const statByRail = baseRails();
-  let totalCount = 0;
-  let totalAmount: Money = dec(0);
-
-  for (const g of grouped) {
-    const rail: PayinRail | "OTHER" = (g.refType && RAIL_BY_REF_TYPE[g.refType]) || "OTHER";
-    const amount = dec(g._sum.amount ?? 0);
-    const existing =
-      statByRail.get(rail) ?? { rail, label: RAIL_LABEL[rail], count: 0, amount: 0 };
-    existing.count += g._count;
-    existing.amount = toNumber(add(dec(existing.amount), amount));
-    statByRail.set(rail, existing);
-    totalCount += g._count;
-    totalAmount = add(totalAmount, amount);
-  }
+  const { count: totalCount, amount: totalAmount } = sumRails(rails);
+  const { amount: balance } = sumRails(allTime);
 
   return {
     accountId,
-    balance: toNumber(dec(account?.payinBalance ?? 0)),
+    balance: toNumber(balance),
     period,
     since: since.toISOString(),
     totalCount,
     totalAmount: toNumber(totalAmount),
-    rails: Array.from(statByRail.values()),
+    rails,
     asOf,
   };
+}
+
+export type LivePayinToday = {
+  since: string;
+  asOf: string;
+  totalCount: number;
+  totalAmount: number;
+  rails: PayinRailStat[];
+};
+
+/**
+ * TODAY's live business per rail — the exact same source-driven numbers as
+ * `getPayinSummary("today")`, surfaced for the master-admin's top-bar "Payin"
+ * chip. Resets to ₹0 at IST midnight (the window starts at the IST day).
+ */
+export async function getLivePayinToday(): Promise<LivePayinToday> {
+  const since = istPeriodStart("today");
+  const asOf = new Date().toISOString();
+  const rails = await aggregateRailsFromSource(since);
+  const { count: totalCount, amount: totalAmount } = sumRails(rails);
+  return { since: since.toISOString(), asOf, totalCount, totalAmount: toNumber(totalAmount), rails };
 }

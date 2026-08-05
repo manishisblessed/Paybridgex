@@ -258,7 +258,9 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
     mode: row.mode,
     amount: toNumber(row.amount),
     beneficiary: beneficiaryFor(row),
-    purpose: `Pay by NxtGenPay ${user?.userCode ?? row.userId}`,
+    purpose: user?.userCode
+      ? `Pay by NxtGenPay by RT Code - ${user.userCode}`
+      : `Pay by NxtGenPay ${row.userId}`,
   });
 
   // Persist a safe request/response snapshot (no raw PII in request).

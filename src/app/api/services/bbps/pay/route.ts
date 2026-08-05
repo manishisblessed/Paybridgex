@@ -94,7 +94,9 @@ export async function POST(req: Request) {
       call: () => bbps.pay({
         userId: user.id,
         ...payInput,
-        remark: `Pay by NxtGenPay ${user.userCode ?? user.id}`,
+        remark: user.userCode
+          ? `Pay by NxtGenPay by RT Code - ${user.userCode}`
+          : `Pay by NxtGenPay ${user.id}`,
       })
     });
 
