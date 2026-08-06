@@ -9,7 +9,9 @@ set -euo pipefail
 
 APP_DIR="/home/ubuntu/nextgenpay"
 ENV_SOURCE="/home/ubuntu/env-nextgenpay"
-ECOSYSTEM="/home/ubuntu/ecosystem.config.js"
+# Use the REPO's ecosystem file (always current with the code) — it defines
+# BOTH the web app and the background worker, so a deploy restarts both.
+ECOSYSTEM="$APP_DIR/ecosystem.config.js"
 LOG_DIR="/home/ubuntu/logs"
 
 RED='\033[0;31m'
@@ -111,7 +113,14 @@ npm run build 2>&1 | tail -5
 # ── Step 7: Restart PM2 ──────────────────────────────────────────────
 
 log "Restarting PM2 processes..."
-pm2 restart "$ECOSYSTEM" --update-env
+# startOrRestart restarts every app defined in the ecosystem file (and starts
+# any that aren't running yet). The worker loads TypeScript at boot via tsx —
+# if it is not restarted here it keeps executing the OLD code from memory, so
+# NEVER restart only the web app.
+pm2 startOrRestart "$ECOSYSTEM" --update-env
+# Belt-and-braces: fail loudly if the worker somehow didn't come back fresh.
+pm2 restart nextgenpay-worker --update-env >/dev/null 2>&1 \
+  || warn "nextgenpay-worker restart failed — check 'pm2 status' manually!"
 pm2 save
 
 echo ""

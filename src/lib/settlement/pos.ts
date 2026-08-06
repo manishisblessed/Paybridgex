@@ -426,6 +426,15 @@ async function distributeCommissionForPos(
   // commission attribute per-service. Idempotent per capture via @unique.
   const refId = `POS:${transactionRef}`;
   let txn = await prisma.transaction.findUnique({ where: { refId } });
+  if (txn && txn.service !== ("POS" as ServiceCode)) {
+    // A stale worker minted this capture's synthetic txn with the old
+    // WALLET_TOPUP placeholder (and no fee). Refresh it at distribution time so
+    // per-service earnings / revenue reports attribute the settlement to POS.
+    txn = await prisma.transaction.update({
+      where: { id: txn.id },
+      data: { service: "POS" as ServiceCode, fee: marginFee, settlementType },
+    });
+  }
   if (!txn) {
     try {
       txn = await prisma.transaction.create({
