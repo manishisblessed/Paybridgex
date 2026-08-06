@@ -166,11 +166,13 @@ const CLASSIFICATIONS = [
 ];
 const PAYMENT_MODES = ["*", "CARD", "UPI", "NFC", "BHARATQR"];
 
-// Pick the most specific approved brand rate matching a slab's card dimensions.
-// Mirrors the server resolver (brand/mdr.ts): a wildcard rate dimension is
-// eligible but scores 0; a pinned mismatch is ineligible; highest score wins.
-// Admin-entered values on both sides are canonical, so a plain uppercase
-// compare is sufficient here (feed-label canonicalisation happens server-side).
+// Pick the most specific approved brand/rail rate matching a slab's card
+// dimensions. Mirrors the CONFIG-TIME server resolvers (findApprovedBrandRate /
+// findApprovedRailRate): a wildcard rate dimension is eligible but scores 0, and
+// an "Any" slab dimension inherits a mode-pinned rate (also score 0) so a slab
+// left as "Any" still locks onto e.g. the single UPI QR rate. A pinned-vs-pinned
+// mismatch is ineligible; highest score wins. Admin-entered values on both sides
+// are canonical, so a plain uppercase compare is sufficient here.
 function pickBrandRate(
   rates: BrandRate[] | undefined,
   dims: { paymentMode?: string | null; cardType?: string | null; brandType?: string | null; classification?: string | null }
@@ -194,7 +196,9 @@ function pickBrandRate(
     let eligible = true;
     for (const [rv, tv] of pairs) {
       if (wild(rv)) continue;
-      if (wild(tv) || up(rv) !== up(tv)) {
+      // "Any" slab dimension inherits a pinned rate at config time (score 0).
+      if (wild(tv)) continue;
+      if (up(rv) !== up(tv)) {
         eligible = false;
         break;
       }
@@ -1192,13 +1196,18 @@ function MdrRateModal({
   }, [isLockedRail, serviceKind, company, paymentMode, cardType, brandType, classification, showClassification, ratesForScope]);
 
   // POS pricing is percentage-only (MDR + commission), so keep both types in
-  // sync with the rail selection.
+  // sync with the rail selection. QR is UPI-only, so default its Mode to UPI so
+  // the slab resolves against the UPI rail rate out of the box (editing keeps the
+  // saved mode).
   useEffect(() => {
     if (serviceKind === "POS") {
       setMdrType("PERCENT");
       setCommissionType("PERCENT");
     }
-  }, [serviceKind]);
+    if (serviceKind === "QR" && !isEdit) {
+      setPaymentMode("UPI");
+    }
+  }, [serviceKind, isEdit]);
 
   // A locked rail can only be scoped to an entity that already has an approved
   // rate card. POS → acquiring companies with brand rates; PG/QR → providers
@@ -1328,7 +1337,7 @@ function MdrRateModal({
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-ink-100 bg-white px-5 py-4">
           <h3 className="flex items-center gap-2 font-display text-base font-semibold text-ink-900">
             <Store className="h-5 w-5 text-orange-600" />
-            {isEdit ? "Edit POS MDR rate" : "Add POS MDR rate"}
+            {isEdit ? `Edit ${serviceKind} MDR rate` : `Add ${serviceKind} MDR rate`}
           </h3>
           <button onClick={onClose} className="rounded-lg p-1 text-ink-500 hover:bg-ink-50">
             <X className="h-5 w-5" />

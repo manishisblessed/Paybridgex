@@ -68,7 +68,7 @@ function rateScore(
   rate: BrandMdrRate,
   dims: BrandRateDims,
   useClassification: boolean,
-  opts?: { ignoreProvider?: boolean }
+  opts?: { ignoreProvider?: boolean; relaxWildcard?: boolean }
 ): number {
   let score = 0;
   const pairs: Array<[
@@ -94,7 +94,15 @@ function rateScore(
   }
   for (const [rateVal, txnVal, cmp] of pairs) {
     if (isWildcard(rateVal)) continue;
-    if (isWildcard(txnVal) || cmp(rateVal) !== cmp(txnVal)) return -1;
+    // A wildcard ("Any") slab dimension against a pinned rate is ineligible for
+    // a LIVE capture, but at CONFIG time (relaxWildcard) an "Any" scheme slab
+    // legitimately inherits a mode-pinned brand rate. It scores 0 so an
+    // exactly-pinned rate still wins when both are present.
+    if (isWildcard(txnVal)) {
+      if (opts?.relaxWildcard) continue;
+      return -1;
+    }
+    if (cmp(rateVal) !== cmp(txnVal)) return -1;
     score++;
   }
   return score;
@@ -106,7 +114,7 @@ function pickRate(
   amount: Money,
   dims: BrandRateDims,
   useClassification: boolean,
-  opts?: { ignoreProvider?: boolean }
+  opts?: { ignoreProvider?: boolean; relaxWildcard?: boolean }
 ): BrandMdrRate | null {
   const inBand = rates.filter((r) => gte(amount, r.minAmount) && lte(amount, r.maxAmount));
   let best: BrandMdrRate | null = null;
@@ -195,6 +203,9 @@ export async function findApprovedBrandRate(
   });
   return pickRate(rates, round(input.amount), input, await isCardClassificationEnabled(), {
     ignoreProvider: true,
+    // Config-time vendor lock for a scheme slab: an "Any"-mode slab may inherit a
+    // mode-pinned brand rate (mirrors the client's pickBrandRate).
+    relaxWildcard: true,
   });
 }
 

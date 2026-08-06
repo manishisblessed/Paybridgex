@@ -45,7 +45,12 @@ function rateValue(rate: RailMdrRate, settlementType: "T0" | "T1"): Money {
  * dimension mismatches); otherwise the count of exact matches (higher = more
  * specific). Wildcard rate dimensions are eligible but score 0.
  */
-function rateScore(rate: RailMdrRate, dims: RailRateDims, useClassification: boolean): number {
+function rateScore(
+  rate: RailMdrRate,
+  dims: RailRateDims,
+  useClassification: boolean,
+  relaxWildcard = false
+): number {
   let score = 0;
   const pairs: Array<[
     string | null,
@@ -62,7 +67,17 @@ function rateScore(rate: RailMdrRate, dims: RailRateDims, useClassification: boo
   }
   for (const [rateVal, txnVal, cmp] of pairs) {
     if (isWildcard(rateVal)) continue;
-    if (isWildcard(txnVal) || cmp(rateVal) !== cmp(txnVal)) return -1;
+    // A wildcard ("Any") txn/slab dimension against a pinned rate dimension is
+    // ineligible for a LIVE capture (the capture must match the rate exactly),
+    // but at CONFIG time (relaxWildcard) an "Any" scheme slab legitimately
+    // inherits the provider's pinned rate — e.g. a QR slab left as "Any"
+    // instrument locking onto the single UPI rail rate. It scores 0 so an
+    // exactly-pinned rate still wins when both are present.
+    if (isWildcard(txnVal)) {
+      if (relaxWildcard) continue;
+      return -1;
+    }
+    if (cmp(rateVal) !== cmp(txnVal)) return -1;
     score++;
   }
   return score;
@@ -73,13 +88,14 @@ function pickRate(
   rates: RailMdrRate[],
   amount: Money,
   dims: RailRateDims,
-  useClassification: boolean
+  useClassification: boolean,
+  relaxWildcard = false
 ): RailMdrRate | null {
   const inBand = rates.filter((r) => gte(amount, r.minAmount) && lte(amount, r.maxAmount));
   let best: RailMdrRate | null = null;
   let bestScore = -1;
   for (const rate of inBand) {
-    const score = rateScore(rate, dims, useClassification);
+    const score = rateScore(rate, dims, useClassification, relaxWildcard);
     if (score > bestScore) {
       best = rate;
       bestScore = score;
@@ -137,7 +153,9 @@ export async function findApprovedRailRate(
     where: { serviceKind: input.serviceKind, scopeKey, active: true },
     orderBy: { minAmount: "asc" },
   });
-  return pickRate(rates, round(input.amount), input, await isCardClassificationEnabled());
+  // relaxWildcard = true: this resolves the vendor cost to lock a scheme SLAB to,
+  // not a live capture. An "Any" slab may inherit a mode-pinned provider rate.
+  return pickRate(rates, round(input.amount), input, await isCardClassificationEnabled(), true);
 }
 
 /**
