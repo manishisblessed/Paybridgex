@@ -116,7 +116,11 @@ async function main() {
     const marginKey = `revenue-margin:${txn.id}`;
     const marginTxn = await prisma.walletTxn.findUnique({ where: { idempotencyKey: marginKey } });
     const fundingDebits = await prisma.walletTxn.findMany({
-      where: { idempotencyKey: { startsWith: `revenue-comm-debit:${txn.id}:` } },
+      where: {
+        idempotencyKey: { startsWith: `revenue-comm-debit:${txn.id}:` },
+        // Rows already unwound carry a `:unwound` suffix — never touch them again.
+        NOT: { idempotencyKey: { endsWith: ":unwound" } },
+      },
     });
     if (!marginTxn && fundingDebits.length === 0) continue; // already clean
 
