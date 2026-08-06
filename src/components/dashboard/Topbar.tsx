@@ -35,6 +35,10 @@ export function Topbar({ onOpenSidebar, collapsed, onToggleCollapse }: { onOpenS
   }, []);
 
   useEffect(() => {
+    // Only poll the personal wallet for users who actually see the Wallet pill.
+    // Master admin + admin staff (ADMIN/SUPPORT/FINANCE) don't display it.
+    const role = (session?.user as { role?: string } | undefined)?.role;
+    if (role === "MASTER_ADMIN" || role === "ADMIN" || role === "SUPPORT" || role === "FINANCE") return;
     fetchBalance(true);
     const interval = setInterval(() => fetchBalance(), 60_000);
     const onFocus = () => fetchBalance();
@@ -45,11 +49,15 @@ export function Topbar({ onOpenSidebar, collapsed, onToggleCollapse }: { onOpenS
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
     };
-  }, [fetchBalance]);
+  }, [fetchBalance, session]);
 
   // Live company PAYIN (today) — master-admin only. Read straight from the rail
   // sources so it mirrors the operational feeds and resets to ₹0 at IST midnight.
-  const isMaster = (session?.user as { role?: string } | undefined)?.role === "MASTER_ADMIN";
+  const sessionRole = (session?.user as { role?: string } | undefined)?.role;
+  const isMaster = sessionRole === "MASTER_ADMIN";
+  // Admin staff (non-master) don't hold a personal/operational wallet, so hide the
+  // generic Wallet pill for them. Payin + Revenue wallets stay master-admin only.
+  const isAdminStaff = sessionRole === "ADMIN" || sessionRole === "SUPPORT" || sessionRole === "FINANCE";
   useEffect(() => {
     if (!isMaster) return;
     let active = true;
@@ -165,7 +173,7 @@ export function Topbar({ onOpenSidebar, collapsed, onToggleCollapse }: { onOpenS
               </span>
             </div>
           </Link>
-        ) : (
+        ) : isAdminStaff ? null : (
           <div className="hidden items-center gap-2 rounded-2xl border border-ink-100 bg-gradient-to-r from-brand-50 to-accent-50 px-4 py-2 md:flex">
             <Wallet className="h-4 w-4 text-brand-700" />
             <div className="flex flex-col leading-tight">

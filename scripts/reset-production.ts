@@ -52,6 +52,12 @@ const WIPE_TABLES = [
   "HierarchyTransfer",
   "NetworkWalletTransfer",
   "PosSettlementEntry",
+  // Live acquiring-rail SOURCE tables that feed the company PAYIN monitor. These
+  // are NOT referenced by any retained table, so wiping them clears the Payin
+  // chip / tab to ₹0 alongside the revenue ledger (otherwise the monitor keeps
+  // showing stale POS/PG volume after a "reset").
+  "PosTransactionMirror",
+  "PgSettlementEntry",
   "TdsLedgerEntry",
   "CommissionCredit",
   "QrClaim",
@@ -65,7 +71,9 @@ const WIPE_TABLES = [
   "Reversal",
   "WalletLien",
   "WalletOperation",
-  "StaticQr",
+  // NOTE: StaticQr is PRESERVED across resets — it's a configured collection QR
+  // (like a POS machine or scheme), not per-transaction test data. QrClaim rows
+  // that reference it are still wiped above; the QR itself stays live for testing.
   "PosAssignmentLog",
   "PayoutBeneficiary",
   "PayoutRequest",

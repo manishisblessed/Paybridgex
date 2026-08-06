@@ -114,19 +114,32 @@ function pickRate(
   amount: Money,
   dims: BrandRateDims,
   useClassification: boolean,
-  opts?: { ignoreProvider?: boolean; relaxWildcard?: boolean }
+  opts?: { ignoreProvider?: boolean; relaxWildcard?: boolean; relaxBand?: boolean }
 ): BrandMdrRate | null {
-  const inBand = rates.filter((r) => gte(amount, r.minAmount) && lte(amount, r.maxAmount));
-  let best: BrandMdrRate | null = null;
-  let bestScore = -1;
-  for (const rate of inBand) {
-    const score = rateScore(rate, dims, useClassification, opts);
-    if (score > bestScore) {
-      best = rate;
-      bestScore = score;
+  const pickBest = (candidates: BrandMdrRate[]): BrandMdrRate | null => {
+    let best: BrandMdrRate | null = null;
+    let bestScore = -1;
+    for (const rate of candidates) {
+      const score = rateScore(rate, dims, useClassification, opts);
+      if (score > bestScore) {
+        best = rate;
+        bestScore = score;
+      }
     }
-  }
-  return bestScore >= 0 ? best : null;
+    return bestScore >= 0 ? best : null;
+  };
+
+  const inBand = rates.filter((r) => gte(amount, r.minAmount) && lte(amount, r.maxAmount));
+  const best = pickBest(inBand);
+  if (best || !opts?.relaxBand) return best;
+
+  // Config-time band fallback (relaxBand): a scheme slab's band is independent
+  // of the brand rate card's tiers, so a slab that starts below the lowest tier
+  // (e.g. slab from ₹0 vs a brand rate from ₹100) must still lock onto it rather
+  // than be blocked. Mirrors the client's pickBrandRate, which ignores the band.
+  // `rates` is ordered by minAmount asc and pickBest keeps the first of equal
+  // scores, so this deterministically resolves to the lowest matching tier.
+  return pickBest(rates);
 }
 
 /**
@@ -206,6 +219,9 @@ export async function findApprovedBrandRate(
     // Config-time vendor lock for a scheme slab: an "Any"-mode slab may inherit a
     // mode-pinned brand rate (mirrors the client's pickBrandRate).
     relaxWildcard: true,
+    // The slab band is independent of the rate card's tiers, so a slab starting
+    // below the lowest tier still locks onto the brand's rate.
+    relaxBand: true,
   });
 }
 

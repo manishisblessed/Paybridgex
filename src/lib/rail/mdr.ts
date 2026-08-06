@@ -89,19 +89,33 @@ function pickRate(
   amount: Money,
   dims: RailRateDims,
   useClassification: boolean,
-  relaxWildcard = false
+  relaxWildcard = false,
+  relaxBand = false
 ): RailMdrRate | null {
-  const inBand = rates.filter((r) => gte(amount, r.minAmount) && lte(amount, r.maxAmount));
-  let best: RailMdrRate | null = null;
-  let bestScore = -1;
-  for (const rate of inBand) {
-    const score = rateScore(rate, dims, useClassification, relaxWildcard);
-    if (score > bestScore) {
-      best = rate;
-      bestScore = score;
+  const pickBest = (candidates: RailMdrRate[]): RailMdrRate | null => {
+    let best: RailMdrRate | null = null;
+    let bestScore = -1;
+    for (const rate of candidates) {
+      const score = rateScore(rate, dims, useClassification, relaxWildcard);
+      if (score > bestScore) {
+        best = rate;
+        bestScore = score;
+      }
     }
-  }
-  return bestScore >= 0 ? best : null;
+    return bestScore >= 0 ? best : null;
+  };
+
+  const inBand = rates.filter((r) => gte(amount, r.minAmount) && lte(amount, r.maxAmount));
+  const best = pickBest(inBand);
+  if (best || !relaxBand) return best;
+
+  // Config-time band fallback (relaxBand): a scheme slab's band is independent
+  // of the vendor rate card's tiers, so a slab that starts below the lowest tier
+  // (e.g. slab from ₹0 vs a vendor rate from ₹100) must still lock onto it rather
+  // than be blocked. Mirrors the client's pickBrandRate, which ignores the band.
+  // `rates` is ordered by minAmount asc and pickBest keeps the first of equal
+  // scores, so this deterministically resolves to the lowest matching tier.
+  return pickBest(rates);
 }
 
 /**
@@ -155,7 +169,9 @@ export async function findApprovedRailRate(
   });
   // relaxWildcard = true: this resolves the vendor cost to lock a scheme SLAB to,
   // not a live capture. An "Any" slab may inherit a mode-pinned provider rate.
-  return pickRate(rates, round(input.amount), input, await isCardClassificationEnabled(), true);
+  // relaxBand = true: the slab band is independent of the rate card's tiers, so a
+  // slab starting below the lowest tier still locks onto the provider's rate.
+  return pickRate(rates, round(input.amount), input, await isCardClassificationEnabled(), true, true);
 }
 
 /**
