@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
@@ -121,6 +122,8 @@ function todayIST(): string {
 }
 
 export default function RevenuePage() {
+  const { data: session, status } = useSession();
+  const isMaster = (session?.user as { role?: string } | undefined)?.role === "MASTER_ADMIN";
   const [data, setData] = useState<RevenueData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -339,11 +342,29 @@ export default function RevenuePage() {
   const instantMargin = (data?.posByLeg ?? []).find((r) => r.settlementType === "T0")?.margin ?? 0;
   const t1Margin = (data?.posByLeg ?? []).find((r) => r.settlementType === "T1")?.margin ?? 0;
 
+  // The Revenue Wallet / Company Earnings view is the platform OWNER's book —
+  // master-admin only. Plain admins / finance use Commission Distributed instead.
+  if (status !== "loading" && !isMaster) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Company Earnings & Revenue Wallet"
+          description="The Revenue Wallet is the platform owner's book."
+        />
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
+          This page is restricted to the master admin. For commission distribution
+          figures, use <span className="font-semibold">Commission Distributed</span> or{" "}
+          <span className="font-semibold">Per-Txn Earnings</span>.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Company Earnings & Revenue Wallet"
-        description="Company earnings from the MDR margin (service − vendor) credited to the Revenue Wallet, with upline commissions paid out of it — admin-only view."
+        description="Company earnings from the MDR margin (service − vendor) credited to the Revenue Wallet, with upline commissions paid out of it — master-admin only."
         actions={
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs text-ink-500">

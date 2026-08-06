@@ -49,6 +49,20 @@ export async function GET(req: Request) {
       to: parsed.data.to ?? null,
       service: parsed.data.service ?? null,
     });
+    // The Revenue Wallet (company earnings balance + ledger) is owner-only.
+    // Plain admins / finance still get the commission-distribution breakdown
+    // (which powers the shared Commission Distributed report), but never the
+    // Revenue Wallet balance or its ledger entries.
+    if (user.role !== "MASTER_ADMIN") {
+      report.wallet = {
+        accountId: null,
+        accountName: null,
+        balance: 0,
+        creditedInRange: 0,
+        commissionPaidInRange: 0,
+        recent: [],
+      };
+    }
     return NextResponse.json(report);
   } catch (e) {
     console.error("[admin/reports/revenue] error:", e);

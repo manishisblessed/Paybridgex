@@ -2,18 +2,20 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
-import { Bell, Menu, Search, Wallet, LogOut, Activity } from "lucide-react";
+import { Bell, Menu, Search, Wallet, LogOut, Activity, Landmark, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { formatINR } from "@/lib/utils";
 import { toDisplayRole } from "@/lib/auth";
 
-export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
+export function Topbar({ onOpenSidebar, collapsed, onToggleCollapse }: { onOpenSidebar: () => void; collapsed?: boolean; onToggleCollapse?: () => void }) {
   const router = useRouter();
   const { data: session } = useSession();
   const [open, setOpen] = useState(false);
   const [liveBalance, setLiveBalance] = useState<number | null>(null);
   const [payinToday, setPayinToday] = useState<number | null>(null);
+  const [revenueBalance, setRevenueBalance] = useState<number | null>(null);
 
   const lastFetchedAt = useRef(0);
 
@@ -54,10 +56,19 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     const load = async () => {
       if (document.hidden) return;
       try {
-        const res = await fetch("/api/admin/wallet/aggregates?view=payin-today");
-        if (!res.ok || !active) return;
-        const data = await res.json();
-        setPayinToday(typeof data.totalAmount === "number" ? data.totalAmount : null);
+        const [payinRes, revenueRes] = await Promise.all([
+          fetch("/api/admin/wallet/aggregates?view=payin-today"),
+          fetch("/api/admin/wallet/aggregates?view=revenue"),
+        ]);
+        if (!active) return;
+        if (payinRes.ok) {
+          const data = await payinRes.json();
+          setPayinToday(typeof data.totalAmount === "number" ? data.totalAmount : null);
+        }
+        if (revenueRes.ok) {
+          const data = await revenueRes.json();
+          setRevenueBalance(typeof data.balance === "number" ? data.balance : null);
+        }
       } catch {}
     };
     load();
@@ -101,6 +112,18 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
         </button>
       </div>
 
+      {onToggleCollapse && (
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          className="hidden lg:inline-flex h-9 w-9 items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-700 transition-colors"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? <PanelLeftOpen className="h-4.5 w-4.5" /> : <PanelLeftClose className="h-4.5 w-4.5" />}
+        </button>
+      )}
+
       <div className="hidden flex-1 max-w-md md:block">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
@@ -126,17 +149,35 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           </div>
         )}
 
-        <div className="hidden items-center gap-2 rounded-2xl border border-ink-100 bg-gradient-to-r from-brand-50 to-accent-50 px-4 py-2 md:flex">
-          <Wallet className="h-4 w-4 text-brand-700" />
-          <div className="flex flex-col leading-tight">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-500">
-              Wallet
-            </span>
-            <span className="font-display text-sm font-bold text-ink-900">
-              {formatINR(liveBalance ?? user?.walletBalance ?? 0)}
-            </span>
+        {isMaster ? (
+          <Link
+            href="/dashboard/admin/revenue"
+            className="hidden items-center gap-2 rounded-2xl border border-violet-100 bg-gradient-to-r from-violet-50 to-fuchsia-50 px-4 py-2 transition-colors hover:border-violet-300 md:flex"
+            title="Revenue Wallet — company earnings (MDR margin in − commission out). Opens Company Earnings."
+          >
+            <Landmark className="h-4 w-4 text-violet-700" />
+            <div className="flex flex-col leading-tight">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-violet-700/80">
+                Revenue Wallet
+              </span>
+              <span className="font-display text-sm font-bold text-ink-900">
+                {formatINR(revenueBalance ?? 0)}
+              </span>
+            </div>
+          </Link>
+        ) : (
+          <div className="hidden items-center gap-2 rounded-2xl border border-ink-100 bg-gradient-to-r from-brand-50 to-accent-50 px-4 py-2 md:flex">
+            <Wallet className="h-4 w-4 text-brand-700" />
+            <div className="flex flex-col leading-tight">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-500">
+                Wallet
+              </span>
+              <span className="font-display text-sm font-bold text-ink-900">
+                {formatINR(liveBalance ?? user?.walletBalance ?? 0)}
+              </span>
+            </div>
           </div>
-        </div>
+        )}
 
         <button
           type="button"

@@ -161,7 +161,18 @@ export async function handlePgCapture(input: PgCaptureInput): Promise<PgCaptureR
       },
     });
 
-    await distributeCommissionForPg(input.transactionRef, input.userId, input.grossAmount, paymentMode, settlementType);
+    // Book company margin + upline commission ONLY when actually settled now
+    // (wtxnId set) — INSTANT credit IS the settlement moment. A parked entry is
+    // settled later by the instant safety-net cron (settlePgEntry), which
+    // distributes commission then; so commission/revenue always land AT
+    // settlement, never at capture. Never fail an already-credited settlement.
+    if (wtxnId) {
+      try {
+        await distributeCommissionForPg(input.transactionRef, input.userId, input.grossAmount, paymentMode, settlementType);
+      } catch (e) {
+        console.error("[pg capture] instant commission distribution failed:", input.transactionRef, e);
+      }
+    }
 
     return {
       status: wtxnId ? "SETTLED" : "QUEUED",
@@ -192,7 +203,9 @@ export async function handlePgCapture(input: PgCaptureInput): Promise<PgCaptureR
     },
   });
 
-  await distributeCommissionForPg(input.transactionRef, input.userId, input.grossAmount, paymentMode, settlementType);
+  // Commission + revenue margin are NOT booked here — they are distributed when
+  // the entry is actually settled (settlePgEntry), so the Revenue Wallet and the
+  // upline are credited AT settlement time, never at capture.
 
   return {
     status: "QUEUED",
@@ -299,6 +312,22 @@ async function settlePgEntry(
       ...(settlementType === "T0" ? { mode: "INSTANT" } : {}),
     },
   });
+
+  // Book company margin + upline commission AT settlement time (funded from the
+  // Revenue Wallet, net of 2% TDS), priced on the settled leg. Idempotent per
+  // capture; the retailer credit already committed, so a commission failure must
+  // never roll it back or FAIL the entry.
+  try {
+    await distributeCommissionForPg(
+      entry.transactionRef,
+      entry.userId,
+      toNumber(entry.grossAmount as never),
+      entry.paymentMode ?? "UPI",
+      settlementType
+    );
+  } catch (e) {
+    console.error("[pg settle] commission distribution failed:", entry.transactionRef, e);
+  }
 
   return toNumber(netAmount);
 }

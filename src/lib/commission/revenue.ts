@@ -167,3 +167,73 @@ export async function debitRevenueForCommission(
     tx
   );
 }
+
+/** Start of the current IST calendar day, as a UTC Date. */
+function startOfTodayIst(now = new Date()): Date {
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const startIstMs = Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate());
+  return new Date(startIstMs - 5.5 * 60 * 60 * 1000);
+}
+
+export type RevenueWalletSummary = {
+  /** Revenue account (oldest MASTER_ADMIN) id, or null when none exists. */
+  accountId: string | null;
+  /** Current Revenue Wallet balance (all-time accumulated margin − payouts). */
+  balance: number;
+  /** MDR margin credited to the Revenue Wallet TODAY (IST). */
+  marginInToday: number;
+  /** Commission funded out of the Revenue Wallet TODAY (IST). */
+  commissionOutToday: number;
+  /** Net booked to the company TODAY = marginInToday − commissionOutToday. */
+  netToday: number;
+};
+
+/**
+ * Lightweight Revenue Wallet snapshot for the master-admin top-bar chip and the
+ * overview "Revenue Wallet" card: current balance plus TODAY's (IST) margin-in
+ * and commission-out. Read-only; safe to poll. Returns zeros when no
+ * MASTER_ADMIN / revenue account exists.
+ */
+export async function getRevenueWalletSummary(): Promise<RevenueWalletSummary> {
+  const accountId = await getRevenueAccountId();
+  if (!accountId) {
+    return { accountId: null, balance: 0, marginInToday: 0, commissionOutToday: 0, netToday: 0 };
+  }
+
+  const dayStart = startOfTodayIst();
+  const [account, marginIn, commissionOut] = await Promise.all([
+    prisma.user.findUnique({ where: { id: accountId }, select: { revenueBalance: true } }),
+    prisma.walletTxn.aggregate({
+      where: {
+        userId: accountId,
+        walletType: "REVENUE",
+        direction: "CREDIT",
+        reason: "MDR_MARGIN",
+        createdAt: { gte: dayStart },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.walletTxn.aggregate({
+      where: {
+        userId: accountId,
+        walletType: "REVENUE",
+        direction: "DEBIT",
+        reason: "COMMISSION_PAYOUT",
+        createdAt: { gte: dayStart },
+      },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  const balance = toNumber(dec(account?.revenueBalance ?? 0));
+  const marginInToday = toNumber(dec(marginIn._sum.amount ?? 0));
+  const commissionOutToday = toNumber(dec(commissionOut._sum.amount ?? 0));
+
+  return {
+    accountId,
+    balance,
+    marginInToday,
+    commissionOutToday,
+    netToday: toNumber(round(marginInToday - commissionOutToday)),
+  };
+}

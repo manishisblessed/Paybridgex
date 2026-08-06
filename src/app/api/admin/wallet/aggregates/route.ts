@@ -6,7 +6,8 @@ import {
   BALANCE_TIERS,
   type BalanceTier,
 } from "@/lib/wallet/aggregates";
-import { getPayinSummary, getLivePayinToday, type PayinPeriod } from "@/lib/wallet/payin";
+import { getPayinSummary, getLivePayinToday, getTopupsByUser, type PayinPeriod } from "@/lib/wallet/payin";
+import { getRevenueWalletSummary } from "@/lib/commission/revenue";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -19,12 +20,22 @@ const PAYIN_PERIODS: readonly PayinPeriod[] = ["today", "week", "month", "year"]
  *   ?view=users&role=&q=&page=&pageSize= → user-wise balance listing
  *   ?view=payin&period=today|week|month|year → live payin rollup by rail (ledger)
  *   ?view=payin-today                    → TODAY's live business per rail (source; resets IST midnight)
+ *   ?view=revenue                        → Revenue Wallet snapshot (MASTER_ADMIN only)
  */
 export async function GET(req: Request) {
   try {
-    await requireRole("MASTER_ADMIN", "ADMIN", "FINANCE");
+    const user = await requireRole("MASTER_ADMIN", "ADMIN", "FINANCE");
     const { searchParams } = new URL(req.url);
     const view = searchParams.get("view") ?? "cumulative";
+
+    // The Revenue Wallet is company earnings — visible to the platform owner
+    // (master-admin) only, never to plain admins / finance.
+    if (view === "revenue") {
+      if (user.role !== "MASTER_ADMIN") {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      return NextResponse.json(await getRevenueWalletSummary());
+    }
 
     if (view === "payin-today") {
       return NextResponse.json(await getLivePayinToday());
@@ -36,6 +47,14 @@ export async function GET(req: Request) {
         ? (periodParam as PayinPeriod)
         : "today";
       return NextResponse.json(await getPayinSummary(period));
+    }
+
+    if (view === "topups") {
+      const periodParam = searchParams.get("period") ?? "today";
+      const period = (PAYIN_PERIODS as readonly string[]).includes(periodParam)
+        ? (periodParam as PayinPeriod)
+        : "today";
+      return NextResponse.json(await getTopupsByUser(period));
     }
 
     if (view === "users") {

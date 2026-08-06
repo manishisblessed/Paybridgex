@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/Button";
 import type { Session } from "@/lib/auth";
 import { formatINR, formatNumber } from "@/lib/utils";
 import { CumulativeWalletCard, type CumulativeData, type PartnerFloat } from "./admin/CumulativeWalletCard";
+import { RevenueWalletCard } from "./admin/RevenueWalletCard";
 import { UserBalancesCard } from "./admin/UserBalancesCard";
 import { ProviderWalletsCard } from "./admin/ProviderWalletsCard";
 import { DailyUserReportCard } from "./admin/DailyUserReportCard";
@@ -184,6 +185,9 @@ export function AdminOverview({ session }: { session: Session }) {
           </>
         )}
       </div>
+
+      {/* ── Revenue Wallet (company earnings) — platform owner only ─── */}
+      {session.role === "master-admin" && <RevenueWalletCard />}
 
       {/* ── Money: cumulative liability + user-wise + provider floats ─── */}
       <CumulativeWalletCard

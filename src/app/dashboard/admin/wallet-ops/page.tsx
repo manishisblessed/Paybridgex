@@ -23,6 +23,8 @@ import {
   QrCode,
   Landmark,
   ArrowDownToLine,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 /* ---------------------------------------------------------------- types */
@@ -122,7 +124,7 @@ const inputCls =
 /* ---------------------------------------------------------------- page */
 
 export default function WalletOpsPage() {
-  const [tab, setTab] = useState<"balances" | "payin" | "operate" | "liens" | "history">("balances");
+  const [tab, setTab] = useState<"balances" | "payin" | "topups" | "operate" | "liens" | "history">("balances");
   const [masked, setMasked] = useState(false);
   const [cumulative, setCumulative] = useState<Cumulative | null>(null);
   const notify = useCallback((text: string, ok: boolean) => {
@@ -209,6 +211,7 @@ export default function WalletOpsPage() {
           [
             ["balances", "User-wise balances"],
             ["payin", "Live payin"],
+            ["topups", "Wallet top-ups"],
             ["operate", "Push / Pull"],
             ["liens", "Liens"],
             ["history", "Operations history"],
@@ -230,6 +233,7 @@ export default function WalletOpsPage() {
 
       {tab === "balances" && <UserBalancesTab money={money} />}
       {tab === "payin" && <PayinTab money={money} />}
+      {tab === "topups" && <TopupsTab money={money} />}
       {tab === "operate" && (
         <OperateTab
           onDone={(msg, ok) => {
@@ -275,12 +279,51 @@ type PayinSummary = {
   asOf: string;
 };
 
+type TopupUserRow = {
+  userId: string;
+  userCode: string | null;
+  name: string;
+  shopName: string | null;
+  role: string;
+  count: number;
+  amount: number;
+  lastAt: string;
+};
+type TopupTxnRow = {
+  refId: string;
+  userId: string;
+  userCode: string | null;
+  name: string;
+  shopName: string | null;
+  amount: number;
+  partner: string | null;
+  createdAt: string;
+};
+type TopupsByUser = {
+  period: string;
+  since: string;
+  asOf: string;
+  totalCount: number;
+  totalAmount: number;
+  byUser: TopupUserRow[];
+  rows: TopupTxnRow[];
+};
+
 const PAYIN_PERIODS = [
   ["today", "Today"],
   ["week", "This week"],
   ["month", "This month"],
   ["year", "This year"],
 ] as const;
+
+function fmtPayinTime(iso: string) {
+  return new Date(iso).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 const RAIL_ICON: Record<string, typeof CreditCard> = {
   POS: CreditCard,
@@ -413,11 +456,164 @@ function PayinTab({ money }: { money: (n: number) => string }) {
           <p className="text-sm font-bold text-sky-800">Company payin wallet</p>
         </div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-sky-800">
-          Every live inbound — POS captures, PG collections, QR settlements and wallet top-ups —
-          is counted here in real time, read straight from each rail&rsquo;s source feed so it
-          always matches your operational screens (POS mirrors the POS Fleet volume exactly). It
-          is a monitor only: it never moves retailer funds, and each period resets at IST midnight.
+          Every live acquiring inbound — POS captures, PG collections and QR settlements — is
+          counted here in real time, read straight from each rail&rsquo;s source feed so it always
+          matches your operational screens (POS mirrors the POS Fleet volume exactly). Wallet
+          top-ups are excluded (they are agent funds, not company business). It is a monitor only:
+          it never moves retailer funds, and each period resets at IST midnight.
         </p>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ top-ups tab */
+
+function TopupsTab({ money }: { money: (n: number) => string }) {
+  const [period, setPeriod] = useState<string>("today");
+  const [data, setData] = useState<TopupsByUser | null>(null);
+  const [showTxns, setShowTxns] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/wallet/aggregates?view=topups&period=${period}`);
+      if (res.ok) setData(await res.json());
+    } finally {
+      setLoading(false);
+    }
+  }, [period]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const periodLabel =
+    PAYIN_PERIODS.find(([k]) => k === period)?.[1]?.toLowerCase() ?? "today";
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 rounded-xl border border-ink-100 bg-white p-1">
+          {PAYIN_PERIODS.map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setPeriod(key)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                period === key ? "bg-brand-600 text-white" : "text-ink-500 hover:text-ink-800"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <Button variant="outline" size="sm" onClick={load} disabled={loading} className="ml-auto">
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+
+      {/* Headline */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="rounded-2xl border border-transparent bg-gradient-to-br from-amber-500 to-orange-600 p-4 text-white shadow-soft">
+          <div className="flex items-center gap-2">
+            <ArrowDownToLine className="h-4 w-4 text-white/80" />
+            <p className="text-[10px] font-bold uppercase tracking-widest text-white/70">
+              Wallet top-ups {periodLabel}
+            </p>
+          </div>
+          <p className="mt-1 font-display text-2xl font-bold">{money(data?.totalAmount ?? 0)}</p>
+          <p className="text-[11px] text-white/70">{formatNumber(data?.totalCount ?? 0)} top-ups</p>
+        </div>
+        <MiniStat label="Agents topped up" value={formatNumber(data?.byUser.length ?? 0)} />
+        <MiniStat
+          label="Avg top-up"
+          value={money(data && data.totalCount > 0 ? data.totalAmount / data.totalCount : 0)}
+        />
+      </div>
+
+      {/* By user */}
+      <div className="rounded-2xl border border-ink-100 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-bold text-ink-900">Top-ups {periodLabel} · by user</p>
+          {(data?.rows.length ?? 0) > 0 && (
+            <button
+              onClick={() => setShowTxns((s) => !s)}
+              className="inline-flex items-center gap-1 rounded-lg border border-ink-200 px-2.5 py-1.5 text-xs font-semibold text-ink-600 hover:bg-ink-50"
+            >
+              {showTxns ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              {showTxns ? "Hide transactions" : "Show transactions"}
+            </button>
+          )}
+        </div>
+
+        {loading && !data ? (
+          <p className="mt-3 text-sm text-ink-400">Loading…</p>
+        ) : (data?.byUser.length ?? 0) === 0 ? (
+          <p className="mt-3 text-sm text-ink-400">No wallet top-ups {periodLabel}.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-400">
+                  <th className="pb-2 font-semibold">User</th>
+                  <th className="pb-2 text-right font-semibold">Top-ups</th>
+                  <th className="pb-2 text-right font-semibold">Amount</th>
+                  <th className="pb-2 text-right font-semibold">Last</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.byUser ?? []).map((u) => (
+                  <tr key={u.userId} className="border-b border-ink-50 last:border-0">
+                    <td className="py-2">
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-ink-900">{u.shopName || u.name}</span>
+                        <span className="text-[11px] text-ink-500">
+                          {u.userCode ? <span className="font-medium text-brand-600">{u.userCode}</span> : null}
+                          {u.userCode ? " · " : ""}
+                          {u.role}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-2 text-right text-ink-700">{formatNumber(u.count)}</td>
+                    <td className="py-2 text-right font-semibold text-ink-900">{money(u.amount)}</td>
+                    <td className="py-2 text-right text-[11px] text-ink-500">{fmtPayinTime(u.lastAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {showTxns && (data?.rows.length ?? 0) > 0 && (
+          <div className="mt-4 overflow-x-auto rounded-xl border border-ink-100">
+            <table className="w-full text-sm">
+              <thead className="bg-ink-50/60">
+                <tr className="text-left text-[11px] uppercase tracking-wider text-ink-400">
+                  <th className="px-3 py-2 font-semibold">Time</th>
+                  <th className="px-3 py-2 font-semibold">Ref</th>
+                  <th className="px-3 py-2 font-semibold">User</th>
+                  <th className="px-3 py-2 font-semibold">Provider</th>
+                  <th className="px-3 py-2 text-right font-semibold">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.rows ?? []).map((t) => (
+                  <tr key={t.refId} className="border-t border-ink-50">
+                    <td className="px-3 py-2 text-[11px] text-ink-500">{fmtPayinTime(t.createdAt)}</td>
+                    <td className="px-3 py-2 font-mono text-[11px] text-ink-600">{t.refId}</td>
+                    <td className="px-3 py-2">
+                      <span className="font-medium text-ink-900">{t.shopName || t.name}</span>
+                      {t.userCode ? <span className="ml-1 text-[11px] text-brand-600">{t.userCode}</span> : null}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-ink-500">{t.partner ?? "—"}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-ink-900">{money(t.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

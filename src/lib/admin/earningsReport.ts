@@ -54,6 +54,8 @@ export type EarningsRecipient = {
   name: string;
   userCode: string | null;
   gross: number;
+  /** 2% TDS withheld from this recipient's commission on this txn (for filing). */
+  tds: number;
 };
 
 export type EarningsReportRow = {
@@ -86,6 +88,14 @@ export type EarningsReportRow = {
   commSuper: number;
   /** DT + MD + SD gross commission. */
   totalCommission: number;
+  /** 2% TDS withheld from the Distributor's (DT) commission. */
+  tdsDistributor: number;
+  /** 2% TDS withheld from the Master Distributor's (MD) commission. */
+  tdsMaster: number;
+  /** 2% TDS withheld from the Super Distributor's (SD) commission. */
+  tdsSuper: number;
+  /** DT + MD + SD TDS withheld on this txn (per-transaction TDS for filing). */
+  totalTds: number;
   /** Platform net earning = companyMargin − totalCommission. */
   platformEarning: number;
   /** Recipient names per tier (null when that tier earned nothing). */
@@ -117,6 +127,7 @@ export type EarningsSummary = {
   totalMaster: number;
   totalSuper: number;
   totalCommission: number;
+  totalTds: number;
   totalPlatformEarning: number;
 };
 
@@ -310,6 +321,7 @@ async function loadCommissionSplits(txnIds: string[]): Promise<Map<string, TierS
         tier: true,
         grossAmount: true,
         amount: true,
+        tdsAmount: true,
         user: { select: { name: true, userCode: true } },
       },
     });
@@ -323,6 +335,7 @@ async function loadCommissionSplits(txnIds: string[]): Promise<Map<string, TierS
         name: c.user?.name ?? "Unknown",
         userCode: c.user?.userCode ?? null,
         gross,
+        tds: toNumber(c.tdsAmount ?? 0),
       };
       if (c.tier === "DISTRIBUTOR") split.distributor = mergeRecipient(split.distributor, recipient);
       else if (c.tier === "MASTER") split.master = mergeRecipient(split.master, recipient);
@@ -339,7 +352,7 @@ function mergeRecipient(
   next: EarningsRecipient
 ): EarningsRecipient {
   if (!existing) return next;
-  return { ...existing, gross: existing.gross + next.gross };
+  return { ...existing, gross: existing.gross + next.gross, tds: existing.tds + next.tds };
 }
 
 async function loadRetailers(userIds: string[]): Promise<Map<string, EarningsReportRetailer>> {
@@ -378,6 +391,10 @@ function buildRow(
   const commMaster = split.master?.gross ?? 0;
   const commSuper = split.superDistributor?.gross ?? 0;
   const totalCommission = commDistributor + commMaster + commSuper;
+  const tdsDistributor = split.distributor?.tds ?? 0;
+  const tdsMaster = split.master?.tds ?? 0;
+  const tdsSuper = split.superDistributor?.tds ?? 0;
+  const totalTds = tdsDistributor + tdsMaster + tdsSuper;
   const companyMargin = margins.get(txn.id) ?? 0;
   const settlement = txn.partnerTxnId ? settlements.get(txn.partnerTxnId) ?? null : null;
 
@@ -397,6 +414,10 @@ function buildRow(
     commMaster,
     commSuper,
     totalCommission,
+    tdsDistributor,
+    tdsMaster,
+    tdsSuper,
+    totalTds,
     platformEarning: companyMargin - totalCommission,
     distributor: split.distributor,
     master: split.master,
@@ -415,6 +436,7 @@ function buildSummary(rows: EarningsReportRow[]): EarningsSummary {
     totalMaster: 0,
     totalSuper: 0,
     totalCommission: 0,
+    totalTds: 0,
     totalPlatformEarning: 0,
   };
   for (const r of rows) {
@@ -426,6 +448,7 @@ function buildSummary(rows: EarningsReportRow[]): EarningsSummary {
     s.totalMaster += r.commMaster;
     s.totalSuper += r.commSuper;
     s.totalCommission += r.totalCommission;
+    s.totalTds += r.totalTds;
     s.totalPlatformEarning += r.platformEarning;
   }
   return s;

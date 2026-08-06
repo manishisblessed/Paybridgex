@@ -119,7 +119,6 @@ export const ASSIGNABLE_ADMIN_TABS = [
   { href: "qr", label: "QR Collections" },
   { href: "disputes", label: "Disputes & Support" },
   { href: "aml", label: "AML Monitoring" },
-  { href: "revenue", label: "Company Earnings" },
   { href: "commission-report", label: "Commission Distributed" },
   { href: "earnings", label: "Per-Txn Earnings" },
   { href: "analytics", label: "Business Analytics" },
@@ -136,6 +135,9 @@ export const ASSIGNABLE_ADMIN_TABS = [
  *  Includes everything from ASSIGNABLE_ADMIN_TABS + the "admins" tab. */
 export const ASSIGNABLE_MASTER_ADMIN_TABS = [
   { href: "admins", label: "Manage Admins" },
+  // "Company Earnings" (Revenue Wallet) is owner-only — assignable to master
+  // admins, but never to plain admins/sub-admins (not in ASSIGNABLE_ADMIN_TABS).
+  { href: "revenue", label: "Company Earnings" },
   ...ASSIGNABLE_ADMIN_TABS,
 ] as const;
 
@@ -154,7 +156,8 @@ const adminMoneyOps: NavItem[] = [
   { href: "/dashboard/admin/aeps", label: "AEPS Centre", icon: Fingerprint, badge: "New" },
   { href: "/dashboard/admin/pos-rental", label: "POS Rental & Billing", icon: ReceiptText, badge: "New" },
   { href: "/dashboard/admin/pos-settlement", label: "POS Settlement", icon: CreditCard, badge: "New" },
-  { href: "/dashboard/admin/revenue", label: "Company Earnings", icon: CircleDollarSign, badge: "New" },
+  // NOTE: "Company Earnings" (the Revenue Wallet) is deliberately NOT here — it
+  // is owner-only and injected into the master-admin menu via masterAdminMoneyOps.
   { href: "/dashboard/admin/commission-report", label: "Commission Distributed", icon: HandCoins, badge: "New" },
   { href: "/dashboard/admin/earnings", label: "Per-Txn Earnings", icon: TrendingUp, badge: "New" },
   { href: "/dashboard/admin/analytics", label: "Business Analytics", icon: LineChart, badge: "New" },
@@ -162,6 +165,15 @@ const adminMoneyOps: NavItem[] = [
   { href: "/dashboard/admin/verify", label: "Identity Toolkit", icon: ScanSearch, badge: "New" },
   { href: "/dashboard/admin/controls", label: "Platform Controls", icon: SlidersHorizontal, badge: "New" },
 ];
+
+/** Money / operations tabs for the platform OWNER (master-admin). Identical to
+ *  adminMoneyOps but ALSO surfaces "Company Earnings" (the Revenue Wallet) —
+ *  company earnings are owner-only and never shown to plain admins/sub-admins. */
+const masterAdminMoneyOps: NavItem[] = adminMoneyOps.flatMap((item) =>
+  item.href === "/dashboard/admin/pos-settlement"
+    ? [item, { href: "/dashboard/admin/revenue", label: "Company Earnings", icon: CircleDollarSign, badge: "New" }]
+    : [item]
+);
 
 /** Workspace tabs shared by admin and sub-admin. Sub-admins are scoped down
  *  through their allowedTabs; with none set they inherit the full menu. */
@@ -216,7 +228,7 @@ export const navByRole: Record<Role, NavGroup[]> = {
         { href: "/dashboard/reports", label: "Reports", icon: BarChart3 }
       ]
     },
-    { heading: "Money & Ops", items: adminMoneyOps },
+    { heading: "Money & Ops", items: masterAdminMoneyOps },
     { heading: "Account", items: account }
   ],
 
@@ -327,7 +339,8 @@ export const navByRole: Record<Role, NavGroup[]> = {
         { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
         { href: "/dashboard/admin/wallet-ops", label: "Wallet Balances", icon: Wallet },
         { href: "/dashboard/admin/ledger", label: "Ledger Explorer", icon: BookOpenCheck },
-        { href: "/dashboard/admin/revenue", label: "Company Earnings", icon: CircleDollarSign },
+        // "Company Earnings" (Revenue Wallet) is owner-only; finance uses the
+        // Commission Distributed + Per-Txn Earnings reports instead.
         { href: "/dashboard/admin/commission-report", label: "Commission Distributed", icon: HandCoins },
         { href: "/dashboard/admin/earnings", label: "Per-Txn Earnings", icon: TrendingUp },
         { href: "/dashboard/admin/analytics", label: "Business Analytics", icon: LineChart },

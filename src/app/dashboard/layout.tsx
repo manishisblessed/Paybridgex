@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { Toaster } from "sonner";
 import { Sidebar } from "@/components/dashboard/Sidebar";
@@ -13,6 +13,8 @@ import { NavigationProgress } from "@/components/dashboard/NavigationProgress";
 import { PageTransition } from "@/components/motion/PageTransition";
 import { DashboardShellSkeleton } from "@/components/ui/Skeleton";
 
+const SIDEBAR_KEY = "ngp-sidebar-collapsed";
+
 export default function DashboardLayout({
   children
 }: {
@@ -20,6 +22,20 @@ export default function DashboardLayout({
 }) {
   const { data: session, status } = useSession({ required: true });
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(SIDEBAR_KEY);
+    if (stored === "true") setCollapsed(true);
+  }, []);
+
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(SIDEBAR_KEY, String(next));
+      return next;
+    });
+  }, []);
 
   const needs2FASetup = status === "authenticated" && !session?.user?.twoFactorEnabled;
 
@@ -41,9 +57,9 @@ export default function DashboardLayout({
       <Suspense fallback={null}>
         <NavigationProgress />
       </Suspense>
-      <Sidebar open={open} onClose={() => setOpen(false)} />
+      <Sidebar open={open} onClose={() => setOpen(false)} collapsed={collapsed} onToggleCollapse={toggleCollapsed} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onOpenSidebar={() => setOpen(true)} />
+        <Topbar onOpenSidebar={() => setOpen(true)} collapsed={collapsed} onToggleCollapse={toggleCollapsed} />
         <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-10">
           <div className="mx-auto w-full max-w-[1400px] min-w-0">
             <SliderSurface />

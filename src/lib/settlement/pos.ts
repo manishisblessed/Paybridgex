@@ -323,7 +323,19 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
       throw e;
     }
 
-    await distributeCommissionForPos(input.transactionRef, userId, input.grossAmount, paymentMode, dims, settlementType);
+    // Book company margin + upline commission ONLY when the retailer was
+    // actually settled now (wtxnId set) — INSTANT credit IS the settlement
+    // moment. If the credit failed and the entry was parked PENDING, the instant
+    // safety-net cron settles it later (settleEntry) and distributes commission
+    // then, so commission/revenue always land AT settlement, never at capture. A
+    // commission error must never fail an already-credited settlement.
+    if (wtxnId) {
+      try {
+        await distributeCommissionForPos(input.transactionRef, userId, input.grossAmount, paymentMode, dims, settlementType);
+      } catch (e) {
+        console.error("[pos capture] instant commission distribution failed:", input.transactionRef, e);
+      }
+    }
 
     return {
       status: wtxnId ? "SETTLED" : "QUEUED",
@@ -364,8 +376,9 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
     throw e;
   }
 
-  // Commission still distributes instantly even in T+1 mode.
-  await distributeCommissionForPos(input.transactionRef, userId, input.grossAmount, paymentMode, dims, settlementType);
+  // Commission + revenue margin are NOT booked here. They are distributed when
+  // the entry is actually settled (settleEntry), so the Revenue Wallet and the
+  // upline (DT/MD/SD) are credited AT settlement time — never at swipe/capture.
 
   return {
     status: "QUEUED",
@@ -556,6 +569,30 @@ async function settleEntry(
         : {}),
     },
   });
+
+  // Book the company margin + upline commission AT settlement time (funded from
+  // the Revenue Wallet, net of 2% TDS), priced on the leg actually settled
+  // (T0/T1). Idempotent per capture (synthetic Transaction refId + per-payee
+  // ledger keys), so the instant / T+1 cron / instant-button paths can never
+  // double-distribute. The retailer credit above already committed — a
+  // commission failure must never roll it back or mark the entry FAILED.
+  try {
+    await distributeCommissionForPos(
+      entry.transactionRef,
+      entry.userId,
+      toNumber(gross),
+      entry.paymentMode ?? undefined,
+      {
+        company: entry.company,
+        cardType: entry.cardType,
+        brandType: entry.brandType,
+        classification: entry.classification,
+      },
+      settlementType
+    );
+  } catch (e) {
+    console.error("[pos settle] commission distribution failed:", entry.transactionRef, e);
+  }
 
   return toNumber(netAmount);
 }

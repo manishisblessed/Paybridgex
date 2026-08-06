@@ -19,7 +19,6 @@ import { getPartner } from "../partners";
 import { round } from "../money";
 import { emitWebhookEvent } from "../platform/webhooks";
 import { assertPushWithinCap, WalletOpError } from "./operations";
-import { recordPayin } from "./payin";
 
 export type TopupState = "INITIATED" | "PROCESSING" | "SUCCESS" | "FAILED";
 
@@ -154,15 +153,10 @@ export async function settleTopup(refId: string): Promise<{ refId: string; statu
         },
       });
     });
-    // Mirror the GROSS into the company payin wallet (best-effort live monitor).
-    // Idempotency-keyed, so a webhook + poll race counts the top-up once.
-    await recordPayin({
-      rail: "TOPUP",
-      grossAmount: txn.amount,
-      refType: "Transaction",
-      refId: txn.id,
-      note: `Wallet top-up payin ${refId}`,
-    });
+    // NOTE: wallet top-ups are intentionally NOT mirrored into the company payin
+    // monitor — a top-up is an agent loading their own wallet (a liability), not
+    // company acquiring business. The payin wallet tracks POS / PG / QR only.
+
     // Partner webhook (best-effort; never blocks or fails the credit).
     void emitWebhookEvent(txn.userId, "topup.credited", {
       refId,

@@ -18,6 +18,7 @@ import {
   Scissors,
   Banknote,
   HandCoins,
+  Landmark,
   TrendingUp,
   RefreshCw,
   ChevronLeft,
@@ -48,7 +49,7 @@ type Retailer = {
   role: string;
 };
 
-type Recipient = { name: string; userCode: string | null; gross: number };
+type Recipient = { name: string; userCode: string | null; gross: number; tds: number };
 
 type ReportRow = {
   transactionId: string;
@@ -66,6 +67,10 @@ type ReportRow = {
   commMaster: number;
   commSuper: number;
   totalCommission: number;
+  tdsDistributor: number;
+  tdsMaster: number;
+  tdsSuper: number;
+  totalTds: number;
   platformEarning: number;
   distributor: Recipient | null;
   master: Recipient | null;
@@ -95,6 +100,7 @@ type Summary = {
   totalMaster: number;
   totalSuper: number;
   totalCommission: number;
+  totalTds: number;
   totalPlatformEarning: number;
 };
 
@@ -288,6 +294,10 @@ export default function AdminEarningsPage() {
     { key: "commMaster", header: "MD Commission (INR)", format: "money", render: (r) => r.commMaster.toFixed(2) },
     { key: "commSuper", header: "SD Commission (INR)", format: "money", render: (r) => r.commSuper.toFixed(2) },
     { key: "totalCommission", header: "Total Commission (INR)", format: "money", render: (r) => r.totalCommission.toFixed(2) },
+    { key: "tdsDistributor", header: "DT TDS (INR)", format: "money", render: (r) => r.tdsDistributor.toFixed(2) },
+    { key: "tdsMaster", header: "MD TDS (INR)", format: "money", render: (r) => r.tdsMaster.toFixed(2) },
+    { key: "tdsSuper", header: "SD TDS (INR)", format: "money", render: (r) => r.tdsSuper.toFixed(2) },
+    { key: "totalTds", header: "Total TDS 2% (INR)", format: "money", render: (r) => r.totalTds.toFixed(2) },
     { key: "platformEarning", header: "Platform Earning (INR)", format: "money", render: (r) => r.platformEarning.toFixed(2) },
   ];
 
@@ -302,6 +312,7 @@ export default function AdminEarningsPage() {
     { key: "commDistributor", header: "DT", align: "right", render: (r) => commissionCell(r.distributor, r.uplineDepth >= 1) },
     { key: "commMaster", header: "MD", align: "right", render: (r) => commissionCell(r.master, r.uplineDepth >= 2) },
     { key: "commSuper", header: "SD", align: "right", render: (r) => commissionCell(r.superDistributor, r.uplineDepth >= 3) },
+    { key: "totalTds", header: "TDS 2%", align: "right", render: (r) => (r.totalTds > 0 ? <span className="text-amber-700">−{formatINR(r.totalTds)}</span> : <span className="text-xs text-ink-300">—</span>) },
     { key: "platformEarning", header: "Platform Earning", align: "right", render: (r) => <span className="font-semibold text-emerald-700">{formatINR(r.platformEarning)}</span> },
     { key: "settlementStatus", header: "Status", render: (r) => settlementBadge(r.settlementStatus) },
   ];
@@ -355,12 +366,13 @@ export default function AdminEarningsPage() {
       />
 
       {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         <StatCard label="Transactions" value={summary ? summary.totalTransactions.toLocaleString("en-IN") : "..."} icon={ArrowLeftRight} accent="brand" />
         <StatCard label="Total Volume" value={summary ? formatINR(summary.totalVolume) : "..."} icon={IndianRupee} accent="violet" />
         <StatCard label="MDR Collected" value={summary ? formatINR(summary.totalMdr) : "..."} icon={Scissors} accent="accent" />
         <StatCard label="Settled to Merchants" value={summary ? formatINR(summary.totalSettled) : "..."} icon={Banknote} accent="violet" />
         <StatCard label="Commission Distributed" value={summary ? formatINR(summary.totalCommission) : "..."} icon={HandCoins} accent="brand" />
+        <StatCard label="TDS Withheld (2%)" value={summary ? formatINR(summary.totalTds) : "..."} icon={Landmark} accent="accent" />
         <StatCard label="Platform Net Earning" value={summary ? formatINR(summary.totalPlatformEarning) : "..."} icon={TrendingUp} accent="emerald" />
       </div>
 

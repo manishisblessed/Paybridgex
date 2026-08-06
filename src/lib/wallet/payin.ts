@@ -7,11 +7,15 @@ import { add, dec, gt, toNumber, type Money } from "@/lib/money";
 /**
  * Company PAYIN monitoring wallet.
  *
- * Every live inbound — POS capture, PG collection, QR settlement, wallet
- * top-up — mirrors its GROSS amount into the PAYIN book on the platform-owner
- * account (the oldest MASTER_ADMIN, same account that holds REVENUE). This is a
- * pure real-time BUSINESS MONITOR: master-admin can see how much money is
- * flowing through each rail right now.
+ * Every live ACQUIRING inbound — POS capture, PG collection, QR settlement —
+ * mirrors its GROSS amount into the PAYIN book on the platform-owner account
+ * (the oldest MASTER_ADMIN, same account that holds REVENUE). This is a pure
+ * real-time BUSINESS MONITOR: master-admin can see how much money is flowing
+ * through each acquiring rail right now.
+ *
+ * NOTE: wallet top-ups are deliberately EXCLUDED — a top-up is an agent loading
+ * their own wallet (a liability we owe them), not company acquiring business, so
+ * it must never inflate the payin monitor.
  *
  * It is credit-only (never debited) and best-effort: a failure to mirror must
  * NEVER block or roll back the underlying settlement. The `payin:<rail>:<refId>`
@@ -19,14 +23,13 @@ import { add, dec, gt, toNumber, type Money } from "@/lib/money";
  * webhook retries / cron replays.
  */
 
-/** The live-inbound rails the payin wallet tracks. */
-export type PayinRail = "POS" | "PG" | "QR" | "TOPUP";
+/** The live acquiring-inbound rails the payin wallet tracks (no wallet top-ups). */
+export type PayinRail = "POS" | "PG" | "QR";
 
 const RAIL_LABEL: Record<PayinRail | "OTHER", string> = {
   POS: "POS",
   PG: "Payment Gateway",
   QR: "QR",
-  TOPUP: "Wallet Top-up",
   OTHER: "Other",
 };
 
@@ -121,12 +124,13 @@ function istPeriodStart(period: PayinPeriod, now = new Date()): Date {
  * to `since` (omit for all-time). This is the single source the live payin
  * monitor reads, so every payin surface matches the operational feeds exactly:
  * POS ← captured `PosTransactionMirror` (identical to the POS Fleet volume),
- * PG ← `PgSettlementEntry`, QR ← non-rejected `QrClaim`, Top-up ← successful
- * `WALLET_TOPUP` transactions. No PAYIN-ledger dependency → no forward-only lag.
+ * PG ← `PgSettlementEntry`, QR ← non-rejected `QrClaim`. Wallet top-ups are NOT
+ * counted (they are agent liabilities, not company acquiring business). No
+ * PAYIN-ledger dependency → no forward-only lag.
  */
 async function aggregateRailsFromSource(since?: Date): Promise<PayinRailStat[]> {
   const window = since ? { gte: since } : undefined;
-  const [pos, pg, qr, topup] = await Promise.all([
+  const [pos, pg, qr] = await Promise.all([
     prisma.posTransactionMirror.aggregate({
       where: { status: "CAPTURED", ...(window ? { txnTime: window } : {}) },
       _sum: { amount: true },
@@ -145,17 +149,11 @@ async function aggregateRailsFromSource(since?: Date): Promise<PayinRailStat[]> 
       _sum: { amount: true },
       _count: true,
     }),
-    prisma.transaction.aggregate({
-      where: { service: "WALLET_TOPUP", status: "SUCCESS", ...(window ? { createdAt: window } : {}) },
-      _sum: { amount: true },
-      _count: true,
-    }),
   ]);
   return [
     { rail: "POS", label: RAIL_LABEL.POS, count: pos._count, amount: toNumber(dec(pos._sum.amount ?? 0)) },
     { rail: "PG", label: RAIL_LABEL.PG, count: pg._count, amount: toNumber(dec(pg._sum.grossAmount ?? 0)) },
     { rail: "QR", label: RAIL_LABEL.QR, count: qr._count, amount: toNumber(dec(qr._sum.amount ?? 0)) },
-    { rail: "TOPUP", label: RAIL_LABEL.TOPUP, count: topup._count, amount: toNumber(dec(topup._sum.amount ?? 0)) },
   ];
 }
 
@@ -219,4 +217,121 @@ export async function getLivePayinToday(): Promise<LivePayinToday> {
   const rails = await aggregateRailsFromSource(since);
   const { count: totalCount, amount: totalAmount } = sumRails(rails);
   return { since: since.toISOString(), asOf, totalCount, totalAmount: toNumber(totalAmount), rails };
+}
+
+export type TopupUserRow = {
+  userId: string;
+  userCode: string | null;
+  name: string;
+  shopName: string | null;
+  role: string;
+  count: number;
+  amount: number;
+  /** ISO timestamp of this user's most recent top-up in the window. */
+  lastAt: string;
+};
+
+export type TopupTxnRow = {
+  refId: string;
+  userId: string;
+  userCode: string | null;
+  name: string;
+  shopName: string | null;
+  amount: number;
+  partner: string | null;
+  createdAt: string;
+};
+
+export type TopupsByUser = {
+  period: PayinPeriod;
+  since: string;
+  asOf: string;
+  totalCount: number;
+  totalAmount: number;
+  /** Per-user rollup, highest amount first. */
+  byUser: TopupUserRow[];
+  /** The individual top-up transactions (most recent first, capped). */
+  rows: TopupTxnRow[];
+};
+
+/**
+ * "Which top-up, and to which user" — the GENUINE wallet top-ups in the selected
+ * period (IST window), grouped by user and also listed per transaction. Filtered
+ * to real top-ups (refId `TOPUP…`) so the PG/QR commission placeholders that
+ * reuse the WALLET_TOPUP service code are excluded. Read-only monitor view.
+ */
+export async function getTopupsByUser(period: PayinPeriod): Promise<TopupsByUser> {
+  const since = istPeriodStart(period);
+  const asOf = new Date().toISOString();
+
+  const txns = await prisma.transaction.findMany({
+    where: {
+      service: "WALLET_TOPUP",
+      status: "SUCCESS",
+      refId: { startsWith: "TOPUP" },
+      createdAt: { gte: since },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 1000,
+    select: {
+      refId: true,
+      userId: true,
+      amount: true,
+      partner: true,
+      createdAt: true,
+      user: { select: { userCode: true, name: true, shopName: true, role: true } },
+    },
+  });
+
+  const byUserMap = new Map<string, TopupUserRow & { _amount: Money }>();
+  const rows: TopupTxnRow[] = [];
+  let total = dec(0);
+
+  for (const t of txns) {
+    const amt = toNumber(dec(t.amount));
+    total = add(total, dec(t.amount));
+    rows.push({
+      refId: t.refId,
+      userId: t.userId,
+      userCode: t.user?.userCode ?? null,
+      name: t.user?.name ?? "Unknown",
+      shopName: t.user?.shopName ?? null,
+      amount: amt,
+      partner: t.partner ?? null,
+      createdAt: t.createdAt.toISOString(),
+    });
+
+    const existing = byUserMap.get(t.userId);
+    if (existing) {
+      existing.count += 1;
+      existing._amount = add(existing._amount, dec(t.amount));
+      // rows are DESC by createdAt, so the first seen is already the latest.
+    } else {
+      byUserMap.set(t.userId, {
+        userId: t.userId,
+        userCode: t.user?.userCode ?? null,
+        name: t.user?.name ?? "Unknown",
+        shopName: t.user?.shopName ?? null,
+        role: t.user?.role ?? "—",
+        count: 1,
+        amount: 0,
+        lastAt: t.createdAt.toISOString(),
+        _amount: dec(t.amount),
+      });
+    }
+  }
+
+  const byUser: TopupUserRow[] = Array.from(byUserMap.values())
+    .map(({ _amount, ...u }) => ({ ...u, amount: toNumber(_amount) }))
+    .sort((a, b) => b.amount - a.amount);
+
+  return {
+    period,
+    since: since.toISOString(),
+    asOf,
+    totalCount: txns.length,
+    totalAmount: toNumber(total),
+    byUser,
+    rows,
+  };
 }
