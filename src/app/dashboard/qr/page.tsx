@@ -56,6 +56,19 @@ type SettleableClaim = {
   t1: { mdrAmount: number; netAmount: number } | null;
 };
 
+/**
+ * Current wall-clock time formatted for a `datetime-local` input's `max`.
+ * `datetime-local` reads its value/max in the browser's local timezone, so we
+ * shift by the tz offset before slicing — otherwise `toISOString()` (UTC) would
+ * cap "Paid on" at now-minus-offset (e.g. 5:15 PM instead of 10:45 PM in IST).
+ */
+function localDateTimeMax(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+}
+
 const STATUS_BADGE: Record<Claim["status"], { label: string; variant: "success" | "warning" | "danger" | "brand" | "accent" }> = {
   PENDING: { label: "Under review", variant: "warning" },
   AWAITING_SECOND_APPROVAL: { label: "Under review", variant: "warning" },
@@ -470,7 +483,7 @@ export default function QrCollectionsPage() {
                 type="datetime-local"
                 required
                 value={paidAt}
-                max={new Date().toISOString().slice(0, 16)}
+                max={localDateTimeMax()}
                 onChange={(e) => setPaidAt(e.target.value)}
               />
             </div>
