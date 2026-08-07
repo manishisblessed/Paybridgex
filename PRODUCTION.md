@@ -88,7 +88,7 @@ inside Vercel Edge / serverless functions without exhausting connections.
 3. Settings → **Security**:
    - Restricted media types: `pdf`.
    - **Strict transformations**: ON.
-   - **Allowed fetch domains**: `app.jmpnextgenpay.com`, `jmpnextgenpay.com`.
+   - **Allowed fetch domains**: `app.nxtgpay.com`, `nxtgpay.com`.
 4. Settings → **API Keys** → copy `cloud_name`, `api_key`, `api_secret` into
    `.env.local`.
 
@@ -224,7 +224,7 @@ vercel env pull .env.local           # pulls non-secrets
 vercel deploy --prod
 ```
 - Region: `bom1` (Mumbai).
-- Add custom domain `app.jmpnextgenpay.com`.
+- Add custom domain `app.nxtgpay.com`.
 - Enable **Vercel Firewall** + **Bot Protection** + **WAF rules**.
 
 Alternative: AWS Amplify, Render, or self-hosted on AWS ECS Fargate

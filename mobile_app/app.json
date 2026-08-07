@@ -14,13 +14,13 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.jmpnextgenpay.retailer",
+      "bundleIdentifier": "com.nxtgpay.retailer",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Use Face ID to sign in to your NextGenPay account."
       }
     },
     "android": {
-      "package": "com.jmpnextgenpay.retailer",
+      "package": "com.nxtgpay.retailer",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a1a2e"

@@ -92,9 +92,9 @@ export default async function OpengraphImage() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontWeight: 600 }}>jmpnextgenpay.com</span>
+            <span style={{ fontWeight: 600 }}>nxtgpay.com</span>
             <span>·</span>
-            <span>contact@jmpnextgenpay.com</span>
+            <span>Info@nxtgpay.com</span>
           </div>
           <div style={{ display: "flex", gap: 18 }}>
             {["PG", "POS", "QR", "AePS", "DMT", "BBPS"].map((tag) => (

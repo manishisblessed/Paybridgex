@@ -32,7 +32,7 @@ const channels = [
   {
     icon: Headphones,
     label: "Agent helpdesk",
-    value: "agent@jmpnextgenpay.com",
+    value: "agent@nxtgpay.com",
     sub: "For onboarded agents only"
   }
 ];

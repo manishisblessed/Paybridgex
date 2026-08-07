@@ -196,7 +196,7 @@ const milestones = [
   {
     year: "Q2 2025",
     title: "Incorporation",
-    text: "JMP NEXTGENPAY PRIVATE LIMITED is incorporated in Surat, Gujarat (CIN U62990GJ2025PTC000000)."
+    text: "JMP NEXTGENPAY PRIVATE LIMITED is incorporated in Surat, Gujarat (CIN U66190GJ2025PTC170905)."
   },
   {
     year: "Q3 2025",

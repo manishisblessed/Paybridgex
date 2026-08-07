@@ -297,7 +297,7 @@ function LoginForm({ location }: { location: LocationData }) {
               id="identifier"
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
-              placeholder="you@example.com or 9898000000"
+              placeholder="you@example.com or 8780224955"
               required
             />
           </div>

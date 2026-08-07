@@ -102,7 +102,7 @@ function shell({
               <td style="padding:24px 40px 32px 40px;">
                 <div style="border-top:1px solid ${BRAND.border};padding-top:20px;font-size:12px;line-height:18px;color:${BRAND.inkMuted};">
                   <div style="font-weight:700;color:${BRAND.ink};margin-bottom:4px;">JMP NEXTGENPAY PRIVATE LIMITED</div>
-                  <div>Surat, Gujarat, India &middot; <a href="https://nxtgenpay.space" style="color:${BRAND.primary};text-decoration:none;">nxtgenpay.space</a></div>
+                  <div>Surat, Gujarat, India &middot; <a href="https://nxtgpay.com" style="color:${BRAND.primary};text-decoration:none;">nxtgpay.com</a></div>
                   <div style="margin-top:12px;color:${BRAND.inkLight};">You are receiving this email because someone from your organisation invited you to NextGenPay. If this wasn't you, you can safely ignore this message.</div>
                 </div>
               </td>

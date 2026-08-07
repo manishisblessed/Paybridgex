@@ -30,7 +30,7 @@ export default function PgPage() {
     if (!amount) return;
     const ref = generateRefId("PAY");
     setLink(
-      `https://pay.jmpnextgenpay.com/l/${ref.toLowerCase()}?am=${amount}`
+      `https://pay.nxtgpay.com/l/${ref.toLowerCase()}?am=${amount}`
     );
     setCopied(false);
   }

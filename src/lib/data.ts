@@ -26,15 +26,14 @@ export const company = {
   legalName: "JMP NEXTGENPAY PRIVATE LIMITED",
   brand: "NextGenPay",
   tradeName: "jmpnextgenpay",
-  domain: "jmpnextgenpay.com",
-  email: "contact@jmpnextgenpay.com",
-  supportEmail: "support@jmpnextgenpay.com",
-  legalEmail: "legal@jmpnextgenpay.com",
-  grievanceEmail: "grievance@jmpnextgenpay.com",
-  nodalEmail: "nodal@jmpnextgenpay.com",
-  // TODO: replace with the client's official phone number and CIN
-  phone: "9898000000",
-  cin: "U62990GJ2025PTC000000",
+  domain: "nxtgpay.com",
+  email: "Info@nxtgpay.com",
+  supportEmail: "support@nxtgpay.com",
+  legalEmail: "legal@nxtgpay.com",
+  grievanceEmail: "grievance@nxtgpay.com",
+  nodalEmail: "nodal@nxtgpay.com",
+  phone: "8780224955",
+  cin: "U66190GJ2025PTC170905",
   gstin: "24AABCJ0000A1Z5",
   incorporated: "2025",
   jurisdiction: "Surat, Gujarat",
@@ -48,8 +47,8 @@ export const company = {
 export const grievanceOfficer = {
   name: "Mr. Rakesh Patel",
   designation: "Grievance Redressal Officer",
-  email: "grievance@jmpnextgenpay.com",
-  phone: "+91 9898000001",
+  email: "grievance@nxtgpay.com",
+  phone: "+91 8780224955",
   hours: "Monday to Saturday, 10:00 AM – 6:00 PM IST",
   address:
     "2nd Floor, 201, Devi Arcade, Ashwini Kumar Road, Modi Maholla, Surat, Gujarat – 395008",
@@ -59,8 +58,8 @@ export const grievanceOfficer = {
 export const nodalOfficer = {
   name: "Ms. Priya Sharma",
   designation: "Principal Nodal Officer",
-  email: "nodal@jmpnextgenpay.com",
-  phone: "+91 9898000002"
+  email: "nodal@nxtgpay.com",
+  phone: "+91 8780224955"
 };
 
 export type ServiceItem = {
@@ -710,7 +709,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
         id: "introduction",
         heading: "1. Introduction",
         body: [
-          "This Privacy Policy (\"Policy\") governs the processing of personal data by JMP NEXTGENPAY PRIVATE LIMITED (CIN: U62990GJ2025PTC000000), a company incorporated under the Companies Act, 2013 and having its registered office at 2nd Floor, 201, Devi Arcade, Ashwini Kumar Road, Modi Maholla, Surat, Gujarat – 395008 (\"NextGenPay\", \"Company\", \"We\", \"Us\"), through its website www.jmpnextgenpay.com, mobile applications and APIs (collectively, the \"Platform\").",
+          "This Privacy Policy (\"Policy\") governs the processing of personal data by JMP NEXTGENPAY PRIVATE LIMITED (CIN: U66190GJ2025PTC170905), a company incorporated under the Companies Act, 2013 and having its registered office at 2nd Floor, 201, Devi Arcade, Ashwini Kumar Road, Modi Maholla, Surat, Gujarat – 395008 (\"NextGenPay\", \"Company\", \"We\", \"Us\"), through its website www.nxtgpay.com, mobile applications and APIs (collectively, the \"Platform\").",
           "By accessing or using the Platform, you (the \"Data Principal\") consent to the practices described in this Policy. If you do not agree, please do not use the Platform."
         ]
       },
@@ -788,7 +787,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
               "Lodge a complaint with the Data Protection Board of India."
             ]
           },
-          "To exercise any of the above rights, please write to our Grievance Officer at grievance@jmpnextgenpay.com. We will respond within fifteen (15) working days."
+          "To exercise any of the above rights, please write to our Grievance Officer at grievance@nxtgpay.com. We will respond within fifteen (15) working days."
         ]
       },
       {
@@ -991,7 +990,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
           {
             list: [
               "Log in to your NextGenPay dashboard → Transactions → Raise Dispute.",
-              "Or e-mail support@jmpnextgenpay.com with the transaction reference number (RRN), date, amount and a short description.",
+              "Or e-mail support@nxtgpay.com with the transaction reference number (RRN), date, amount and a short description.",
               "For UPI disputes you may also raise a request directly with the issuer bank, the NPCI UDIR portal or the RBI Digital Ombudsman."
             ]
           }
@@ -1024,8 +1023,8 @@ export const legalDocuments: Record<string, LegalDocument> = {
           "If you are not satisfied with the resolution provided at L1 support within 7 days, escalate to:",
           {
             list: [
-              "L2 — Grievance Officer, grievance@jmpnextgenpay.com (response within 15 working days)",
-              "L3 — Principal Nodal Officer, nodal@jmpnextgenpay.com",
+              "L2 — Grievance Officer, grievance@nxtgpay.com (response within 15 working days)",
+              "L3 — Principal Nodal Officer, nodal@nxtgpay.com",
               "L4 — RBI Integrated Ombudsman Scheme, 2021 at cms.rbi.org.in or NPCI Digital Ombudsman"
             ]
           }
@@ -1120,8 +1119,8 @@ export const legalDocuments: Record<string, LegalDocument> = {
           {
             list: [
               "In-app — Help → Raise a Ticket",
-              "E-mail — support@jmpnextgenpay.com",
-              "WhatsApp / Phone — +91 9898000000 (10 AM – 6 PM IST, Mon–Sat)",
+              "E-mail — support@nxtgpay.com",
+              "WhatsApp / Phone — +91 8780224955 (10 AM – 6 PM IST, Mon–Sat)",
               "Letter — Customer Care, JMP NEXTGENPAY PRIVATE LIMITED, 2nd Floor, 201, Devi Arcade, Ashwini Kumar Road, Modi Maholla, Surat – 395008"
             ]
           }
@@ -1135,9 +1134,9 @@ export const legalDocuments: Record<string, LegalDocument> = {
             table: {
               headers: ["Level", "Officer", "Channel", "TAT"],
               rows: [
-                ["Level 1", "Customer Care Executive", "support@jmpnextgenpay.com", "7 working days"],
-                ["Level 2", "Grievance Officer", "grievance@jmpnextgenpay.com · +91 9898000001", "15 working days"],
-                ["Level 3", "Principal Nodal Officer", "nodal@jmpnextgenpay.com · +91 9898000002", "30 days"],
+                ["Level 1", "Customer Care Executive", "support@nxtgpay.com", "7 working days"],
+                ["Level 2", "Grievance Officer", "grievance@nxtgpay.com · +91 8780224955", "15 working days"],
+                ["Level 3", "Principal Nodal Officer", "nodal@nxtgpay.com · +91 8780224955", "30 days"],
                 ["Level 4", "RBI Integrated Ombudsman", "cms.rbi.org.in · 14448 (toll-free)", "As per scheme"]
               ]
             }
@@ -1319,11 +1318,11 @@ export type AuditEvent = {
 };
 
 export const auditEvents: AuditEvent[] = [
-  { id: "AU-94221", actor: "admin@jmpnextgenpay.com", action: "Approved KYC", target: "Vivek Joshi (KYC-004)", ip: "10.18.4.21", ts: "Apr 19, 10:22 AM", severity: "info" },
-  { id: "AU-94220", actor: "neha.k@jmpnextgenpay.com", action: "Override commission", target: "DMT IMPS · JNPD2017", ip: "49.207.211.4", ts: "Apr 19, 09:51 AM", severity: "warn" },
-  { id: "AU-94219", actor: "admin@jmpnextgenpay.com", action: "Suspended retailer", target: "JNPR3217 (Patil Enterprises)", ip: "10.18.4.21", ts: "Apr 19, 09:14 AM", severity: "danger" },
+  { id: "AU-94221", actor: "admin@nxtgpay.com", action: "Approved KYC", target: "Vivek Joshi (KYC-004)", ip: "10.18.4.21", ts: "Apr 19, 10:22 AM", severity: "info" },
+  { id: "AU-94220", actor: "neha.k@nxtgpay.com", action: "Override commission", target: "DMT IMPS · JNPD2017", ip: "49.207.211.4", ts: "Apr 19, 09:51 AM", severity: "warn" },
+  { id: "AU-94219", actor: "admin@nxtgpay.com", action: "Suspended retailer", target: "JNPR3217 (Patil Enterprises)", ip: "10.18.4.21", ts: "Apr 19, 09:14 AM", severity: "danger" },
   { id: "AU-94218", actor: "system", action: "Biller routing failover", target: "DTH · Tata Play → fallback", ip: "n/a", ts: "Apr 19, 08:42 AM", severity: "warn" },
-  { id: "AU-94217", actor: "rohit.v@jmpnextgenpay.com", action: "Approved fund request", target: "FR-9003 · ₹15,000", ip: "182.65.21.99", ts: "Apr 18, 06:30 PM", severity: "info" },
+  { id: "AU-94217", actor: "rohit.v@nxtgpay.com", action: "Approved fund request", target: "FR-9003 · ₹15,000", ip: "182.65.21.99", ts: "Apr 18, 06:30 PM", severity: "info" },
   { id: "AU-94216", actor: "system", action: "Settlement run", target: "T+1 · ₹8.42 Cr · 12,481 txns", ip: "n/a", ts: "Apr 18, 11:05 PM", severity: "info" }
 ];
 

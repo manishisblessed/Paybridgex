@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     "NextGenPay (JMP NEXTGENPAY PRIVATE LIMITED, Surat) is a fintech distribution platform offering payment gateway, POS machines, QR collections, AePS, money transfer, recharges and bill payments for retailers and merchants across India.",
   keywords: [
     "NextGenPay",
-    "jmpnextgenpay",
+    "nxtgpay",
     "payment gateway",
     "POS machine",
     "QR payments",
@@ -37,12 +37,12 @@ export const metadata: Metadata = {
     "fintech India",
     "agent banking"
   ],
-  metadataBase: new URL("https://jmpnextgenpay.com"),
+  metadataBase: new URL("https://nxtgpay.com"),
   openGraph: {
     title: "NextGenPay — Payment Gateway, POS & QR Payments",
     description:
       "Payment gateway, POS machines, QR collections and 60+ digital services for retailers, distributors and merchants.",
-    url: "https://jmpnextgenpay.com",
+    url: "https://nxtgpay.com",
     siteName: "NextGenPay",
     type: "website"
   }
