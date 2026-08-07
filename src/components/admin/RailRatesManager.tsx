@@ -45,6 +45,8 @@ type RailRate = {
   mdrType: string;
   mdrValue: number;
   mdrValueT0: number;
+  minMdrValue: number;
+  minMdrValueT0: number;
   active: boolean;
 };
 
@@ -237,6 +239,8 @@ function RailRateEditor({
     mdrType: "PERCENT",
     mdrValue: "0.5",
     mdrValueT0: "0",
+    minMdrValue: "0",
+    minMdrValueT0: "0",
   };
   const [form, setForm] = useState(emptyForm);
   const isCard = instrumentIsCard(form.instrument);
@@ -275,6 +279,8 @@ function RailRateEditor({
       mdrType: r.mdrType,
       mdrValue: fromStored(r.mdrValue, r.mdrType),
       mdrValueT0: fromStored(r.mdrValueT0, r.mdrType),
+      minMdrValue: fromStored(r.minMdrValue, r.mdrType),
+      minMdrValueT0: fromStored(r.minMdrValueT0, r.mdrType),
     });
     if (typeof document !== "undefined") {
       document.getElementById("rail-rate-form")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -298,6 +304,8 @@ function RailRateEditor({
         mdrType: form.mdrType,
         mdrValue: toFraction(form.mdrValue, form.mdrType),
         mdrValueT0: toFraction(form.mdrValueT0, form.mdrType),
+        minMdrValue: toFraction(form.minMdrValue, form.mdrType),
+        minMdrValueT0: toFraction(form.minMdrValueT0, form.mdrType),
       };
       const res = await fetch(`/api/admin/rails/${kindPath}/rates`, {
         method: editingId ? "PATCH" : "POST",
@@ -450,6 +458,13 @@ function RailRateEditor({
                     </div>
                   </div>
 
+                  {(r.minMdrValue > 0 || r.minMdrValueT0 > 0) && (
+                    <p className="mt-2 text-[11px] text-emerald-600">
+                      Min MDR {fmtRate(r.mdrType, r.minMdrValue > 0 ? r.minMdrValue : r.mdrValue)}
+                      {r.minMdrValueT0 > 0 && <> · instant {fmtRate(r.mdrType, r.minMdrValueT0)}</>}
+                    </p>
+                  )}
+
                   <div className="mt-3 flex items-center justify-between border-t border-ink-50 pt-3">
                     <Badge variant={r.active ? "success" : "danger"}>{r.active ? "active" : "inactive"}</Badge>
                     <div className="flex items-center gap-1">
@@ -589,6 +604,14 @@ function RailRateEditor({
               Vendor (instant)
               <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.mdrValueT0} onChange={set("mdrValueT0")} />
             </label>
+            <label className="text-xs text-ink-500">
+              Min MDR (T+1)
+              <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.minMdrValue} onChange={set("minMdrValue")} placeholder="0 = vendor" />
+            </label>
+            <label className="text-xs text-ink-500">
+              Min MDR (instant)
+              <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.minMdrValueT0} onChange={set("minMdrValueT0")} placeholder="0 = T+1" />
+            </label>
             <div className="flex items-end gap-2 lg:col-span-8">
               <Button size="sm" onClick={saveRate} disabled={busy} isLoading={busy}>
                 {editing ? (
@@ -609,8 +632,10 @@ function RailRateEditor({
             </div>
           </div>
           <p className="mt-3 text-[11px] text-ink-400">
-            These are the acquirer (vendor) costs for {serviceKind}. A scheme&apos;s {serviceKind} MDR is locked to the
-            matching rate and can never be set below it. Instant is optional — leave 0 to reuse the T+1 rate.
+            Vendor is the acquirer (upstream) cost for {serviceKind}. Min MDR is the floor the company offers
+            downstream (vendor + guaranteed margin): a scheme&apos;s {serviceKind} service charge can never be priced
+            below it, and the chain commission pool is whatever the scheme prices above it. Leave Min MDR 0 to use the
+            vendor cost as the floor. Instant fields are optional — leave 0 to reuse the T+1 value.
           </p>
         </div>
       </div>

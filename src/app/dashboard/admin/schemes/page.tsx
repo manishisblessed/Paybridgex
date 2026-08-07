@@ -165,6 +165,15 @@ const CLASSIFICATIONS = [
   "PREPAID",
 ];
 const PAYMENT_MODES = ["*", "CARD", "UPI", "NFC", "BHARATQR"];
+// QR presents its own instrument labels. The stored value is kept compatible
+// with the settlement side ("QR" persists as UPI, which is what QR claims price
+// against) so relabeling never breaks matching. "Rupay_Card" is offered for
+// RuPay-card-on-QR pricing and stores as RUPAY_CARD.
+const QR_PAYMENT_MODES: Array<{ value: string; label: string }> = [
+  { value: "*", label: "Any" },
+  { value: "UPI", label: "QR" },
+  { value: "RUPAY_CARD", label: "Rupay_Card" },
+];
 
 // Pick the most specific approved brand/rail rate matching a slab's card
 // dimensions. Mirrors the CONFIG-TIME server resolvers (findApprovedBrandRate /
@@ -1200,12 +1209,16 @@ function MdrRateModal({
   // the slab resolves against the UPI rail rate out of the box (editing keeps the
   // saved mode).
   useEffect(() => {
-    if (serviceKind === "POS") {
+    // POS and QR price the Minimum-MDR pool as percentages of the transaction.
+    if (serviceKind === "POS" || serviceKind === "QR") {
       setMdrType("PERCENT");
       setCommissionType("PERCENT");
     }
+    // QR defaults: the "QR" instrument (stored as UPI so settlement still
+    // resolves) and the RuPay network (NPCI QR), mirroring the POS brand pin.
     if (serviceKind === "QR" && !isEdit) {
       setPaymentMode("UPI");
+      setBrandType("RUPAY");
     }
   }, [serviceKind, isEdit]);
 
@@ -1306,9 +1319,10 @@ function MdrRateModal({
   const belowCost = (venT1Val > 0 || venT0Val > 0) && (belowCostT1 || belowCostT0);
   const rateUnit = (v: number) => (mdrType === "PERCENT" ? `${v.toFixed(2)}%` : `₹${v.toFixed(2)}`);
 
-  // POS commission-pool model: the company keeps (Min MDR − Vendor) and the
+  // POS/QR commission-pool model: the company keeps (Min MDR − Vendor) and the
   // chain gets exactly (Service − Min MDR). Everything here is in human % units.
-  const isPos = serviceKind === "POS";
+  // QR mirrors POS end-to-end (Minimum MDR floor + commission pool + revenue).
+  const isPos = serviceKind === "POS" || serviceKind === "QR";
   const POOL_EPS = 1e-6;
   const minT1 = posLock.minMdr;
   const minT0 = posLock.minMdrT0 > 0 ? posLock.minMdrT0 : minT1;
@@ -1422,11 +1436,25 @@ function MdrRateModal({
             <div>
               <Label>Mode</Label>
               <Select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
-                {PAYMENT_MODES.map((m) => (
-                  <option key={m} value={m}>
-                    {m === "*" ? "Any" : m}
-                  </option>
-                ))}
+                {serviceKind === "QR" ? (
+                  <>
+                    {QR_PAYMENT_MODES.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                      </option>
+                    ))}
+                    {/* Keep an unknown/legacy stored mode selectable while editing */}
+                    {isEdit && !QR_PAYMENT_MODES.some((m) => m.value === paymentMode) && (
+                      <option value={paymentMode}>{paymentMode}</option>
+                    )}
+                  </>
+                ) : (
+                  PAYMENT_MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {m === "*" ? "Any" : m}
+                    </option>
+                  ))
+                )}
               </Select>
             </div>
           </div>

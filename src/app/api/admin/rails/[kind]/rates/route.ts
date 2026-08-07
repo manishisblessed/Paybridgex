@@ -20,6 +20,28 @@ const normDim = (v: string | null | undefined) => {
   return s ? s.toUpperCase() : null;
 };
 
+/**
+ * A Minimum MDR that is set (> 0) can never be below the vendor cost (mdrValue):
+ * it is the floor offered downstream and must at least cover the acquirer cost.
+ * A 0 value means "use the vendor cost as the floor" and is always valid.
+ */
+function validateMinMdr(
+  mdrValue: number,
+  mdrValueT0: number,
+  minMdrValue: number,
+  minMdrValueT0: number
+): string | null {
+  const EPS = 1e-9;
+  if (minMdrValue > 0 && minMdrValue - mdrValue < -EPS) {
+    return "Minimum MDR cannot be below the vendor cost (T+1). Raise it to at least the vendor cost.";
+  }
+  const vendorT0 = mdrValueT0 > 0 ? mdrValueT0 : mdrValue;
+  if (minMdrValueT0 > 0 && minMdrValueT0 - vendorT0 < -EPS) {
+    return "Minimum MDR (instant) cannot be below the T+0 vendor cost. Raise it to at least the vendor cost.";
+  }
+  return null;
+}
+
 const RateBody = z.object({
   scopeKey: z.string().trim().min(1).max(60),
   scopeLabel: z.string().trim().min(1).max(80).nullish(),
@@ -33,6 +55,10 @@ const RateBody = z.object({
   mdrType: z.enum(["FLAT", "PERCENT"]).default("PERCENT"),
   mdrValue: z.number().nonnegative(),
   mdrValueT0: z.number().nonnegative().default(0),
+  // Minimum MDR offered downstream (vendor cost + company margin). 0 = use the
+  // vendor cost as the floor. minMdrValueT0 falls back to minMdrValue when unset.
+  minMdrValue: z.number().nonnegative().default(0),
+  minMdrValueT0: z.number().nonnegative().default(0),
 });
 
 /** POST — add a rail (PG/QR) MDR rate for a provider (band-overlap validated). */
@@ -78,6 +104,11 @@ export async function POST(req: Request, { params }: { params: { kind: string } 
   );
   if (overlap) return NextResponse.json({ error: overlap }, { status: 400 });
 
+  // Minimum MDR (when set) must be at least the vendor cost — it is the floor the
+  // company offers downstream, which necessarily includes the acquirer cost.
+  const minMdrErr = validateMinMdr(b.mdrValue, b.mdrValueT0, b.minMdrValue, b.minMdrValueT0);
+  if (minMdrErr) return NextResponse.json({ error: minMdrErr }, { status: 400 });
+
   // Defense-in-depth: a rail rate may not sit below any configured company floor.
   const floorErr = await validateMdrAgainstFloor(
     {
@@ -121,6 +152,8 @@ const UpdateBody = z.object({
   mdrType: z.enum(["FLAT", "PERCENT"]).optional(),
   mdrValue: z.number().nonnegative().optional(),
   mdrValueT0: z.number().nonnegative().optional(),
+  minMdrValue: z.number().nonnegative().optional(),
+  minMdrValueT0: z.number().nonnegative().optional(),
   active: z.boolean().optional(),
 });
 
@@ -183,6 +216,14 @@ export async function PATCH(req: Request, { params }: { params: { kind: string }
   );
   if (floorErr) return NextResponse.json({ error: floorErr }, { status: 400 });
 
+  const minMdrErr = validateMinMdr(
+    b.mdrValue ?? Number(existing.mdrValue),
+    b.mdrValueT0 ?? Number(existing.mdrValueT0),
+    b.minMdrValue ?? Number(existing.minMdrValue),
+    b.minMdrValueT0 ?? Number(existing.minMdrValueT0)
+  );
+  if (minMdrErr) return NextResponse.json({ error: minMdrErr }, { status: 400 });
+
   const updated = await prisma.railMdrRate.update({
     where: { id: existing.id },
     data: {
@@ -190,6 +231,8 @@ export async function PATCH(req: Request, { params }: { params: { kind: string }
       ...(b.mdrType !== undefined ? { mdrType: b.mdrType } : {}),
       ...(b.mdrValue !== undefined ? { mdrValue: b.mdrValue } : {}),
       ...(b.mdrValueT0 !== undefined ? { mdrValueT0: b.mdrValueT0 } : {}),
+      ...(b.minMdrValue !== undefined ? { minMdrValue: b.minMdrValue } : {}),
+      ...(b.minMdrValueT0 !== undefined ? { minMdrValueT0: b.minMdrValueT0 } : {}),
       ...(b.active !== undefined ? { active: b.active } : {}),
     },
   });

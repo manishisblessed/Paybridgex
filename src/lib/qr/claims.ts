@@ -67,6 +67,13 @@ const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 const UTR_RE = /^\d{12}$/;
 
+/**
+ * Default QR network. QR collections settle over NPCI RuPay/UPI, so QR scheme
+ * slabs pinned to the RuPay brand resolve; wildcard ("Any") slabs match too.
+ * Kept in sync with the QR default in the scheme MDR editor.
+ */
+const QR_BRAND_TYPE = "RUPAY";
+
 /** sha256 hex of the uploaded screenshot bytes (the image-reuse dedupe key). */
 export function screenshotSha256(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
@@ -326,6 +333,9 @@ async function settleClaim(
     serviceKind: "QR",
     grossAmount: Number(claim.amount),
     paymentMode: "UPI",
+    // RuPay is the default QR network (NPCI); a RuPay-pinned scheme slab resolves
+    // on it, while a wildcard slab still matches regardless.
+    brandType: QR_BRAND_TYPE,
     settlementType,
     scopeKey: await railScopeKey("QR"),
   });
@@ -431,6 +441,7 @@ async function distributeCommissionForQr(
 
   await distributeMdrCommission(txn.id, userId, "QR", grossAmount, txn.service, {
     paymentMode: "UPI",
+    brandType: QR_BRAND_TYPE,
     settlementType,
   });
 }
@@ -549,8 +560,8 @@ export async function listSettleableQrClaims(userId: string) {
   for (const c of claims) {
     const gross = Number(c.amount);
     const [instant, t1] = await Promise.all([
-      priceSchemeSettlement({ userId, serviceKind: "QR", grossAmount: gross, paymentMode: "UPI", settlementType: "T0", scopeKey }),
-      priceSchemeSettlement({ userId, serviceKind: "QR", grossAmount: gross, paymentMode: "UPI", settlementType: "T1", scopeKey }),
+      priceSchemeSettlement({ userId, serviceKind: "QR", grossAmount: gross, paymentMode: "UPI", brandType: QR_BRAND_TYPE, settlementType: "T0", scopeKey }),
+      priceSchemeSettlement({ userId, serviceKind: "QR", grossAmount: gross, paymentMode: "UPI", brandType: QR_BRAND_TYPE, settlementType: "T1", scopeKey }),
     ]);
     rows.push({
       id: c.id,

@@ -82,6 +82,8 @@ export async function GET() {
         mdrType: true,
         mdrValue: true,
         mdrValueT0: true,
+        minMdrValue: true,
+        minMdrValueT0: true,
         minAmount: true,
         maxAmount: true,
       },
@@ -179,6 +181,8 @@ export async function GET() {
     mdrType: string;
     mdrValue: number;
     mdrValueT0: number;
+    minMdrValue: number;
+    minMdrValueT0: number;
     minAmount: number;
     maxAmount: number;
   };
@@ -199,6 +203,8 @@ export async function GET() {
       mdrType: r.mdrType,
       mdrValue: Number(r.mdrValue),
       mdrValueT0: Number(r.mdrValueT0),
+      minMdrValue: Number(r.minMdrValue),
+      minMdrValueT0: Number(r.minMdrValueT0),
       minAmount: Number(r.minAmount),
       maxAmount: Number(r.maxAmount),
     });
@@ -210,7 +216,18 @@ export async function GET() {
   };
   for (const kind of ["PG", "QR"] as const) {
     railProvidersByKind[kind] = Object.keys(railRatesByKind[kind])
-      .map((scopeKey) => ({ scopeKey, label: railLabels.get(`${kind}:${scopeKey}`) ?? scopeKey }))
+      .map((scopeKey) => {
+        const baseLabel = railLabels.get(`${kind}:${scopeKey}`) ?? scopeKey;
+        // Surface the rate card's sub-provider (e.g. "SHAH_WORKS") in the label
+        // when the scope has exactly one, so the scheme MDR modal's Provider
+        // dropdown shows the recognizable QR/PG merchant name. The dropdown value
+        // stays the scopeKey (the routing provider) so settlement still matches.
+        const subProviders = Array.from(
+          new Set(railRatesByKind[kind][scopeKey].map((r) => r.provider).filter((p) => p && p !== "*"))
+        );
+        const label = subProviders.length === 1 ? `${baseLabel} · ${subProviders[0]}` : baseLabel;
+        return { scopeKey, label };
+      })
       .sort((a, b) => a.label.localeCompare(b.label));
   }
 

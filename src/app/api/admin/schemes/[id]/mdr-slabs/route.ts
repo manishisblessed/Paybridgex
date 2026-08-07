@@ -88,7 +88,7 @@ async function lockRailVendorToRate(input: {
   mdrType: "FLAT" | "PERCENT";
   minAmount: number;
 }): Promise<
-  | { ok: true; vendorCharge: number; vendorChargeT0: number }
+  | { ok: true; vendorCharge: number; vendorChargeT0: number; minMdr: number; minMdrT0: number }
   | { ok: false; error: string }
 > {
   const scopeKey = input.scopeKey?.trim();
@@ -122,10 +122,18 @@ async function lockRailVendorToRate(input: {
       error: `MDR type must be ${approved.mdrType} to match the approved ${input.serviceKind} rate for ${scopeKey}.`,
     };
   }
+  const vendorCharge = Number(approved.mdrValue);
+  // Minimum MDR mirrors POS: the floor offered downstream (vendor + company
+  // margin). When the rail rate hasn't set one it defaults to the vendor cost
+  // (zero company margin), preserving the legacy "service ≥ vendor" behavior.
+  const minMdr = Number(approved.minMdrValue) > 0 ? Number(approved.minMdrValue) : vendorCharge;
+  const minMdrT0 = Number(approved.minMdrValueT0) > 0 ? Number(approved.minMdrValueT0) : minMdr;
   return {
     ok: true,
-    vendorCharge: Number(approved.mdrValue),
+    vendorCharge,
     vendorChargeT0: Number(approved.mdrValueT0),
+    minMdr,
+    minMdrT0,
   };
 }
 
@@ -304,10 +312,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const b = parsed.data;
 
-  // POS pricing is always a percentage of the transaction.
-  if (b.serviceKind === "POS" && (b.mdrType !== "PERCENT" || b.commissionType !== "PERCENT"))
+  // POS and QR both price the Minimum-MDR pool as percentages of the transaction.
+  const usesPoolModel = b.serviceKind === "POS" || b.serviceKind === "QR";
+  if (usesPoolModel && (b.mdrType !== "PERCENT" || b.commissionType !== "PERCENT"))
     return NextResponse.json(
-      { error: "POS MDR and commission must both be percentages." },
+      { error: `${b.serviceKind} MDR and commission must both be percentages.` },
       { status: 400 }
     );
 
@@ -332,7 +341,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     posMinMdrT0 = lock.minMdrT0;
   }
 
-  // PG / QR: lock vendor to the provider-approved rail rate (blocks below-cost MDR).
+  // PG / QR: lock vendor to the provider-approved rail rate (blocks below-cost
+  // MDR). QR additionally captures the rail's Minimum MDR to price the pool.
   if (b.serviceKind === "PG" || b.serviceKind === "QR") {
     const lock = await lockRailVendorToRate({
       serviceKind: b.serviceKind,
@@ -347,6 +357,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
     b.vendorCharge = lock.vendorCharge;
     b.vendorChargeT0 = lock.vendorChargeT0;
+    if (b.serviceKind === "QR") {
+      posMinMdr = lock.minMdr;
+      posMinMdrT0 = lock.minMdrT0;
+    }
   }
 
   const { global: isGlobal, ...slabFields } = b;
@@ -380,11 +394,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   );
   if (floorErr) return NextResponse.json({ error: floorErr }, { status: 400 });
 
-  // POS uses the Minimum-MDR pool equality; other rails use the ≤-margin guard.
-  const marginErr =
-    b.serviceKind === "POS"
-      ? validatePosCommissionEquality(b, posMinMdr, posMinMdrT0)
-      : validateMarginVsCommission(b);
+  // POS/QR use the Minimum-MDR pool equality; other rails use the ≤-margin guard.
+  const marginErr = usesPoolModel
+    ? validatePosCommissionEquality(b, posMinMdr, posMinMdrT0)
+    : validateMarginVsCommission(b);
   if (marginErr) return NextResponse.json({ error: marginErr }, { status: 400 });
 
   // Validate overlap and create for each target scheme.
@@ -543,8 +556,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     b.commissionSuperDistributorT0 !== undefined;
   let posMinMdr = 0;
   let posMinMdrT0 = 0;
-  const posRevalidate = existing.serviceKind === "POS" && (pricingTouched || commissionTouched);
-  if (posRevalidate) {
+  // POS and QR share the Minimum-MDR pool model; PG keeps the ≤-margin guard.
+  const usesPoolModel = existing.serviceKind === "POS" || existing.serviceKind === "QR";
+  const poolRevalidate = usesPoolModel && (pricingTouched || commissionTouched);
+
+  // POS: re-lock vendor to the approved brand rate + capture the Minimum MDR.
+  if (existing.serviceKind === "POS" && poolRevalidate) {
     if ((b.mdrType ?? existing.mdrType) !== "PERCENT" || (b.commissionType ?? existing.commissionType) !== "PERCENT")
       return NextResponse.json({ error: "POS MDR and commission must both be percentages." }, { status: 400 });
     const lock = await lockPosVendorToBrandRate({
@@ -563,9 +580,32 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     posMinMdrT0 = lock.minMdrT0;
   }
 
-  if ((existing.serviceKind === "PG" || existing.serviceKind === "QR") && pricingTouched) {
+  // QR: re-lock vendor to the approved rail rate + capture the Minimum MDR. Runs
+  // on pricing OR commission changes so the pool floor is always available.
+  if (existing.serviceKind === "QR" && poolRevalidate) {
+    if ((b.mdrType ?? existing.mdrType) !== "PERCENT" || (b.commissionType ?? existing.commissionType) !== "PERCENT")
+      return NextResponse.json({ error: "QR MDR and commission must both be percentages." }, { status: 400 });
     const lock = await lockRailVendorToRate({
-      serviceKind: existing.serviceKind,
+      serviceKind: "QR",
+      scopeKey: next.company,
+      paymentMode: next.paymentMode,
+      cardType: next.cardType,
+      brandType: next.brandType,
+      classification: next.classification,
+      mdrType: b.mdrType ?? existing.mdrType,
+      minAmount: next.minAmount,
+    });
+    if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
+    b.vendorCharge = lock.vendorCharge;
+    b.vendorChargeT0 = lock.vendorChargeT0;
+    posMinMdr = lock.minMdr;
+    posMinMdrT0 = lock.minMdrT0;
+  }
+
+  // PG: re-lock vendor only (margin model) when pricing changes.
+  if (existing.serviceKind === "PG" && pricingTouched) {
+    const lock = await lockRailVendorToRate({
+      serviceKind: "PG",
       scopeKey: next.company,
       paymentMode: next.paymentMode,
       cardType: next.cardType,
@@ -608,12 +648,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       b.commissionSuperDistributorT0 ?? Number(existing.commissionSuperDistributorT0),
   };
 
-  // POS (when pricing/commission changed): enforce the Minimum-MDR pool
-  // equality. Other rails keep the ≤-margin guard. Untouched POS edits (e.g.
-  // active toggle) skip revalidation so legacy slabs aren't blocked.
-  const marginErr = posRevalidate
+  // POS/QR (when pricing/commission changed): enforce the Minimum-MDR pool
+  // equality. Other rails keep the ≤-margin guard. Untouched pool-rail edits
+  // (e.g. active toggle) skip revalidation so legacy slabs aren't blocked.
+  const marginErr = poolRevalidate
     ? validatePosCommissionEquality(mergedForCheck, posMinMdr, posMinMdrT0)
-    : existing.serviceKind === "POS"
+    : usesPoolModel
     ? null
     : validateMarginVsCommission(mergedForCheck);
   if (marginErr) return NextResponse.json({ error: marginErr }, { status: 400 });

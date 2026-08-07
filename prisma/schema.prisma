@@ -2559,6 +2559,15 @@ model RailMdrRate {
   mdrValue   Decimal  @default(0) @db.Decimal(14, 4)
   mdrValueT0 Decimal  @default(0) @db.Decimal(14, 4)
 
+  // Minimum MDR the company will offer downstream (vendor cost PLUS the company's
+  // own guaranteed margin), mirroring BrandMdrRate for POS. A scheme's QR service
+  // charge can never be priced below this; the commission pool the chain shares is
+  // whatever the scheme prices ABOVE it (service − minMdr). Defaults to the vendor
+  // cost (mdrValue) when unset. minMdrValueT0 applies to instant settlement and
+  // falls back to minMdrValue when unset. Same RateType as mdrValue.
+  minMdrValue   Decimal @default(0) @db.Decimal(14, 4)
+  minMdrValueT0 Decimal @default(0) @db.Decimal(14, 4)
+
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

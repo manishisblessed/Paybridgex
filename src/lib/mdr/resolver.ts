@@ -200,9 +200,9 @@ export async function getEffectiveMdr(
   ): EffectiveMdr => {
     const mdr = applyRate(amt, slab.mdrType, slabMdrValue(slab, d.settlementType));
     const vendor = applyRate(amt, slab.mdrType, slabVendorValue(slab, d.settlementType));
-    // POS commission is priced explicitly per settlement leg (see route), so its
-    // T+0 value must not silently fall back to T+1.
-    const allowT0Fallback = serviceKind !== "POS";
+    // POS and QR commission are priced explicitly per settlement leg (Minimum-MDR
+    // pool model), so their T+0 value must not silently fall back to T+1.
+    const allowT0Fallback = serviceKind !== "POS" && serviceKind !== "QR";
     const rawMargin = round(dec(mdr).sub(dec(vendor)));
     const margin = rawMargin.gt(0) ? rawMargin : dec(0);
     return {

@@ -263,7 +263,7 @@ export default function MyAssignedSchemePage() {
               <div>
                 <div className="mb-1.5 flex items-center gap-1.5">
                   <Store className="h-4 w-4 text-orange-600" />
-                  <h4 className="text-sm font-semibold text-orange-600">POS MDR ({mdrSlabs.length})</h4>
+                  <h4 className="text-sm font-semibold text-orange-600">MDR rates ({mdrSlabs.length})</h4>
                 </div>
                 <div className="overflow-x-auto rounded-xl border border-ink-100">
                   <table className="w-full min-w-max text-left text-sm">

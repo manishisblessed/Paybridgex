@@ -69,6 +69,14 @@ export async function priceSchemeSettlement(args: {
   serviceKind: MdrServiceKind;
   grossAmount: Money | string | number;
   paymentMode?: string;
+  /**
+   * Optional card dimensions used to pick the most specific scheme MDR slab
+   * (mirrors POS). QR passes brandType so a RuPay-pinned QR slab resolves; a
+   * wildcard slab still matches regardless. Omit for mode-only matching.
+   */
+  cardType?: string | null;
+  brandType?: string | null;
+  classification?: string | null;
   settlementType: "T0" | "T1";
   /**
    * Per-entity scope for the floor check (PG pipeline / QR provider). When the
@@ -82,6 +90,9 @@ export async function priceSchemeSettlement(args: {
 
   const mdr = await getEffectiveMdr(args.userId, args.serviceKind, gross, {
     paymentMode,
+    cardType: args.cardType ?? null,
+    brandType: args.brandType ?? null,
+    classification: args.classification ?? null,
     settlementType: args.settlementType,
   });
   if (mdr.source === "NONE") return null;
