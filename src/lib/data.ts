@@ -34,7 +34,7 @@ export const company = {
   nodalEmail: "nodal@nxtgpay.com",
   phone: "8780224955",
   cin: "U66190GJ2025PTC170905",
-  gstin: "24AABCJ0000A1Z5",
+  gstin: "24AAHCJ1843N1ZC",
   incorporated: "2025",
   jurisdiction: "Surat, Gujarat",
   address:

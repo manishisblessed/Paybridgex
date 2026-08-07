@@ -174,6 +174,18 @@ export function Footer() {
             </p>
           </div>
 
+          <p className="text-xs text-ink-500 md:text-center">
+            Technology partner —{" "}
+            <a
+              href="https://www.shahworks.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-ink-300 underline-offset-2 transition hover:text-white hover:underline"
+            >
+              Shah Works
+            </a>
+          </p>
+
           <div className="flex items-center gap-3 text-ink-400">
             <SocialLink href="#" label="Twitter" icon={Twitter} />
             <SocialLink href="#" label="Facebook" icon={Facebook} />
