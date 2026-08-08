@@ -223,6 +223,57 @@ describe("distributeMdrCommission (chain, revenue-wallet funded)", () => {
   });
 });
 
+describe("distributeMdrCommission — QR provider-scoped slab resolution", () => {
+  // Regression: QR (and PG) scheme MDR slabs pin the settlement provider in the
+  // slab's `company` dimension. The resolver matches `company` exactly, so the
+  // settlement/commission callers MUST pass the active provider scopeKey as the
+  // transaction-side `company` or the slab is scored ineligible → NONE → no
+  // commission (and, in the settlement pricer, a null quote → nothing settles).
+  function qrSlab(overrides: Record<string, unknown> = {}) {
+    return mdrSlab({
+      id: "qrslab",
+      serviceKind: "QR",
+      company: "NPCI", // provider scopeKey (as the MDR-slabs API persists it)
+      paymentMode: "UPI",
+      brandType: "RUPAY",
+      ...overrides,
+    });
+  }
+
+  it("resolves the provider-scoped slab when the provider is passed as company", async () => {
+    state.slabs = [qrSlab()];
+    const credits = await distributeMdrCommission("qrTxn1", "rt", "QR", 10000, "WALLET_TOPUP" as never, {
+      paymentMode: "UPI",
+      brandType: "RUPAY",
+      company: "NPCI",
+    });
+    // DT/MD/SD all earn — proving the slab resolved.
+    expect(credits).toHaveLength(3);
+    const dist = credits.find((c) => c.tier === "DISTRIBUTOR");
+    expect(dist!.gross).toBeCloseTo(20); // ₹10,000 @ 0.2%
+  });
+
+  it("does NOT resolve a provider-scoped slab when company is omitted (the bug)", async () => {
+    state.slabs = [qrSlab()];
+    const credits = await distributeMdrCommission("qrTxn2", "rt", "QR", 10000, "WALLET_TOPUP" as never, {
+      paymentMode: "UPI",
+      brandType: "RUPAY",
+      // company intentionally omitted → pinned-company slab is ineligible.
+    });
+    expect(credits).toHaveLength(0);
+  });
+
+  it("a wildcard-company QR slab still resolves regardless of provider", async () => {
+    state.slabs = [qrSlab({ company: null })];
+    const credits = await distributeMdrCommission("qrTxn3", "rt", "QR", 10000, "WALLET_TOPUP" as never, {
+      paymentMode: "UPI",
+      brandType: "RUPAY",
+      company: "NPCI",
+    });
+    expect(credits).toHaveLength(3);
+  });
+});
+
 describe("distributeMdrCommission — instant (T+0) commission leg", () => {
   it("uses the explicit T+0 commission per tier for POS (no fallback to T+1)", async () => {
     // POS commission is priced explicitly per settlement leg (the T+0 pool

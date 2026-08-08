@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { cloudinary } from "@/lib/cloudinary";
+import { presignKycVideoGet } from "@/lib/storage/s3Kyc";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,17 @@ export async function GET(
   const vr = await prisma.verificationResult.findUnique({ where: { id } });
   if (vr?.requestPayload) {
     const p = vr.requestPayload as Record<string, unknown>;
+    // Biometric selfies and onboarding liveness videos live in private S3 (no
+    // Cloudinary publicId) — mint a short-lived presigned GET URL and redirect
+    // straight to it. Selfies carry storage:"s3"; onboarding videos are keyed
+    // under the kyc-videos/ prefix.
+    const s3Key = typeof p.key === "string" ? (p.key as string) : null;
+    const isS3 =
+      !!s3Key && (p.storage === "s3" || /^kyc-(videos|selfies)\//.test(s3Key));
+    if (isS3 && s3Key) {
+      const signedUrl = await presignKycVideoGet(s3Key, { expiresInSec: 60 });
+      return NextResponse.redirect(signedUrl);
+    }
     publicId = (p.publicId as string) ?? null;
     resourceType = (p.resourceType as string) ?? "image";
     format = (p.format as string) ?? null;

@@ -59,6 +59,8 @@ function serviceName(code: string) {
     AEPS_WITHDRAW: "AePS Withdraw",
     PAN_CARD: "PAN Card",
     POS: "POS Settlement",
+    QR: "QR Settlement",
+    PG: "PG Settlement",
     WALLET_TOPUP: "Wallet Top-up",
   };
   return map[code] ?? code.replace(/_/g, " ");

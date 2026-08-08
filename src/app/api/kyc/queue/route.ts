@@ -72,12 +72,31 @@ export async function GET(req: Request) {
 
   const userIds = kycs.map((k) => k.userId);
 
-  const verificationResults = await prisma.verificationResult.findMany({
+  // Onboarding verifications are created against the invite; their userId is
+  // only backfilled at registration. Legacy/edge records can therefore still
+  // have userId = null while remaining linked to an invite that IS owned by the
+  // user. Resolve verifications by userId OR the user's invite id so the admin
+  // always sees the applicant's PAN/bank/document data — not just the rows
+  // where the userId backfill happened to run.
+  const invites = await prisma.invite.findMany({
     where: { userId: { in: userIds } },
+    select: { id: true, userId: true },
+  });
+  const inviteToUser = new Map<string, string>();
+  for (const inv of invites) {
+    if (inv.userId) inviteToUser.set(inv.id, inv.userId);
+  }
+  const inviteIds = invites.map((i) => i.id);
+
+  const verificationResults = await prisma.verificationResult.findMany({
+    where: {
+      OR: [{ userId: { in: userIds } }, { inviteId: { in: inviteIds } }],
+    },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
       userId: true,
+      inviteId: true,
       type: true,
       status: true,
       verifiedName: true,
@@ -90,10 +109,12 @@ export async function GET(req: Request) {
   type VR = (typeof verificationResults)[number];
   const verificationsByUser = new Map<string, VR[]>();
   for (const v of verificationResults) {
-    if (!v.userId) continue;
-    const list = verificationsByUser.get(v.userId) ?? [];
+    const owner =
+      v.userId ?? (v.inviteId ? inviteToUser.get(v.inviteId) ?? null : null);
+    if (!owner) continue;
+    const list = verificationsByUser.get(owner) ?? [];
     list.push(v);
-    verificationsByUser.set(v.userId, list);
+    verificationsByUser.set(owner, list);
   }
 
   return NextResponse.json({
@@ -102,10 +123,15 @@ export async function GET(req: Request) {
     total,
     kycs: kycs.map((k) => {
       const vResults = verificationsByUser.get(k.userId) ?? [];
+      // The onboarding liveness video (ONBOARD_VIDEO) is a viewable artifact,
+      // not a pass/fail check — surface it alongside the uploaded documents
+      // rather than in the KYC verification results.
       const kycVerifications = vResults.filter(
-        (v) => !v.type.startsWith("DOCUMENT_")
+        (v) => !v.type.startsWith("DOCUMENT_") && v.type !== "ONBOARD_VIDEO"
       );
-      const onboardDocs = vResults.filter((v) => v.type.startsWith("DOCUMENT_"));
+      const onboardDocs = vResults.filter(
+        (v) => v.type.startsWith("DOCUMENT_") || v.type === "ONBOARD_VIDEO"
+      );
 
       // Source-of-truth fallbacks: when the Kyc row is missing a field, pull it
       // from the corresponding verification payload so the admin always sees the
@@ -207,15 +233,30 @@ export async function GET(req: Request) {
         })),
         onboardingDocs: onboardDocs.map((v) => {
           const payload = (v.requestPayload ?? {}) as Record<string, unknown>;
+          const isVideo = v.type === "ONBOARD_VIDEO";
+          const contentType = (payload.contentType as string) ?? "";
+          // S3-stored assets (biometric selfies, onboarding liveness videos)
+          // have no direct/public URL, so route their preview through the
+          // signed document endpoint.
+          const key =
+            typeof payload.key === "string" ? (payload.key as string) : null;
+          const isS3 =
+            payload.storage === "s3" ||
+            (!!key && /^kyc-(videos|selfies)\//.test(key));
           return {
             id: v.id,
             type: v.type.replace("DOCUMENT_", ""),
             originalType: v.type,
             status: v.status,
-            url: (payload.url as string) ?? null,
-            format: (payload.format as string) ?? null,
+            url:
+              (payload.url as string) ??
+              (isS3 ? `/api/kyc/document/${v.id}` : null),
+            format:
+              (payload.format as string) ??
+              (isVideo ? contentType.split("/")[1] ?? "mp4" : null),
             publicId: (payload.publicId as string) ?? null,
-            resourceType: (payload.resourceType as string) ?? "image",
+            resourceType:
+              (payload.resourceType as string) ?? (isVideo ? "video" : "image"),
             gpsLatitude: (payload.gpsLatitude as number) ?? null,
             gpsLongitude: (payload.gpsLongitude as number) ?? null,
             createdAt: v.createdAt.toISOString(),

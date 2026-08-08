@@ -90,6 +90,12 @@ export async function priceSchemeSettlement(args: {
 
   const mdr = await getEffectiveMdr(args.userId, args.serviceKind, gross, {
     paymentMode,
+    // Locked rails (PG/QR) pin the provider scope in the slab's `company`
+    // dimension (see the MDR-slabs API — the modal's "Provider" value IS the
+    // scopeKey). The resolver matches `company` exactly, so pass the active
+    // provider scopeKey as the transaction-side company or a provider-scoped
+    // slab is scored ineligible; a wildcard-company slab still matches.
+    company: args.scopeKey ?? null,
     cardType: args.cardType ?? null,
     brandType: args.brandType ?? null,
     classification: args.classification ?? null,

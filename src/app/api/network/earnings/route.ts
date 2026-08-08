@@ -37,7 +37,7 @@ export async function GET(req: Request) {
     where.createdAt = createdAt;
   }
 
-  const [total, credits, agg, serviceAgg] = await Promise.all([
+  const [total, credits, agg, serviceAgg, qrAgg, pgAgg] = await Promise.all([
     prisma.commissionCredit.count({ where }),
     prisma.commissionCredit.findMany({
       where,
@@ -61,25 +61,65 @@ export async function GET(req: Request) {
       _sum: { amount: true },
       _count: true,
     }),
+    // QR and PG settlement commissions are booked against the WALLET_TOPUP
+    // placeholder ServiceCode and identified by their synthetic Transaction refId
+    // prefix ("QR…" / "PG…"), mirroring the admin earnings report. Split them out
+    // of the WALLET_TOPUP bucket so the breakdown reads "QR/PG Settlement" rather
+    // than "Wallet Top-up".
+    prisma.commissionCredit.aggregate({
+      where: { userId: user.id, service: "WALLET_TOPUP", transaction: { refId: { startsWith: "QR" } } },
+      _sum: { amount: true },
+      _count: true,
+    }),
+    prisma.commissionCredit.aggregate({
+      where: { userId: user.id, service: "WALLET_TOPUP", transaction: { refId: { startsWith: "PG" } } },
+      _sum: { amount: true },
+      _count: true,
+    }),
   ]);
+
+  const qrAmount = toNumber(qrAgg._sum.amount ?? 0);
+  const qrCount = qrAgg._count;
+  const pgAmount = toNumber(pgAgg._sum.amount ?? 0);
+  const pgCount = pgAgg._count;
+
+  const byService: Array<{ service: string; amount: number; count: number }> = [];
+  for (const s of serviceAgg) {
+    if (s.service === "WALLET_TOPUP") {
+      // Carve QR/PG out of the placeholder bucket; the remainder is genuine top-ups.
+      const restAmount = toNumber(s._sum.amount ?? 0) - qrAmount - pgAmount;
+      const restCount = s._count - qrCount - pgCount;
+      if (restCount > 0) byService.push({ service: "WALLET_TOPUP", amount: restAmount, count: restCount });
+    } else {
+      byService.push({ service: s.service, amount: toNumber(s._sum.amount ?? 0), count: s._count });
+    }
+  }
+  if (qrCount > 0) byService.push({ service: "QR", amount: qrAmount, count: qrCount });
+  if (pgCount > 0) byService.push({ service: "PG", amount: pgAmount, count: pgCount });
+
+  // A settlement-rail label for a credit: POS is first-class; QR/PG ride the
+  // WALLET_TOPUP placeholder and are distinguished by their refId prefix.
+  const railOf = (service: string, refId: string | null | undefined): string => {
+    if (service === "WALLET_TOPUP" && refId) {
+      if (refId.startsWith("QR")) return "QR";
+      if (refId.startsWith("PG")) return "PG";
+    }
+    return service;
+  };
 
   return NextResponse.json({
     totalEarnings: toNumber(agg._sum.amount ?? 0),
     totalGross: toNumber(agg._sum.grossAmount ?? 0),
     totalTds: toNumber(agg._sum.tdsAmount ?? 0),
     totalCredits: agg._count,
-    byService: serviceAgg.map((s) => ({
-      service: s.service,
-      amount: toNumber(s._sum.amount ?? 0),
-      count: s._count,
-    })),
+    byService,
     credits: credits.map((c) => ({
       id: c.id,
       tier: c.tier,
       amount: toNumber(c.amount),
       grossAmount: c.grossAmount !== null ? toNumber(c.grossAmount) : null,
       tdsAmount: toNumber(c.tdsAmount),
-      service: c.service,
+      service: railOf(c.service, c.transaction?.refId),
       txnAmount: toNumber(c.txnAmount),
       txnRefId: c.transaction?.refId,
       txnUserId: c.transaction?.userId,

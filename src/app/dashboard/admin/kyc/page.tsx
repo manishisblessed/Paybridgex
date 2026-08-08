@@ -146,6 +146,7 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   SELFIE: "Live Selfie",
   LIVE_VIDEO: "Liveness Video",
   VIDEO: "Liveness Video",
+  ONBOARD_VIDEO: "Onboarding Liveness Video",
   AGREEMENT: "Agreement",
   SHOP_ESTABLISHMENT: "Shop & Establishment Certificate",
   GUMASTA_LICENSE: "Gumasta License",
@@ -782,9 +783,17 @@ function DocsTab({ docs }: { docs: Array<{ id: string; type: string; url: string
                   />
                 </button>
               ) : isVideo ? (
-                <div className="relative h-40 w-full bg-ink-900 flex items-center justify-center">
-                  <Video className="h-10 w-10 text-white/60" />
-                </div>
+                <a
+                  href={openHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group/vid relative flex h-40 w-full items-center justify-center bg-ink-900 transition hover:bg-ink-800"
+                >
+                  <Video className="h-10 w-10 text-white/60 transition group-hover/vid:text-white/90" />
+                  <span className="absolute bottom-2 text-[11px] font-medium text-white/70">
+                    Click to play
+                  </span>
+                </a>
               ) : isPdf ? (
                 <a
                   href={openHref}

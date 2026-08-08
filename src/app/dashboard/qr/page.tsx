@@ -11,6 +11,8 @@ import {
   RefreshCw,
   Zap,
   Banknote,
+  Store,
+  Receipt,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { StatCard } from "@/components/dashboard/StatCard";
@@ -20,6 +22,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label } from "@/components/ui/Input";
 import { formatINR } from "@/lib/utils";
+import { QrSettlementReportTab } from "./QrSettlementReportTab";
 
 type ActiveQr = {
   id: string;
@@ -85,6 +88,9 @@ export default function QrCollectionsPage() {
   const [settleable, setSettleable] = useState<SettleableClaim[]>([]);
   const [instantEnabled, setInstantEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // "Collect & Claim" (all roles) vs "Settlement Report" (self + downline).
+  const [tab, setTab] = useState<"collect" | "report">("collect");
 
   // Claim form
   const [amount, setAmount] = useState("");
@@ -329,6 +335,30 @@ export default function QrCollectionsPage() {
         description="Take customer payments on the platform QR, then claim each payment with its UTR and screenshot — verified claims are credited to your wallet."
       />
 
+      {/* Collect & Claim (your own QR) vs Settlement Report (self + downline) */}
+      <div className="flex gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
+        {([
+          { id: "collect", label: "Collect & Claim", icon: Store },
+          { id: "report", label: "Settlement Report", icon: Receipt },
+        ] as const).map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={
+              tab === id
+                ? "flex-1 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-ink-900 shadow-sm"
+                : "flex-1 rounded-lg px-4 py-2 text-sm font-semibold text-ink-500 transition-colors hover:text-ink-700"
+            }
+          >
+            <span className="flex items-center justify-center gap-2"><Icon className="h-4 w-4" /> {label}</span>
+          </button>
+        ))}
+      </div>
+
+      {tab === "report" ? (
+        <QrSettlementReportTab />
+      ) : (
+      <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Under review" value={formatINR(pendingAmount)} icon={Clock} accent="accent" />
         <StatCard label="Ready to settle" value={formatINR(settleableTotal)} icon={Banknote} accent="brand" />
@@ -539,6 +569,8 @@ export default function QrCollectionsPage() {
         loading={loading}
         empty="No claims yet — collect a payment on the QR and claim it here."
       />
+      </>
+      )}
     </div>
   );
 }

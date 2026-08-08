@@ -328,6 +328,10 @@ async function settleClaim(
   via: string,
   actorId?: string
 ): Promise<number | null> {
+  // The active QR provider scope. It doubles as the slab-matching `company`
+  // (provider-scoped QR slabs pin it there) AND the floor/rail-rate scopeKey, so
+  // resolve it once and reuse for pricing and the commission distribution below.
+  const scopeKey = await railScopeKey("QR");
   const price = await priceSchemeSettlement({
     userId: claim.userId,
     serviceKind: "QR",
@@ -337,7 +341,7 @@ async function settleClaim(
     // on it, while a wildcard slab still matches regardless.
     brandType: QR_BRAND_TYPE,
     settlementType,
-    scopeKey: await railScopeKey("QR"),
+    scopeKey,
   });
   if (!price) return null; // no scheme rate / below floor — leave SETTLEABLE for admin
 
@@ -396,7 +400,7 @@ async function settleClaim(
   // double-distribute. Idempotent regardless via the synthetic Transaction refId
   // and the per-payee commission:<txn>:<user> ledger keys.
   if (credited !== null) {
-    await distributeCommissionForQr(claim.id, claim.userId, Number(claim.amount), settlementType);
+    await distributeCommissionForQr(claim.id, claim.userId, Number(claim.amount), settlementType, scopeKey);
     // Mirror the GROSS into the company payin wallet (best-effort live monitor).
     await recordPayin({
       rail: "QR",
@@ -421,7 +425,8 @@ async function distributeCommissionForQr(
   claimId: string,
   userId: string,
   grossAmount: number,
-  settlementType: "T0" | "T1" = "T1"
+  settlementType: "T0" | "T1" = "T1",
+  scopeKey: string | null = null
 ) {
   const refId = `QR${claimId.slice(-10).toUpperCase()}`;
   let txn = await prisma.transaction.findUnique({ where: { refId } });
@@ -442,6 +447,11 @@ async function distributeCommissionForQr(
   await distributeMdrCommission(txn.id, userId, "QR", grossAmount, txn.service, {
     paymentMode: "UPI",
     brandType: QR_BRAND_TYPE,
+    // Match the same provider-scoped scheme slab the settlement priced against —
+    // the resolver treats `company` (= provider scopeKey for QR) as an exact
+    // match dimension, so without it a provider-scoped slab resolves to NONE and
+    // no upline commission is distributed.
+    company: scopeKey,
     settlementType,
   });
 }
