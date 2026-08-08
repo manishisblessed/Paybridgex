@@ -19,6 +19,38 @@ import { getAdminInviteScope } from "@/lib/security/ownership";
 // How long an onboarding invite link stays valid after it is created.
 const INVITE_EXPIRY_DAYS = 15;
 
+/**
+ * A PENDING invite whose link has passed `expiresAt` is effectively EXPIRED —
+ * the onboarding endpoints already reject it, but we never persist the flip so
+ * an admin can still reshare it. This derives the query filter for a requested
+ * tab so "Pending" only lists live links and "Expired" also catches
+ * PENDING-but-past-expiry ones (kept in sync with the badge derived below).
+ */
+function statusFilterWhere(status: string | null, now: Date): Record<string, unknown> {
+  if (!status) return {};
+  if (status === "PENDING") {
+    return { status: "PENDING", expiresAt: { gte: now } };
+  }
+  if (status === "EXPIRED") {
+    return {
+      OR: [
+        { status: "EXPIRED" },
+        { status: "PENDING", expiresAt: { lt: now } },
+      ],
+    };
+  }
+  return { status };
+}
+
+/** Effective status shown to admins: PENDING past its expiry reads as EXPIRED. */
+function effectiveInviteStatus(
+  status: string,
+  expiresAt: Date,
+  now: Date
+): string {
+  return status === "PENDING" && expiresAt < now ? "EXPIRED" : status;
+}
+
 const CreateBody = z.object({
   phone: z.string().min(10).max(15),
   email: z.string().email(),
@@ -206,7 +238,8 @@ export async function GET(req: Request) {
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
   const limit = Math.min(100, parseInt(searchParams.get("limit") ?? "20"));
 
-  const statusWhere = status ? { status: status as any } : {};
+  const now = new Date();
+  const statusWhere = statusFilterWhere(status, now);
   let where: any = statusWhere;
   if (!isMasterAdmin) {
     const { actorIds, treeIds } = await getAdminInviteScope(user);
@@ -217,7 +250,9 @@ export async function GET(req: Request) {
     if (treeIds.length) {
       scopeOr.push({ userId: { in: treeIds } }, { parentId: { in: treeIds } });
     }
-    where = { ...statusWhere, OR: scopeOr };
+    // AND the (possibly OR-based) status filter with the scope OR so neither
+    // clause clobbers the other.
+    where = { AND: [statusWhere, { OR: scopeOr }] };
   }
 
   const [invites, total] = await Promise.all([
@@ -309,6 +344,7 @@ export async function GET(req: Request) {
 
     return {
       ...inv,
+      status: effectiveInviteStatus(inv.status, inv.expiresAt, now),
       userCode: registeredUserCode,
       invitedBy: inviter
         ? {

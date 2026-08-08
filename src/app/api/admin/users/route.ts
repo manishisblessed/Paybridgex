@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { generateNextUserCode } from "@/lib/userCode";
 import { uplineInclude, flattenUpline } from "@/lib/hierarchy";
+import { buildInviteDataForUser } from "@/lib/onboarding/inviteBackfill";
 
 export const fetchCache = "force-no-store";
 
@@ -74,34 +75,49 @@ export async function POST(req: Request) {
   const passwordHash = await bcrypt.hash(password, 12);
   const userCode = await generateNextUserCode(role);
 
-  const user = await prisma.user.create({
-    data: {
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
-      passwordHash,
-      role,
-      status,
-      userCode,
-      shopName: shopName?.trim(),
-      city: city?.trim(),
-      state: state?.trim(),
-      pincode: pincode?.trim(),
-      parentId: parentId ?? undefined,
-    },
-    select: {
-      id: true,
-      userCode: true,
-      name: true,
-      email: true,
-      phone: true,
-      role: true,
-      status: true,
-      shopName: true,
-      city: true,
-      state: true,
-      createdAt: true,
-    },
+  // Create the user AND a linked onboarding invite in one transaction. The
+  // Onboarding Invites page reads from the Invite table, so without this a
+  // directly-created user would be invisible there (only visible in Network).
+  const user = await prisma.$transaction(async (tx) => {
+    const created = await tx.user.create({
+      data: {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        passwordHash,
+        role,
+        status,
+        userCode,
+        shopName: shopName?.trim(),
+        city: city?.trim(),
+        state: state?.trim(),
+        pincode: pincode?.trim(),
+        parentId: parentId ?? undefined,
+      },
+      select: {
+        id: true,
+        userCode: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        shopName: true,
+        city: true,
+        state: true,
+        parentId: true,
+        phoneVerifiedAt: true,
+        emailVerifiedAt: true,
+        createdAt: true,
+      },
+    });
+
+    // invitedById = the acting admin ("Shared By" on the invites page).
+    await tx.invite.create({
+      data: buildInviteDataForUser(created, admin.id),
+    });
+
+    return created;
   });
 
   await prisma.auditLog.create({

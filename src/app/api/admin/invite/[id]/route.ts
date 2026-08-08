@@ -590,8 +590,18 @@ export async function GET(
     };
   });
 
+  // A PENDING invite past its expiry reads as EXPIRED to admins (kept in sync
+  // with the list endpoint). The DB row is left PENDING so reshare still works.
+  const effectiveInvite = {
+    ...invite,
+    status:
+      invite.status === "PENDING" && invite.expiresAt < new Date()
+        ? "EXPIRED"
+        : invite.status,
+  };
+
   return NextResponse.json({
-    invite,
+    invite: effectiveInvite,
     invitedBy,
     onboardingLink,
     verifications,
