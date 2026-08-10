@@ -42,6 +42,7 @@ type OnboardDoc = {
   resourceType: string;
   gpsLatitude: number | null;
   gpsLongitude: number | null;
+  rejectionReason: string | null;
   createdAt: string;
 };
 
@@ -65,7 +66,7 @@ type KycDoc = {
 
 type KycRow = {
   id: string;
-  status: "NOT_STARTED" | "PENDING_REVIEW" | "APPROVED" | "REJECTED";
+  status: "NOT_STARTED" | "PENDING_REVIEW" | "AWAITING_RESUBMISSION" | "APPROVED" | "REJECTED";
   panNumber: string | null;
   panName: string | null;
   panVerifiedAt: string | null;
@@ -113,14 +114,15 @@ type KycRow = {
   onboardingDocs: OnboardDoc[];
 };
 
-type Stats = { pending: number; approved: number; rejected: number };
+type Stats = { pending: number; approved: number; rejected: number; awaitingResubmission: number };
 
 const STATUS_MAP: Record<
   string,
-  { label: string; variant: "warning" | "success" | "danger" | "default" }
+  { label: string; variant: "warning" | "success" | "danger" | "default" | "brand" }
 > = {
   NOT_STARTED: { label: "Not started", variant: "default" },
   PENDING_REVIEW: { label: "Awaiting review", variant: "warning" },
+  AWAITING_RESUBMISSION: { label: "Awaiting re-upload", variant: "brand" },
   APPROVED: { label: "Verified", variant: "success" },
   REJECTED: { label: "Rejected", variant: "danger" },
 };
@@ -180,6 +182,7 @@ export default function AdminKycPage() {
     pending: 0,
     approved: 0,
     rejected: 0,
+    awaitingResubmission: 0,
   });
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -231,6 +234,35 @@ export default function AdminKycPage() {
       toast.success(action === "approve" ? "KYC approved." : "KYC rejected.");
       await fetchQueue();
       if (viewing?.id === id) setViewing(null);
+    } finally {
+      setDeciding(null);
+    }
+  }
+
+  async function requestResubmission(
+    id: string,
+    documents: { documentId: string; reason: string }[]
+  ) {
+    setDeciding(id);
+    try {
+      const res = await fetch(`/api/kyc/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "request_resubmission", documents }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(json.error ?? "Could not request re-upload");
+        return false;
+      }
+      toast.success(
+        json.emailSent
+          ? `Re-upload link sent for ${documents.length} document(s).`
+          : `Re-upload requested — link generated (email delivery failed).`
+      );
+      await fetchQueue();
+      if (viewing?.id === id) setViewing(null);
+      return true;
     } finally {
       setDeciding(null);
     }
@@ -396,8 +428,9 @@ export default function AdminKycPage() {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Awaiting review" value={stats.pending} tone="warning" />
+        <Stat label="Awaiting re-upload" value={stats.awaitingResubmission} tone="brand" />
         <Stat label="Verified" value={stats.approved} tone="success" />
         <Stat label="Rejected" value={stats.rejected} tone="danger" />
       </div>
@@ -419,6 +452,7 @@ export default function AdminKycPage() {
             if (action === "reject") setRejectTarget(id);
             else decide(id, action);
           }}
+          onRequestResubmission={requestResubmission}
           onClose={() => setViewing(null)}
         />
       )}
@@ -451,16 +485,24 @@ function DetailDrawer({
   kyc,
   deciding,
   onDecide,
+  onRequestResubmission,
   onClose,
 }: {
   kyc: KycRow;
   deciding: string | null;
   onDecide: (id: string, action: "approve" | "reject") => void;
+  onRequestResubmission: (
+    id: string,
+    documents: { documentId: string; reason: string }[]
+  ) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<"details" | "docs" | "verifications">("details");
+  // Per-document re-upload flags: docId → reason. Only onboarding docs qualify.
+  const [flagged, setFlagged] = useState<Record<string, string>>({});
   const busy = deciding === kyc.id;
   const s = STATUS_MAP[kyc.status];
+  const canReview = kyc.status === "PENDING_REVIEW";
 
   const allDocs = [
     ...kyc.onboardingDocs.map((d) => ({
@@ -472,6 +514,8 @@ function DetailDrawer({
       hasGps: !!(d.gpsLatitude && d.gpsLongitude),
       gpsLatitude: d.gpsLatitude,
       gpsLongitude: d.gpsLongitude,
+      docStatus: d.status,
+      rejectionReason: d.rejectionReason,
       uploadedAt: d.createdAt,
       source: "onboarding" as const,
     })),
@@ -484,6 +528,8 @@ function DetailDrawer({
       hasGps: false,
       gpsLatitude: null as number | null,
       gpsLongitude: null as number | null,
+      docStatus: "Uploaded",
+      rejectionReason: null as string | null,
       uploadedAt: d.uploadedAt,
       source: "direct" as const,
     })),
@@ -496,6 +542,32 @@ function DetailDrawer({
     }
   }
   const docList = Array.from(uniqueDocs.values());
+
+  const flaggedList = Object.entries(flagged);
+  const canSubmitResubmission =
+    flaggedList.length > 0 && flaggedList.every(([, reason]) => reason.trim().length >= 3);
+
+  function toggleFlag(docId: string) {
+    setFlagged((prev) => {
+      const next = { ...prev };
+      if (docId in next) delete next[docId];
+      else next[docId] = "";
+      return next;
+    });
+  }
+
+  function setReason(docId: string, reason: string) {
+    setFlagged((prev) => ({ ...prev, [docId]: reason }));
+  }
+
+  async function submitResubmission() {
+    const documents = flaggedList.map(([documentId, reason]) => ({
+      documentId,
+      reason: reason.trim(),
+    }));
+    const ok = await onRequestResubmission(kyc.id, documents);
+    if (ok) setFlagged({});
+  }
 
   const tabs = [
     { key: "details" as const, label: "Personal & Business", icon: User },
@@ -581,39 +653,78 @@ function DetailDrawer({
         {/* Body */}
         <div className="flex-1 overflow-auto p-6">
           {activeTab === "details" && <DetailsTab kyc={kyc} />}
-          {activeTab === "docs" && <DocsTab docs={docList} />}
+          {activeTab === "docs" && (
+            <DocsTab
+              docs={docList}
+              selectable={canReview}
+              flagged={flagged}
+              onToggleFlag={toggleFlag}
+              onReason={setReason}
+            />
+          )}
           {activeTab === "verifications" && <VerificationsTab verifications={kyc.verifications} />}
         </div>
 
         {/* Footer with actions */}
         <div className="flex items-center justify-between gap-3 border-t border-ink-100 bg-ink-50/40 px-6 py-3">
           <div className="text-xs text-ink-500">
-            {kyc.submittedAt && (
-              <>Submitted {new Date(kyc.submittedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</>
+            {flaggedList.length > 0 ? (
+              <span className="font-semibold text-brand-700">
+                {flaggedList.length} document{flaggedList.length === 1 ? "" : "s"} flagged for re-upload
+              </span>
+            ) : kyc.status === "AWAITING_RESUBMISSION" ? (
+              <span className="font-semibold text-brand-700">
+                Waiting for the applicant to re-upload
+              </span>
+            ) : (
+              kyc.submittedAt && (
+                <>Submitted {new Date(kyc.submittedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</>
+              )
             )}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={onClose}>Close</Button>
-            {kyc.status === "PENDING_REVIEW" && (
+            {canReview && flaggedList.length > 0 ? (
               <>
                 <Button
                   variant="outline"
-                  onClick={() => onDecide(kyc.id, "reject")}
+                  onClick={() => setFlagged({})}
                   disabled={busy}
-                  className="border-rose-200 text-rose-700 hover:bg-rose-50"
                 >
-                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-                  Reject
+                  Clear
                 </Button>
                 <Button
-                  onClick={() => onDecide(kyc.id, "approve")}
-                  disabled={busy}
-                  className="bg-emerald-600 hover:bg-emerald-700"
+                  onClick={submitResubmission}
+                  disabled={busy || !canSubmitResubmission}
+                  className="bg-brand-600 hover:bg-brand-700"
+                  title={!canSubmitResubmission ? "Add a reason (min 3 characters) for each flagged document" : undefined}
                 >
-                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                  Approve
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Request re-upload ({flaggedList.length})
                 </Button>
               </>
+            ) : (
+              canReview && (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => onDecide(kyc.id, "reject")}
+                    disabled={busy}
+                    className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                  >
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+                    Reject
+                  </Button>
+                  <Button
+                    onClick={() => onDecide(kyc.id, "approve")}
+                    disabled={busy}
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    Approve
+                  </Button>
+                </>
+              )
             )}
           </div>
         </div>
@@ -740,7 +851,19 @@ function DetailsTab({ kyc }: { kyc: KycRow }) {
 
 /* ─── Documents Tab ──────────────────────────────────────────────────── */
 
-function DocsTab({ docs }: { docs: Array<{ id: string; type: string; url: string | null; format: string | null; resourceType: string; hasGps: boolean; gpsLatitude: number | null; gpsLongitude: number | null; uploadedAt: string; source: "onboarding" | "direct" }> }) {
+function DocsTab({
+  docs,
+  selectable = false,
+  flagged = {},
+  onToggleFlag,
+  onReason,
+}: {
+  docs: Array<{ id: string; type: string; url: string | null; format: string | null; resourceType: string; hasGps: boolean; gpsLatitude: number | null; gpsLongitude: number | null; docStatus: string; rejectionReason: string | null; uploadedAt: string; source: "onboarding" | "direct" }>;
+  selectable?: boolean;
+  flagged?: Record<string, string>;
+  onToggleFlag?: (docId: string) => void;
+  onReason?: (docId: string, reason: string) => void;
+}) {
   const [lightbox, setLightbox] = useState<string | null>(null);
 
   if (docs.length === 0) {
@@ -762,11 +885,20 @@ function DocsTab({ docs }: { docs: Array<{ id: string; type: string; url: string
           // Always open through the signed endpoint so private PDFs (and any
           // asset whose stored URL signature is unavailable) resolve reliably.
           const openHref = `/api/kyc/document/${doc.id}`;
+          const isRejected = doc.docStatus === "Rejected";
+          const isFlagged = doc.id in flagged;
+          const canFlag = selectable && doc.source === "onboarding";
 
           return (
             <div
               key={doc.id}
-              className="group rounded-xl border border-ink-200 bg-white overflow-hidden transition hover:border-brand-300 hover:shadow-sm"
+              className={`group rounded-xl border bg-white overflow-hidden transition hover:shadow-sm ${
+                isFlagged
+                  ? "border-brand-400 ring-1 ring-brand-300"
+                  : isRejected
+                  ? "border-rose-200"
+                  : "border-ink-200 hover:border-brand-300"
+              }`}
             >
               {/* Preview */}
               {doc.url && isImage ? (
@@ -816,7 +948,11 @@ function DocsTab({ docs }: { docs: Array<{ id: string; type: string; url: string
                   <p className="text-sm font-semibold text-ink-800 truncate">
                     {DOC_TYPE_LABEL[doc.type] ?? doc.type.replace(/_/g, " ")}
                   </p>
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                  {isRejected ? (
+                    <XCircle className="h-4 w-4 shrink-0 text-rose-500" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                  )}
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-500">
                   {doc.format && (
@@ -836,14 +972,64 @@ function DocsTab({ docs }: { docs: Array<{ id: string; type: string; url: string
                     </a>
                   )}
                 </div>
-                <a
-                  href={openHref}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:underline"
-                >
-                  Open in new tab <ExternalLink className="h-3 w-3" />
-                </a>
+
+                {/* Existing rejection (already requested) */}
+                {isRejected && doc.rejectionReason && (
+                  <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] text-rose-700">
+                    <span className="font-semibold">Re-upload requested:</span> {doc.rejectionReason}
+                  </div>
+                )}
+
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <a
+                    href={openHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:underline"
+                  >
+                    Open in new tab <ExternalLink className="h-3 w-3" />
+                  </a>
+                  {canFlag && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleFlag?.(doc.id)}
+                      className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
+                        isFlagged
+                          ? "border-brand-300 bg-brand-50 text-brand-700"
+                          : "border-ink-200 text-ink-500 hover:border-rose-200 hover:text-rose-600"
+                      }`}
+                    >
+                      {isFlagged ? (
+                        <>
+                          <X className="h-3 w-3" /> Flagged
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="h-3 w-3" /> Request re-upload
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {/* Reason input for a freshly flagged document */}
+                {canFlag && isFlagged && (
+                  <div className="mt-2">
+                    <textarea
+                      autoFocus
+                      value={flagged[doc.id] ?? ""}
+                      onChange={(e) => onReason?.(doc.id, e.target.value)}
+                      placeholder="Reason the applicant will see (e.g. Photo is blurry / wrong document)"
+                      rows={2}
+                      className="w-full resize-none rounded-lg border border-brand-200 bg-white px-2.5 py-1.5 text-xs text-ink-800 outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-300"
+                    />
+                    {(flagged[doc.id] ?? "").trim().length < 3 && (
+                      <p className="mt-1 text-[10px] text-rose-500">
+                        Add a short reason (min 3 characters).
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -1012,12 +1198,13 @@ function Stat({
 }: {
   label: string;
   value: number;
-  tone: "success" | "danger" | "warning";
+  tone: "success" | "danger" | "warning" | "brand";
 }) {
   const map = {
     success: "from-emerald-500 to-emerald-700 text-emerald-50",
     danger: "from-rose-500 to-rose-700 text-rose-50",
     warning: "from-amber-500 to-amber-700 text-amber-50",
+    brand: "from-brand-500 to-brand-700 text-brand-50",
   };
   return (
     <div

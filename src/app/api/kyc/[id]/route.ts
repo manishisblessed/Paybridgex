@@ -1,11 +1,29 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { nanoid } from "nanoid";
 import { requireRole, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
+import { env } from "@/lib/env";
+import { getPartner } from "@/lib/partners";
+import { renderDocResubmissionEmail } from "@/lib/email/templates";
+import { docTypeLabel } from "@/lib/onboarding/requiredDocuments";
+
+// Keep in sync with the invite routes — how long a fresh link stays valid.
+const RESUBMIT_EXPIRY_DAYS = 15;
 
 const PatchBody = z.object({
-  action: z.enum(["approve", "reject"]),
+  action: z.enum(["approve", "reject", "request_resubmission"]),
   reason: z.string().optional(),
+  // For request_resubmission: the specific uploaded documents to flag, each
+  // with its own reason the applicant will see.
+  documents: z
+    .array(
+      z.object({
+        documentId: z.string().min(1),
+        reason: z.string().trim().min(3).max(500),
+      })
+    )
+    .optional(),
 });
 
 export const fetchCache = "force-no-store";
@@ -78,6 +96,184 @@ export async function PATCH(
     ]);
 
     return NextResponse.json({ status: "APPROVED" });
+  }
+
+  // Request re-upload of specific documents (keeps everything else intact).
+  if (parsed.data.action === "request_resubmission") {
+    const items = parsed.data.documents ?? [];
+    if (items.length === 0) {
+      return NextResponse.json(
+        { error: "Select at least one document to request a re-upload" },
+        { status: 400 }
+      );
+    }
+
+    // The applicant's onboarding invite is where the fresh, targeted link
+    // lives. Without it there is no mechanism to re-open uploads.
+    const invite = await prisma.invite.findFirst({
+      where: {
+        userId: kyc.user.id,
+        status: { in: ["REGISTERED", "VERIFIED", "RESUBMIT"] },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!invite) {
+      return NextResponse.json(
+        { error: "No active onboarding record found for this applicant" },
+        { status: 409 }
+      );
+    }
+
+    // Resolve every requested document and enforce the docs-only scope:
+    // only uploaded file documents, the live selfie, and the liveness video
+    // may be flagged for re-upload (never the verified PAN/Aadhaar/Bank data).
+    const ids = items.map((i) => i.documentId);
+    const docs = await prisma.verificationResult.findMany({
+      where: {
+        id: { in: ids },
+        OR: [{ userId: kyc.user.id }, { inviteId: invite.id }],
+      },
+    });
+    const docsById = new Map(docs.map((d) => [d.id, d]));
+
+    const resolved: { doc: (typeof docs)[number]; reason: string; label: string }[] = [];
+    for (const item of items) {
+      const doc = docsById.get(item.documentId);
+      if (!doc) {
+        return NextResponse.json(
+          { error: "One or more selected documents could not be found" },
+          { status: 404 }
+        );
+      }
+      const isDoc = doc.type.startsWith("DOCUMENT_") || doc.type === "ONBOARD_VIDEO";
+      if (!isDoc) {
+        return NextResponse.json(
+          { error: "Only uploaded documents, selfie or video can be re-requested" },
+          { status: 400 }
+        );
+      }
+      const bareType =
+        doc.type === "ONBOARD_VIDEO" ? "ONBOARD_VIDEO" : doc.type.replace("DOCUMENT_", "");
+      resolved.push({ doc, reason: item.reason, label: docTypeLabel(bareType) });
+    }
+
+    const freshToken = nanoid(24);
+    const expiresAt = new Date(Date.now() + RESUBMIT_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+    const summary = resolved.map((r) => r.label).join(", ");
+
+    await prisma.$transaction([
+      ...resolved.map((r) =>
+        prisma.verificationResult.update({
+          where: { id: r.doc.id },
+          data: {
+            status: "Rejected",
+            responsePayload: {
+              ...((r.doc.responsePayload as Record<string, unknown> | null) ?? {}),
+              rejectionReason: r.reason,
+              rejectedAt: new Date().toISOString(),
+              rejectedById: admin.id,
+            },
+          },
+        })
+      ),
+      prisma.kyc.update({
+        where: { id: params.id },
+        data: {
+          status: "AWAITING_RESUBMISSION",
+          reviewedById: admin.id,
+          reviewedAt: new Date(),
+          rejectedReason: `Re-upload requested: ${summary}`,
+        },
+      }),
+      prisma.invite.update({
+        where: { id: invite.id },
+        data: {
+          status: "RESUBMIT",
+          token: freshToken,
+          expiresAt,
+          rejectedReason: null,
+          rejectedAt: null,
+        },
+      }),
+      prisma.auditLog.create({
+        data: {
+          userId: admin.id,
+          action: "kyc.resubmission_requested",
+          entity: "Kyc",
+          entityId: params.id,
+          meta: {
+            userId: kyc.user.id,
+            inviteId: invite.id,
+            documents: resolved.map((r) => ({
+              id: r.doc.id,
+              type: r.doc.type,
+              reason: r.reason,
+            })),
+          },
+        },
+      }),
+    ]);
+
+    const resubmitLink = `${env.NEXT_PUBLIC_APP_URL}/onboard/resubmit?token=${freshToken}`;
+
+    // Notify the applicant with the targeted link (best-effort — the flag is
+    // already persisted, so a delivery hiccup shouldn't fail the request).
+    let emailSent = false;
+    try {
+      const { subject, html } = renderDocResubmissionEmail({
+        name: invite.name ?? undefined,
+        role: invite.role,
+        resubmitLink,
+        expiresAt,
+        documents: resolved.map((r) => ({ label: r.label, reason: r.reason })),
+      });
+      const emailProvider = getPartner("email");
+      const result = await emailProvider.send({
+        from: process.env.EMAIL_FROM_INFO || process.env.EMAIL_FROM,
+        to: invite.email,
+        subject,
+        html,
+      });
+      emailSent = result.ok;
+    } catch {
+      // ignore — persisted state is the source of truth
+    }
+
+    try {
+      const smsProvider = getPartner("sms");
+      await smsProvider.sendTransactional({
+        phone: invite.phone,
+        templateId: "onboard_invite",
+        variables: {
+          link: resubmitLink,
+          role: invite.role.replace(/_/g, " "),
+        },
+      });
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (invite.userId) {
+        await prisma.notification.create({
+          data: {
+            userId: invite.userId,
+            title: "Documents need to be re-uploaded",
+            body: `Please re-upload the following document(s): ${summary}. Check your email for the secure link.`,
+            channel: "INAPP",
+          },
+        });
+      }
+    } catch {
+      // ignore
+    }
+
+    return NextResponse.json({
+      status: "AWAITING_RESUBMISSION",
+      resubmitLink,
+      emailSent,
+      documents: resolved.length,
+    });
   }
 
   // Reject

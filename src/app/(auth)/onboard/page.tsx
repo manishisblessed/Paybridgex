@@ -294,6 +294,12 @@ function OnboardContent() {
       setLoading(false);
       return;
     }
+    // A re-opened invite is a targeted document re-upload, not a fresh
+    // onboarding — send the applicant to the dedicated resubmission page.
+    if (data.invite?.status === "RESUBMIT") {
+      router.replace(`/onboard/resubmit?token=${token}`);
+      return;
+    }
     setInvite(data.invite);
     setVerifications(data.verifications ?? []);
 

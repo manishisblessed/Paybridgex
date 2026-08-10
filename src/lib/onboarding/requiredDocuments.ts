@@ -38,17 +38,31 @@ export function getRequiredDocTypes(_role: string): readonly string[] {
 
 /** Human-friendly labels for missing-document error messages. */
 export const DOC_TYPE_LABELS: Record<string, string> = {
+  PAN: "PAN Card",
+  AADHAAR_FRONT: "Aadhaar (Front)",
+  AADHAAR_BACK: "Aadhaar (Back)",
+  SHOP_PHOTO: "Shop Photo",
+  BANK_PROOF: "Bank Proof",
+  CANCEL_CHEQUE: "Cancelled Cheque / Bank Passbook",
+  PASSBOOK: "Bank Passbook",
+  GST_CERT: "GST Certificate",
+  SHOP_ESTABLISHMENT: "Shop & Establishment Certificate",
+  GUMASTA_LICENSE: "Gumasta License",
   SIGNATURE: "Signature",
   ELECTRICITY_BILL: "Household Electricity Bill",
-  CANCEL_CHEQUE: "Cancelled Cheque / Bank Passbook",
   ADDITIONAL_ID: "Additional ID Proof",
   FAMILY_REFERENCE: "Family Member Reference Document",
   PG_FORM: "PG Form",
   GPS_PHOTO_OUTSIDE: "GPS-tagged Photo (Outside)",
   GPS_PHOTO_INSIDE: "GPS-tagged Photo (Inside)",
   GPS_SELFIE_DISTRIBUTOR: "GPS-tagged Selfie with Distributor",
+  DISTRIBUTOR_DECLARATION: "Distributor Declaration",
   SELF_DECLARATION: "Signed Self-Declaration",
+  SUCCESSOR_DECLARATION: "Successor Declaration",
   SELFIE: "Live Selfie",
+  ONBOARD_VIDEO: "Onboarding Liveness Video",
+  LIVE_VIDEO: "Liveness Video",
+  OTHER: "Other Document",
 };
 
 export function docTypeLabel(type: string): string {

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { docTypeLabel } from "@/lib/onboarding/requiredDocuments";
+import { getResubmitStatus } from "@/lib/onboarding/resubmission";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -49,6 +51,30 @@ export async function GET(
     orderBy: { createdAt: "desc" },
   });
 
+  // When the invite has been re-opened for a targeted re-upload, surface the
+  // exact documents an admin flagged (with the reason + whether the applicant
+  // has already replaced it) so the resubmission page can show only those and
+  // survive a page reload mid-session.
+  let resubmit:
+    | {
+        documents: { type: string; label: string; reason: string | null; done: boolean }[];
+        allDone: boolean;
+      }
+    | null = null;
+  if (invite.status === "RESUBMIT") {
+    const status = await getResubmitStatus(invite.id);
+    const doneSet = new Set(status.doneTypes);
+    resubmit = {
+      documents: status.rejected.map((d) => ({
+        type: d.bareType,
+        label: docTypeLabel(d.bareType),
+        reason: d.reason,
+        done: doneSet.has(d.bareType),
+      })),
+      allDone: status.allDone,
+    };
+  }
+
   return NextResponse.json({
     invite: {
       id: invite.id,
@@ -63,5 +89,6 @@ export async function GET(
       aadhaarVerifiedAt: invite.aadhaarVerifiedAt?.toISOString() ?? null,
     },
     verifications,
+    resubmit,
   });
 }

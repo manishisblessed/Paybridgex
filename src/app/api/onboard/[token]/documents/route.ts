@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { deleteFromCloudinary } from "@/lib/cloudinary";
+import { isResubmitTypeAllowed } from "@/lib/onboarding/resubmission";
 
 const DOCUMENT_TYPES = [
   "PAN",
@@ -64,7 +65,7 @@ export async function POST(
     return NextResponse.json({ error: "Invalid invite" }, { status: 404 });
   }
 
-  if (!["PENDING", "REGISTERED"].includes(invite.status)) {
+  if (!["PENDING", "REGISTERED", "RESUBMIT"].includes(invite.status)) {
     return NextResponse.json(
       { error: "Invite is no longer active" },
       { status: 400 }
@@ -78,6 +79,18 @@ export async function POST(
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+
+  // During a targeted re-upload, only the documents an admin flagged may be
+  // replaced — everything else is locked.
+  if (
+    invite.status === "RESUBMIT" &&
+    !(await isResubmitTypeAllowed(invite.id, parsed.data.type))
+  ) {
+    return NextResponse.json(
+      { error: "This document was not requested for re-upload" },
+      { status: 403 }
+    );
   }
 
   const doc = await prisma.verificationResult.create({
@@ -154,7 +167,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Invalid invite" }, { status: 404 });
   }
 
-  if (!["PENDING", "REGISTERED"].includes(invite.status)) {
+  if (!["PENDING", "REGISTERED", "RESUBMIT"].includes(invite.status)) {
     return NextResponse.json(
       { error: "Invite is no longer active" },
       { status: 400 }

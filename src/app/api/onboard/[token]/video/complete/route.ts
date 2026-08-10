@@ -6,6 +6,7 @@ import {
   KYC_VIDEO_MAX_BYTES,
   isAllowedVideoContentType,
 } from "@/lib/storage/s3Kyc";
+import { isResubmitTypeAllowed } from "@/lib/onboarding/resubmission";
 import crypto from "crypto";
 
 const Body = z.object({
@@ -46,7 +47,7 @@ export async function POST(
     return NextResponse.json({ error: "Invalid invite" }, { status: 404 });
   }
 
-  if (!["PENDING", "REGISTERED"].includes(invite.status)) {
+  if (!["PENDING", "REGISTERED", "RESUBMIT"].includes(invite.status)) {
     return NextResponse.json({ error: "Invite is no longer active" }, { status: 400 });
   }
 
@@ -57,6 +58,13 @@ export async function POST(
 
   if (!verifyUploadToken(parsed.data.uploadToken, invite.id, parsed.data.key)) {
     return NextResponse.json({ error: "Invalid or expired upload token" }, { status: 403 });
+  }
+
+  if (invite.status === "RESUBMIT" && !(await isResubmitTypeAllowed(invite.id, "ONBOARD_VIDEO"))) {
+    return NextResponse.json(
+      { error: "Video was not requested for re-upload" },
+      { status: 403 }
+    );
   }
 
   const head = await headKycVideoObject(parsed.data.key);

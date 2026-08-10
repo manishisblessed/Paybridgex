@@ -38,7 +38,7 @@ export async function POST(
     return NextResponse.json({ error: "Invalid invite" }, { status: 404 });
   }
 
-  if (!["PENDING", "REGISTERED"].includes(invite.status)) {
+  if (!["PENDING", "REGISTERED", "RESUBMIT"].includes(invite.status)) {
     return NextResponse.json({ error: "Invite is no longer active" }, { status: 400 });
   }
 

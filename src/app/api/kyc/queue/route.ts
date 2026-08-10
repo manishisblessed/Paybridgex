@@ -20,11 +20,11 @@ export async function GET(req: Request) {
   const statusFilter = searchParams.get("status");
 
   const where =
-    statusFilter && ["PENDING_REVIEW", "APPROVED", "REJECTED"].includes(statusFilter)
-      ? { status: statusFilter as "PENDING_REVIEW" | "APPROVED" | "REJECTED" }
+    statusFilter && ["PENDING_REVIEW", "APPROVED", "REJECTED", "AWAITING_RESUBMISSION"].includes(statusFilter)
+      ? { status: statusFilter as "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "AWAITING_RESUBMISSION" }
       : undefined;
 
-  const [total, kycs, pendingCount, approvedCount, rejectedCount] = await Promise.all([
+  const [total, kycs, pendingCount, approvedCount, rejectedCount, awaitingResubmissionCount] = await Promise.all([
     prisma.kyc.count({ where }),
     prisma.kyc.findMany({
       where,
@@ -68,6 +68,7 @@ export async function GET(req: Request) {
     prisma.kyc.count({ where: { status: "PENDING_REVIEW" } }),
     prisma.kyc.count({ where: { status: "APPROVED" } }),
     prisma.kyc.count({ where: { status: "REJECTED" } }),
+    prisma.kyc.count({ where: { status: "AWAITING_RESUBMISSION" } }),
   ]);
 
   const userIds = kycs.map((k) => k.userId);
@@ -233,6 +234,7 @@ export async function GET(req: Request) {
         })),
         onboardingDocs: onboardDocs.map((v) => {
           const payload = (v.requestPayload ?? {}) as Record<string, unknown>;
+          const resPayload = (v.responsePayload ?? {}) as Record<string, unknown>;
           const isVideo = v.type === "ONBOARD_VIDEO";
           const contentType = (payload.contentType as string) ?? "";
           // S3-stored assets (biometric selfies, onboarding liveness videos)
@@ -259,6 +261,7 @@ export async function GET(req: Request) {
               (payload.resourceType as string) ?? (isVideo ? "video" : "image"),
             gpsLatitude: (payload.gpsLatitude as number) ?? null,
             gpsLongitude: (payload.gpsLongitude as number) ?? null,
+            rejectionReason: (resPayload.rejectionReason as string) ?? null,
             createdAt: v.createdAt.toISOString(),
           };
         }),
@@ -268,6 +271,7 @@ export async function GET(req: Request) {
       pending: pendingCount,
       approved: approvedCount,
       rejected: rejectedCount,
+      awaitingResubmission: awaitingResubmissionCount,
     },
   });
 }

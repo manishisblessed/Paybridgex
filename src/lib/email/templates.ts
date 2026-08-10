@@ -226,6 +226,95 @@ export function renderInviteEmail(opts: {
 }
 
 /**
+ * Sent when an admin flags specific uploaded documents for re-upload. The
+ * applicant keeps everything else they've already verified — they only need to
+ * re-submit the listed documents via the fresh, targeted link.
+ */
+export function renderDocResubmissionEmail(opts: {
+  name?: string;
+  role: string;
+  resubmitLink: string;
+  expiresAt: Date | string;
+  documents: { label: string; reason: string }[];
+}): { subject: string; html: string } {
+  const roleLabel = fmtRole(opts.role);
+  const expiry = fmtExpiry(opts.expiresAt);
+  const firstName = opts.name?.split(" ")[0]?.trim();
+  const greeting = firstName ? `Hello ${firstName},` : "Hello,";
+
+  const subject = "Action needed: re-upload a few documents for NextGenPay";
+  const preheader = `A few of your documents need to be re-uploaded. It only takes a minute — link expires ${expiry}.`;
+
+  const docRows = opts.documents
+    .map(
+      (d) => `
+    <tr>
+      <td style="padding:12px 14px;border:1px solid ${BRAND.border};border-radius:10px;background:#fff8ec;">
+        <div style="font-size:14px;font-weight:700;color:${BRAND.ink};line-height:20px;">${escapeHtml(d.label)}</div>
+        <div style="font-size:13px;color:#7a5300;line-height:19px;margin-top:3px;"><strong>Reason:</strong> ${escapeHtml(d.reason)}</div>
+      </td>
+    </tr>
+    <tr><td style="height:8px;line-height:8px;font-size:8px;">&nbsp;</td></tr>`
+    )
+    .join("");
+
+  const body = `
+    <div style="display:inline-block;background:#fff1f2;color:${BRAND.accent};font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;padding:6px 12px;border-radius:999px;">
+      Documents to re-upload
+    </div>
+    <h1 style="font-size:26px;line-height:34px;color:${BRAND.ink};margin:14px 0 10px 0;font-weight:800;letter-spacing:-0.3px;">
+      A quick re-upload is needed
+    </h1>
+    <p style="font-size:15px;line-height:24px;color:${BRAND.inkMuted};margin:0 0 8px 0;">${greeting}</p>
+    <p style="font-size:15px;line-height:24px;color:${BRAND.inkMuted};margin:0 0 20px 0;">
+      Thanks for completing your <strong style="color:${BRAND.ink};">${roleLabel}</strong> onboarding. Our team reviewed your submission and a few documents need to be re-uploaded. <strong>You don't need to redo anything else</strong> — just replace the documents listed below.
+    </p>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 22px 0;">
+      ${docRows}
+    </table>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px 0;">
+      <tr>
+        <td align="left">
+          <a href="${opts.resubmitLink}" style="display:inline-block;background:linear-gradient(135deg,${BRAND.primary} 0%,${BRAND.primaryDark} 100%);color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 30px;border-radius:12px;box-shadow:0 8px 20px rgba(46,73,173,0.35);">
+            Re-upload documents &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <div style="border:1px dashed ${BRAND.border};border-radius:10px;padding:12px 14px;margin:0 0 24px 0;font-size:12px;color:${BRAND.inkMuted};word-break:break-all;">
+      <div style="font-weight:700;color:${BRAND.ink};margin-bottom:4px;">Or paste this link in your browser</div>
+      <a href="${opts.resubmitLink}" style="color:${BRAND.primary};text-decoration:none;">${opts.resubmitLink}</a>
+    </div>
+
+    <div style="background:#fff8ec;border:1px solid #fde3a4;border-radius:10px;padding:12px 14px;font-size:13px;color:#7a5300;line-height:19px;">
+      <strong>Heads up:</strong> This re-upload link expires on <strong>${expiry}</strong>. Please re-submit before then so we can finish your review.
+    </div>
+
+    <p style="font-size:13px;color:${BRAND.inkMuted};line-height:20px;margin:24px 0 0 0;">
+      Need help? Just reply to this email &mdash; our customer support executive will get back to you.
+    </p>
+    <p style="font-size:14px;color:${BRAND.ink};line-height:20px;margin:18px 0 8px 0;">
+      Cheers,<br/>
+      <strong>Team NextGenPay</strong>
+    </p>
+  `;
+
+  return { subject, html: shell({ preheader, bodyHtml: body }) };
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
  * Sent when an admin approves a registered network-tier account (SD/MD/DT/RT).
  * Tells the user they can now log in.
  */
