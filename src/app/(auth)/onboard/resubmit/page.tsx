@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
+  ArrowDown,
   CheckCircle2,
   FileText,
   Loader2,
@@ -46,6 +47,15 @@ const IMAGE_ONLY = new Set([
 function acceptFor(type: string): string {
   return IMAGE_ONLY.has(type) ? "image/*" : "image/*,.pdf";
 }
+
+/**
+ * Document types that ship a prefilled PDF the applicant must download, sign,
+ * and upload back. The path is the onboarding download endpoint for that form.
+ */
+const PREFILLED_FORMS: Record<string, { path: string; label: string }> = {
+  SELF_DECLARATION: { path: "declaration/download", label: "Download Prefilled Self-Declaration" },
+  PG_FORM: { path: "pg-form/download", label: "Download Prefilled PG Form" },
+};
 
 export default function ResubmitPage() {
   return (
@@ -456,7 +466,7 @@ function DocInput({
     );
   }
 
-  return <FileUploader doc={doc} uploading={uploading} done={done} onFile={onFile} />;
+  return <FileUploader doc={doc} uploading={uploading} done={done} onFile={onFile} token={token} />;
 }
 
 /* ─── Plain file uploader ────────────────────────────────────────────── */
@@ -466,16 +476,34 @@ function FileUploader({
   uploading,
   done,
   onFile,
+  token,
 }: {
   doc: ResubmitDoc;
   uploading: boolean;
   done: boolean;
   onFile: (file: File) => void;
+  token: string;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const prefilled = PREFILLED_FORMS[doc.type];
 
   return (
     <div>
+      {prefilled && (
+        <div className="mb-3 rounded-xl border border-brand-100 bg-brand-50/40 p-3">
+          <a
+            href={`/api/onboard/${token}/${prefilled.path}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-lg border border-brand-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-700 transition hover:bg-brand-50"
+          >
+            <ArrowDown className="h-4 w-4" /> {prefilled.label}
+          </a>
+          <p className="mt-2 text-xs text-ink-500">
+            Download the prefilled form, print &amp; sign it, then upload the signed copy below.
+          </p>
+        </div>
+      )}
       <input
         ref={inputRef}
         type="file"
