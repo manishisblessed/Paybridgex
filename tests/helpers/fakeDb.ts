@@ -292,7 +292,13 @@ export class FakeDb {
       return row ? { ...row } : null;
     },
     create: async ({ data }: { data: Row }) => {
-      if (this.qrClaims.some((c) => c.utr === data.utr || c.screenshotHash === data.screenshotHash)) {
+      // The utr unique index allows multiple NULLs (Postgres semantics), so
+      // card-only claims (utr = null) never collide on it.
+      if (
+        this.qrClaims.some(
+          (c) => (data.utr != null && c.utr === data.utr) || c.screenshotHash === data.screenshotHash
+        )
+      ) {
         const err = new Error("Unique constraint failed") as Error & { code: string };
         err.code = "P2002";
         throw err;

@@ -37,6 +37,8 @@ type Slab = {
   chargeValue: number;
   /** true = chargeValue already includes 18% GST; false = GST added on top. */
   chargeGstInclusive: boolean;
+  /** Vendor/upstream cost locked from the BBPS/Payout rate card (0 = none). */
+  vendorCharge: number;
   commissionType: RateType;
   /** Cascade model: commission the ASSIGNED user earns on this slab. */
   commissionValue: number;
@@ -218,6 +220,7 @@ export default function SchemeEditorPage() {
                       <th className="px-5 py-2.5 font-semibold">Range</th>
                       <th className="px-5 py-2.5 font-semibold">Provider</th>
                       <th className="px-5 py-2.5 text-right font-semibold">Charge</th>
+                      <th className="px-5 py-2.5 text-right font-semibold">Revenue / txn</th>
                       <th className="px-5 py-2.5 text-right font-semibold">User Commission</th>
                       <th className="px-5 py-2.5 text-center font-semibold">Status</th>
                       <th className="px-5 py-2.5" />
@@ -236,6 +239,7 @@ export default function SchemeEditorPage() {
                             {s.chargeGstInclusive ? "incl. GST" : "+ GST"}
                           </span>
                         </td>
+                        <td className="px-5 py-3 text-right">{fmtRevenue(s)}</td>
                         <td className="px-5 py-3 text-right font-semibold text-emerald-700">{fmtRate(s.commissionType, s.commissionValue)}</td>
                         <td className="px-5 py-3 text-center">
                           <Badge variant={s.active ? "success" : "danger"}>{s.active ? "On" : "Off"}</Badge>
@@ -297,6 +301,24 @@ export default function SchemeEditorPage() {
 function fmtRate(type: RateType, value: number): string {
   if (value === 0) return "—";
   return type === "FLAT" ? `₹${value.toLocaleString("en-IN")}` : `${(value * 100).toFixed(2)}%`;
+}
+
+/**
+ * Company revenue per transaction = customer charge − vendor cost. Only applies
+ * to flat ₹/txn service rails (BBPS/Payout) with a vendor cost locked from the
+ * rate card; everything else has no vendor basis, so it renders a dash.
+ */
+function fmtRevenue(s: Slab) {
+  if (s.vendorCharge <= 0 || s.chargeType !== "FLAT") {
+    return <span className="text-ink-300">—</span>;
+  }
+  const revenue = Math.max(s.chargeValue - s.vendorCharge, 0);
+  return (
+    <div className="leading-tight">
+      <span className="font-semibold text-brand-700">₹{revenue.toLocaleString("en-IN")}</span>
+      <div className="text-[10px] text-ink-400">vendor ₹{s.vendorCharge.toLocaleString("en-IN")}</div>
+    </div>
+  );
 }
 
 function SlabModal({

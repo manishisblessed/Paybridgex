@@ -46,9 +46,10 @@ type ReportRetailer = {
 
 type ReportRow = {
   id: string;
-  utr: string;
+  utr: string | null;
+  cardLast4: string | null;
   qrLabel: string | null;
-  txnTime: string;
+  txnTime: string | null;
   submittedAt: string;
   retailer: ReportRetailer | null;
   grossAmount: number;
@@ -131,7 +132,8 @@ function defaultDateRange() {
   return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
 }
 
-function fmtTime(iso: string) {
+function fmtTime(iso: string | null) {
+  if (!iso) return "—";
   return new Date(iso).toLocaleString("en-IN", {
     day: "2-digit",
     month: "short",
@@ -234,11 +236,12 @@ export function QrSettlementReportTab() {
   }, [body, rows]);
 
   const exportCols: ReportColumn<ReportRow>[] = [
-    { key: "txnTime", header: "Paid At", render: (r) => new Date(r.txnTime).toLocaleString("en-IN") },
+    { key: "txnTime", header: "Paid At", render: (r) => (r.txnTime ? new Date(r.txnTime).toLocaleString("en-IN") : "") },
     { key: "retailer", header: "Merchant", render: (r) => r.retailer?.shopName || r.retailer?.name || "" },
     { key: "userCode", header: "Merchant Code", render: (r) => r.retailer?.userCode ?? "" },
     { key: "role", header: "Role", render: (r) => (r.retailer ? ROLE_LABELS[r.retailer.role] ?? r.retailer.role : "") },
-    { key: "utr", header: "UTR", render: (r) => r.utr },
+    { key: "utr", header: "UTR", render: (r) => r.utr ?? "" },
+    { key: "cardLast4", header: "Card Last4", render: (r) => r.cardLast4 ?? "" },
     { key: "qrLabel", header: "QR", render: (r) => r.qrLabel ?? "" },
     { key: "grossAmount", header: "Amount (INR)", format: "money", render: (r) => r.grossAmount.toFixed(2) },
     { key: "mdrAmount", header: "MDR (INR)", format: "money", render: (r) => (r.mdrAmount ?? 0).toFixed(2) },
@@ -260,7 +263,13 @@ export function QrSettlementReportTab() {
   const txnCols: Column<ReportRow>[] = [
     { key: "txnTime", header: "Paid At", render: (r) => <span className="text-xs">{fmtTime(r.txnTime)}</span> },
     { key: "retailer", header: "Merchant", render: retailerCell },
-    { key: "utr", header: "UTR", render: (r) => <span className="font-mono text-xs">{r.utr}</span> },
+    {
+      key: "utr",
+      header: "UTR / Card",
+      render: (r) => (
+        <span className="font-mono text-xs">{r.utr ?? (r.cardLast4 ? `•••• ${r.cardLast4}` : "—")}</span>
+      ),
+    },
     {
       key: "qrLabel",
       header: "QR",

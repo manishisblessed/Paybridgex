@@ -13,6 +13,7 @@ import {
   Banknote,
   Store,
   Receipt,
+  ExternalLink,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { StatCard } from "@/components/dashboard/StatCard";
@@ -36,8 +37,9 @@ type Claim = {
   id: string;
   qrLabel: string;
   amount: number;
-  utr: string;
-  paidAt: string;
+  utr: string | null;
+  cardLast4: string | null;
+  paidAt: string | null;
   status: "PENDING" | "AWAITING_SECOND_APPROVAL" | "APPROVED" | "SETTLEABLE" | "SETTLED" | "REJECTED" | "CLAWED_BACK";
   netAmount: number | null;
   mdrAmount: number | null;
@@ -52,8 +54,9 @@ type SettleableClaim = {
   id: string;
   qrLabel: string;
   amount: number;
-  utr: string;
-  paidAt: string;
+  utr: string | null;
+  cardLast4: string | null;
+  paidAt: string | null;
   settleableAt: string | null;
   instant: { mdrAmount: number; netAmount: number } | null;
   t1: { mdrAmount: number; netAmount: number } | null;
@@ -72,6 +75,13 @@ function localDateTimeMax(): string {
     .slice(0, 16);
 }
 
+/** UTR when present, else the RuPay card's last 4 (card collections have no UTR). */
+function claimIdentifier(row: { utr: string | null; cardLast4: string | null }): string {
+  if (row.utr) return row.utr;
+  if (row.cardLast4) return `•••• ${row.cardLast4}`;
+  return "—";
+}
+
 const STATUS_BADGE: Record<Claim["status"], { label: string; variant: "success" | "warning" | "danger" | "brand" | "accent" }> = {
   PENDING: { label: "Under review", variant: "warning" },
   AWAITING_SECOND_APPROVAL: { label: "Under review", variant: "warning" },
@@ -84,6 +94,7 @@ const STATUS_BADGE: Record<Claim["status"], { label: string; variant: "success" 
 
 export default function QrCollectionsPage() {
   const [qr, setQr] = useState<ActiveQr | null>(null);
+  const [qrReason, setQrReason] = useState<string | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [settleable, setSettleable] = useState<SettleableClaim[]>([]);
   const [instantEnabled, setInstantEnabled] = useState(false);
@@ -94,6 +105,7 @@ export default function QrCollectionsPage() {
 
   // Claim form
   const [amount, setAmount] = useState("");
+  const [cardLast4, setCardLast4] = useState("");
   const [utr, setUtr] = useState("");
   const [paidAt, setPaidAt] = useState("");
   const [screenshot, setScreenshot] = useState<{ name: string; dataUrl: string } | null>(null);
@@ -113,7 +125,11 @@ export default function QrCollectionsPage() {
         fetch("/api/qr/claims"),
         fetch("/api/qr/settlement/pending"),
       ]);
-      if (qrRes.ok) setQr((await qrRes.json()).qr);
+      if (qrRes.ok) {
+        const d = await qrRes.json();
+        setQr(d.qr);
+        setQrReason(d.reason ?? null);
+      }
       if (clRes.ok) setClaims((await clRes.json()).claims ?? []);
       if (stRes.ok) {
         const st = await stRes.json();
@@ -146,16 +162,23 @@ export default function QrCollectionsPage() {
   async function submitClaim(e: React.FormEvent) {
     e.preventDefault();
     if (!qr || !screenshot) return;
+    if (!/^\d{4}$/.test(cardLast4.trim())) {
+      toast.error("Enter the last 4 digits of the RuPay card");
+      return;
+    }
     setBusy(true);
     try {
+      const trimmedUtr = utr.trim();
       const res = await fetch("/api/qr/claims", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           qrId: qr.id,
           amount: Number(amount),
-          utr: utr.trim(),
-          paidAt: new Date(paidAt).toISOString(),
+          cardLast4: cardLast4.trim(),
+          // UPI UTR and the paid-on time are optional (card collections omit them).
+          ...(trimmedUtr ? { utr: trimmedUtr } : {}),
+          ...(paidAt ? { paidAt: new Date(paidAt).toISOString() } : {}),
           screenshotDataUrl: screenshot.dataUrl,
         }),
       });
@@ -164,10 +187,12 @@ export default function QrCollectionsPage() {
         toast.error(typeof d.error === "string" ? d.error : "Claim submission failed — check the details");
         return;
       }
+      const ref = d.claim.utr ? `UTR ${d.claim.utr}` : `card ••••${d.claim.cardLast4 ?? cardLast4.trim()}`;
       toast.success(
-        `Claim submitted for ${formatINR(d.claim.amount)} (UTR ${d.claim.utr}). It will be credited to your wallet after verification.`
+        `Claim submitted for ${formatINR(d.claim.amount)} (${ref}). It will be credited to your wallet after verification.`
       );
       setAmount("");
+      setCardLast4("");
       setUtr("");
       setPaidAt("");
       setScreenshot(null);
@@ -251,7 +276,7 @@ export default function QrCollectionsPage() {
           <span title="Will auto-settle T+1" className="text-ink-300">—</span>
         ),
     },
-    { key: "utr", header: "UTR", render: (r) => <span className="font-mono text-xs">{r.utr}</span> },
+    { key: "utr", header: "Ref / Card", render: (r) => <span className="font-mono text-xs">{claimIdentifier(r)}</span> },
     { key: "amount", header: "Amount", align: "right", render: (r) => <span className="font-semibold">{formatINR(r.amount)}</span> },
     {
       key: "instant",
@@ -284,7 +309,7 @@ export default function QrCollectionsPage() {
   ];
 
   const cols: Column<Claim>[] = [
-    { key: "utr", header: "UTR", render: (r) => <span className="font-mono text-xs">{r.utr}</span> },
+    { key: "utr", header: "Ref / Card", render: (r) => <span className="font-mono text-xs">{claimIdentifier(r)}</span> },
     {
       key: "amount",
       header: "Amount",
@@ -304,7 +329,8 @@ export default function QrCollectionsPage() {
     {
       key: "paidAt",
       header: "Paid at",
-      render: (r) => new Date(r.paidAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+      render: (r) =>
+        r.paidAt ? new Date(r.paidAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—",
     },
     { key: "qrLabel", header: "QR" },
     {
@@ -324,6 +350,23 @@ export default function QrCollectionsPage() {
       key: "createdAt",
       header: "Submitted",
       render: (r) => new Date(r.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+    },
+    {
+      key: "id",
+      header: "Proof",
+      align: "right",
+      render: (r) => (
+        <a
+          href={`/api/qr/claims/${r.id}/screenshot`}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 rounded-lg border border-ink-200 px-2.5 py-1 text-xs font-semibold text-ink-700 hover:border-ink-300"
+          title="Open the payment screenshot"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          View
+        </a>
+      ),
     },
   ];
 
@@ -363,7 +406,7 @@ export default function QrCollectionsPage() {
         <StatCard label="Under review" value={formatINR(pendingAmount)} icon={Clock} accent="accent" />
         <StatCard label="Ready to settle" value={formatINR(settleableTotal)} icon={Banknote} accent="brand" />
         <StatCard label="Settled this month" value={formatINR(creditedThisMonth)} icon={CheckCircle2} accent="emerald" />
-        <StatCard label="Active QR" value={qr ? "Live" : "—"} icon={QrCode} accent="violet" />
+        <StatCard label="Active QR" value={qr ? "Live" : qrReason === "LIMIT_REACHED" ? "Paused" : "—"} icon={QrCode} accent="violet" />
       </div>
 
       {/* Ready to settle — instant or auto T+1 */}
@@ -475,7 +518,11 @@ export default function QrCollectionsPage() {
             </>
           ) : (
             <p className="mt-6 text-sm text-ink-600">
-              {loading ? "Loading…" : "No collection QR is configured yet — contact your admin."}
+              {loading
+                ? "Loading…"
+                : qrReason === "LIMIT_REACHED"
+                  ? "Collections are paused right now — today's limit was reached across all QRs. Please try again shortly."
+                  : "No collection QR is configured yet — contact your admin."}
             </p>
           )}
         </div>
@@ -507,33 +554,48 @@ export default function QrCollectionsPage() {
               />
             </div>
             <div>
+              <Label htmlFor="claim-card">Card last 4 digits</Label>
+              <Input
+                id="claim-card"
+                required
+                inputMode="numeric"
+                minLength={4}
+                maxLength={4}
+                value={cardLast4}
+                onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                placeholder="e.g. 4321"
+              />
+              <p className="mt-1 text-xs text-ink-500">For RuPay Credit Card payment — required.</p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="claim-utr">UPI UTR / reference number (12 digits)</Label>
+              <Input
+                id="claim-utr"
+                inputMode="numeric"
+                minLength={12}
+                maxLength={14}
+                value={utr}
+                onChange={(e) => setUtr(e.target.value)}
+                placeholder="e.g. 415023987654"
+              />
+              <p className="mt-1 text-xs text-ink-500">
+                Optional — shown in the customer&apos;s UPI app under &quot;UTR&quot; or &quot;UPI Ref No&quot;.
+              </p>
+            </div>
+            <div>
               <Label htmlFor="claim-paidat">Paid on</Label>
               <Input
                 id="claim-paidat"
                 type="datetime-local"
-                required
                 value={paidAt}
                 max={localDateTimeMax()}
                 onChange={(e) => setPaidAt(e.target.value)}
               />
+              <p className="mt-1 text-xs text-ink-500">Optional — when the customer paid.</p>
             </div>
-          </div>
-
-          <div>
-            <Label htmlFor="claim-utr">UPI UTR / reference number (12 digits)</Label>
-            <Input
-              id="claim-utr"
-              required
-              inputMode="numeric"
-              minLength={12}
-              maxLength={14}
-              value={utr}
-              onChange={(e) => setUtr(e.target.value)}
-              placeholder="e.g. 415023987654"
-            />
-            <p className="mt-1 text-xs text-ink-500">
-              Shown in the customer&apos;s UPI app under &quot;UTR&quot; or &quot;UPI Ref No&quot;.
-            </p>
           </div>
 
           <div>
@@ -555,7 +617,13 @@ export default function QrCollectionsPage() {
             edited screenshots lead to permanent account termination and recovery action.
           </div>
 
-          <Button type="submit" size="lg" className="w-full" disabled={busy || !qr || !screenshot} isLoading={busy}>
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full"
+            disabled={busy || !qr || !screenshot || cardLast4.trim().length !== 4}
+            isLoading={busy}
+          >
             Submit claim{amount ? ` for ${formatINR(Number(amount) || 0)}` : ""}
           </Button>
         </form>

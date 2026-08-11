@@ -80,6 +80,11 @@ export async function GET() {
     throw e;
   }
 
+  // Vendor cost / company margin per payout is internal finance data — only
+  // surfaced to admin-type roles, never to the network user who owns the payout.
+  const ADMIN_VIEW_ROLES = new Set(["MASTER_ADMIN", "ADMIN", "FINANCE", "SUPPORT"]);
+  const isAdminView = ADMIN_VIEW_ROLES.has(user.role);
+
   const where = await scopeUserIdFilter(user);
   const [rows, balances] = await Promise.all([
     prisma.payoutRequest.findMany({
@@ -106,6 +111,12 @@ export async function GET() {
       serviceCharge: toNumber(r.serviceCharge),
       gst: toNumber(r.gst),
       totalDebit: toNumber(r.totalDebit),
+      ...(isAdminView
+        ? {
+            vendorCharge: toNumber(r.vendorCharge),
+            revenue: Math.max(toNumber(r.serviceCharge) - toNumber(r.vendorCharge), 0),
+          }
+        : {}),
       status: r.status,
       utr: r.utr,
       failureReason: r.failureReason,
@@ -270,6 +281,7 @@ export async function POST(req: Request) {
               serviceCharge: quote.serviceCharge,
               gst: quote.gst,
               totalDebit: quote.totalDebit,
+              vendorCharge: quote.vendorCharge,
               status: autoApprove ? "APPROVED" : "PENDING_APPROVAL",
               bulkpeReferenceId,
               ...(autoApprove ? { approvedAt: new Date() } : {}),

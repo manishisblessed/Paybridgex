@@ -91,6 +91,15 @@ export function CumulativeWalletCard({
 
   const systemGrandTotal = (data?.systemTotal ?? 0) + partnerTotal;
 
+  // B2F Wallet: API partner float (excluding eKYC Hub credits) net of the
+  // primary wallet liability we owe the network.
+  const b2fPartnerTotal = (partners ?? []).reduce(
+    (a, p) =>
+      a + (p.key !== "ekychub" && typeof p.balance === "number" ? p.balance : 0),
+    0
+  );
+  const b2fWallet = b2fPartnerTotal - (data?.primaryTotal ?? 0);
+
   return (
     <section
       className={cn(
@@ -118,6 +127,26 @@ export function CumulativeWalletCard({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <div
+            className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-right"
+            title="API Partner Wallets (excl. eKYC Hub credits) − Total Primary Wallet"
+          >
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+              B2F Wallet
+            </p>
+            <p
+              className={cn(
+                "font-display text-sm font-bold",
+                loading || partners === null
+                  ? "text-white/30"
+                  : b2fWallet < 0
+                  ? "text-rose-300"
+                  : "text-emerald-300"
+              )}
+            >
+              {partners === null ? "₹ ————" : money(b2fWallet)}
+            </p>
+          </div>
           <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-right">
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
               System Total

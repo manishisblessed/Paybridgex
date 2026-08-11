@@ -14,7 +14,10 @@ import type { InviteStatus, Prisma, Role, UserStatus } from "@prisma/client";
  *   - `POST /api/admin/users` (so directly-created users never drift again)
  */
 
-// Keep in sync with the invite create/reshare routes.
+// Cosmetic/historical only: these invites are synthesized for users who ALREADY
+// registered (Invite.userId is set), so the link is never shared or consumed and
+// this expiry never gates anything. Live invite validity is the admin-configurable
+// `onboarding.invite_expiry` setting (see src/lib/onboarding/inviteExpiry.ts).
 export const INVITE_EXPIRY_DAYS = 15;
 
 /**

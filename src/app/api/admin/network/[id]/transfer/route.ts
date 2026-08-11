@@ -14,6 +14,13 @@ const TRANSFER_EXPIRY_DAYS = 7;
 const PostBody = z.object({
   newParentId: z.string().min(1, "New parent is required"),
   reason: z.string().max(500).optional(),
+  // "declaration" (default) — the legacy two-step flow where the NEW parent must
+  // approve a signed declaration before the reassignment takes effect.
+  // "direct" — master-admin reassigns the parent immediately (no approval step);
+  // records the change (old/new parent, reason, actor, timestamp) and resets the
+  // user's scheme to the platform default. Retailer ID, wallet and transaction
+  // history are untouched (only User.parentId + schemeId change).
+  mode: z.enum(["declaration", "direct"]).default("declaration"),
 });
 
 /**
@@ -40,7 +47,7 @@ export async function POST(
   if (!parsed.success)
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { newParentId, reason } = parsed.data;
+  const { newParentId, reason, mode } = parsed.data;
 
   const target = await prisma.user.findFirst({
     where: { id: userId, deletedAt: null },
@@ -102,6 +109,122 @@ export async function POST(
       { error: "Cannot transfer under a user who is already in this user's downline (circular hierarchy)" },
       { status: 400 }
     );
+
+  // ── Direct mode ─────────────────────────────────────────────────────────
+  // Master-admin reassigns the parent immediately. No new-parent declaration.
+  // We record an APPROVED HierarchyTransfer (old parent, new parent, reason,
+  // initiator, timestamp) as the audit-grade change record, reset the user's
+  // scheme to the platform default, and leave everything else (id, wallet,
+  // ledger, transactions) untouched.
+  if (mode === "direct") {
+    if (!reason || reason.trim().length < 3)
+      return NextResponse.json(
+        { error: "A change reason is required (min 3 characters)" },
+        { status: 400 }
+      );
+
+    const now = new Date();
+    const oldParentId = target.parentId;
+
+    const transfer = await prisma.$transaction(async (tx) => {
+      // Supersede any dangling declaration-based transfer for this user so we
+      // don't leave an approvable request pointing at a stale parent.
+      await tx.hierarchyTransfer.updateMany({
+        where: { userId: target.id, status: "PENDING_DECLARATION" },
+        data: {
+          status: "CANCELLED",
+          rejectedAt: now,
+          rejectedReason: "Superseded by a direct admin reassignment",
+        },
+      });
+
+      await tx.user.update({
+        where: { id: target.id },
+        // schemeId: null → the scheme resolver falls back to the platform
+        // default scheme (the old parent's scheme no longer applies).
+        data: { parentId: newParentId, schemeId: null },
+      });
+
+      const created = await tx.hierarchyTransfer.create({
+        data: {
+          userId: target.id,
+          oldParentId,
+          newParentId,
+          initiatedById: admin.id,
+          reason: reason.trim(),
+          status: "APPROVED",
+          approvedAt: now,
+          // expiresAt is required by the model; for an already-approved direct
+          // change it is immaterial, so we pin it to the change time.
+          expiresAt: now,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: admin.id,
+          action: "hierarchy.transfer_direct",
+          entity: "HierarchyTransfer",
+          entityId: created.id,
+          ip: clientIp(req),
+          meta: {
+            targetUserId: target.id,
+            targetName: target.name,
+            targetRole: target.role,
+            oldParentId,
+            newParentId,
+            newParentName: newParent.name,
+            reason: reason.trim(),
+            schemeReset: true,
+          },
+        },
+      });
+
+      return created;
+    });
+
+    // Best-effort notifications — the reassignment is already persisted.
+    try {
+      await prisma.notification.createMany({
+        data: [
+          {
+            userId: newParentId,
+            title: "New member added to your network",
+            body: `${target.name} (${target.role.replace(/_/g, " ")}) has been moved under your account by the admin.`,
+            channel: "INAPP",
+          },
+          {
+            userId: target.id,
+            title: "Your distributor has changed",
+            body: `Your account is now managed by ${newParent.name}. Your ID, wallet and history are unchanged; your scheme has been reset to the platform default.`,
+            channel: "INAPP",
+          },
+          ...(oldParentId
+            ? [
+                {
+                  userId: oldParentId,
+                  title: "A member left your network",
+                  body: `${target.name} (${target.role.replace(/_/g, " ")}) has been reassigned to another ${target.role === "RETAILER" ? "distributor" : "parent"} by the admin.`,
+                  channel: "INAPP" as const,
+                },
+              ]
+            : []),
+        ],
+      });
+    } catch {}
+
+    return NextResponse.json({
+      ok: true,
+      mode: "direct",
+      transfer: {
+        id: transfer.id,
+        status: transfer.status,
+        approvedAt: transfer.approvedAt?.toISOString() ?? null,
+        oldParentId,
+        newParent: { id: newParent.id, name: newParent.name, role: newParent.role },
+      },
+    });
+  }
 
   // Check for existing pending transfer
   const existing = await prisma.hierarchyTransfer.findFirst({

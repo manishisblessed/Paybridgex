@@ -7,9 +7,7 @@ import { env } from "@/lib/env";
 import { getPartner } from "@/lib/partners";
 import { renderDocResubmissionEmail } from "@/lib/email/templates";
 import { docTypeLabel } from "@/lib/onboarding/requiredDocuments";
-
-// Keep in sync with the invite routes — how long a fresh link stays valid.
-const RESUBMIT_EXPIRY_DAYS = 15;
+import { computeInviteExpiry } from "@/lib/onboarding/inviteExpiry";
 
 const PatchBody = z.object({
   action: z.enum(["approve", "reject", "request_resubmission"]),
@@ -158,7 +156,7 @@ export async function PATCH(
     }
 
     const freshToken = nanoid(24);
-    const expiresAt = new Date(Date.now() + RESUBMIT_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+    const expiresAt = await computeInviteExpiry();
     const summary = resolved.map((r) => r.label).join(", ");
 
     await prisma.$transaction([

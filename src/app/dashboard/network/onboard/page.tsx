@@ -100,7 +100,7 @@ export default function OnboardInvitePage() {
             </button>
           </div>
           <p className="mt-2 text-xs text-ink-500">
-            You can also share this link manually. It expires in 7 days.
+            You can also share this link manually before it expires.
           </p>
         </div>
 

@@ -19,6 +19,11 @@ const LABELS: Record<string, { title: string; description: string }> = {
     title: "Wallet cap",
     description: "Maximum primary-wallet balance any network user may hold.",
   },
+  "onboarding.invite_expiry": {
+    title: "Onboarding link validity",
+    description:
+      "How many days a shared onboarding link (and document re-upload link) stays valid. Only affects links generated after this is changed.",
+  },
   "wallet.ops_approval_threshold": {
     title: "Wallet ops approval threshold (inactive)",
     description: "No longer enforced — admin push/pull executes immediately for any authorized admin, regardless of amount.",
@@ -55,6 +60,7 @@ const FIELD_LABELS: Record<string, string> = {
   minAmount: "Minimum amount (₹)",
   dailyCap: "Daily cap (₹)",
   perTxnCap: "Per-transfer cap (₹)",
+  days: "Valid for (days)",
 };
 
 const inputCls =

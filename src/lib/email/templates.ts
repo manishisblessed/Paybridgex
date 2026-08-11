@@ -315,6 +315,83 @@ function escapeHtml(s: string): string {
 }
 
 /**
+ * Internal alert sent to the support/ops inbox when a prospect submits the
+ * public Join Form. There is NO account yet — this is a lead the team must
+ * reach out to and convert into an onboarding invite.
+ */
+export function renderJoinRequestEmail(opts: {
+  name: string;
+  phone: string;
+  email: string;
+  role: string;
+  shopName?: string | null;
+  city?: string | null;
+  state?: string | null;
+  message?: string | null;
+  reviewLink: string;
+}): { subject: string; html: string } {
+  const roleLabel = fmtRole(opts.role);
+  const subject = `New join request — ${opts.name} (${roleLabel})`;
+  const preheader = `${opts.name} wants to join NextGenPay as a ${roleLabel}. Reach out and start onboarding.`;
+
+  const row = (label: string, value?: string | null) =>
+    value
+      ? `
+    <tr>
+      <td style="padding:11px 0;color:${BRAND.inkMuted};font-size:13px;width:130px;border-top:1px solid ${BRAND.border};" valign="top">${escapeHtml(label)}</td>
+      <td style="padding:11px 0;color:${BRAND.ink};font-size:14px;font-weight:600;border-top:1px solid ${BRAND.border};">${escapeHtml(value)}</td>
+    </tr>`
+      : "";
+
+  const body = `
+    <div style="display:inline-block;background:${BRAND.primarySoft};color:${BRAND.primary};font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;padding:6px 12px;border-radius:999px;">
+      New join request
+    </div>
+    <h1 style="font-size:24px;line-height:32px;color:${BRAND.ink};margin:14px 0 10px 0;font-weight:800;letter-spacing:-0.3px;">
+      ${escapeHtml(opts.name)} wants to join
+    </h1>
+    <p style="font-size:15px;line-height:24px;color:${BRAND.inkMuted};margin:0 0 20px 0;">
+      A prospect submitted the Join Form on the website. No account has been created &mdash; please connect with them and start the onboarding process.
+    </p>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;background:${BRAND.primarySoft};border:1px solid ${BRAND.border};border-radius:12px;">
+      <tr>
+        <td style="padding:6px 18px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="padding:11px 0;color:${BRAND.inkMuted};font-size:13px;width:130px;">Interested as</td>
+              <td style="padding:11px 0;color:${BRAND.ink};font-size:14px;font-weight:700;">${roleLabel}</td>
+            </tr>
+            ${row("Mobile", opts.phone)}
+            ${row("Email", opts.email)}
+            ${row("Shop / Business", opts.shopName)}
+            ${row("City", opts.city)}
+            ${row("State", opts.state)}
+            ${row("Message", opts.message)}
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+      <tr>
+        <td align="left">
+          <a href="${opts.reviewLink}" style="display:inline-block;background:linear-gradient(135deg,${BRAND.primary} 0%,${BRAND.primaryDark} 100%);color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 30px;border-radius:12px;box-shadow:0 8px 20px rgba(46,73,173,0.35);">
+            Review in dashboard &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <p style="font-size:14px;color:${BRAND.ink};line-height:20px;margin:18px 0 8px 0;">
+      &mdash; NextGenPay Platform
+    </p>
+  `;
+
+  return { subject, html: shell({ preheader, bodyHtml: body }) };
+}
+
+/**
  * Sent when an admin approves a registered network-tier account (SD/MD/DT/RT).
  * Tells the user they can now log in.
  */

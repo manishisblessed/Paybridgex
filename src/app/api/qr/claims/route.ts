@@ -30,8 +30,11 @@ const Body = z
   .object({
     qrId: z.string().min(8),
     amount: z.number().positive(),
-    utr: z.string().min(12).max(20),
-    paidAt: z.string().datetime(),
+    // RuPay credit-card collections: card last 4 is required, UPI UTR and the
+    // paid-on time are optional.
+    cardLast4: z.string().regex(/^\d{4}$/, "Enter the last 4 digits of the RuPay card"),
+    utr: z.string().min(12).max(20).optional(),
+    paidAt: z.string().datetime().optional(),
     screenshotDataUrl: z
       .string()
       .min(64)
@@ -61,7 +64,8 @@ export async function GET() {
       qrLabel: c.qr.label,
       amount: Number(c.amount),
       utr: c.utr,
-      paidAt: c.paidAt.toISOString(),
+      cardLast4: c.cardLast4,
+      paidAt: c.paidAt?.toISOString() ?? null,
       status: c.status,
       // Settlement figures (net of scheme MDR) — present once settled.
       netAmount: c.netAmount != null ? Number(c.netAmount) : null,
@@ -102,8 +106,9 @@ export async function POST(req: Request) {
       userId: user.id,
       qrId: parsed.data.qrId,
       amount: parsed.data.amount,
-      utr: parsed.data.utr,
-      paidAt: new Date(parsed.data.paidAt),
+      cardLast4: parsed.data.cardLast4,
+      utr: parsed.data.utr ?? null,
+      paidAt: parsed.data.paidAt ? new Date(parsed.data.paidAt) : null,
       screenshotHash,
     };
 
@@ -131,7 +136,8 @@ export async function POST(req: Request) {
           id: claim.id,
           amount: Number(claim.amount),
           utr: claim.utr,
-          paidAt: claim.paidAt.toISOString(),
+          cardLast4: claim.cardLast4,
+          paidAt: claim.paidAt?.toISOString() ?? null,
           status: claim.status,
           createdAt: claim.createdAt.toISOString(),
         },

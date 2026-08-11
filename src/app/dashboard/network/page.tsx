@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Search, Filter, PackagePlus, RefreshCw, ShieldCheck, ShieldOff, Loader2,
   Wallet, ArrowUpDown, Monitor, Layers, X, Check, AlertCircle, Eye,
+  Link2, Copy, Share2, Send, Pencil, Trash2, Clock, MailPlus,
 } from "lucide-react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
@@ -34,6 +36,50 @@ type NetworkUser = {
   schemeId: string | null;
   schemeName: string | null;
 };
+
+type PendingInvite = {
+  id: string;
+  name: string | null;
+  phone: string;
+  email: string;
+  role: string;
+  status: "PENDING" | "EXPIRED";
+  createdAt: string;
+  expiresAt: string;
+  onboardingLink: string;
+};
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success("Onboarding link copied");
+  } catch {
+    toast.error("Could not copy link");
+  }
+}
+
+async function shareInviteLink(link: string, name?: string | null) {
+  if (typeof navigator !== "undefined" && "share" in navigator) {
+    try {
+      await navigator.share({
+        title: "NextGen Onboarding",
+        text: name ? `Onboarding link for ${name}` : "Complete your onboarding",
+        url: link,
+      });
+      return;
+    } catch {
+      // dismissed / unsupported — fall back to copy
+    }
+  }
+  await copyText(link);
+}
+
+function daysLeftLabel(expiresAt: string): string {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (ms <= 0) return "Expired";
+  const days = Math.ceil(ms / (24 * 60 * 60 * 1000));
+  return `Expires in ${days} day${days === 1 ? "" : "s"}`;
+}
 
 /** Labels for the direct downline each network tier manages. */
 const CHILD_META = {
@@ -321,6 +367,8 @@ export default function NetworkPage() {
           {toggleError}
         </div>
       )}
+
+      <PendingInvitesCard singular={meta.singular} onChanged={fetchNetwork} />
 
       <DataTable
         title={`${total} ${meta.plural}`}
@@ -681,6 +729,331 @@ function SchemeAssignModal({ child, onClose, onDone }: { child: NetworkUser; onC
             <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
             <Button variant="primary" size="sm" onClick={submit} disabled={busy || loading || schemes.length === 0}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Assign
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Pending invitations (links the parent shared, not yet registered) ──
+
+function PendingInvitesCard({ singular, onChanged }: { singular: string; onChanged: () => void }) {
+  const [invites, setInvites] = useState<PendingInvite[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<PendingInvite | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<PendingInvite | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/network/invites");
+      const d = await res.json();
+      if (res.ok) setInvites(d.invites ?? []);
+    } catch {
+      // best-effort — a load hiccup shouldn't break the page
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const act = async (inv: PendingInvite, action: "resend" | "reshare" | "cancel") => {
+    setBusyId(inv.id);
+    try {
+      const res = await fetch(`/api/network/invites/${inv.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        toast.error(d.error ?? "Action failed");
+        return;
+      }
+      if (action === "cancel") toast.success("Invite cancelled");
+      else if (action === "reshare") toast.success("Fresh link shared");
+      else toast.success(d.emailSent ? "Reminder sent" : "Reminder queued");
+      await load();
+      onChanged();
+    } catch {
+      toast.error("Request failed");
+    } finally {
+      setBusyId(null);
+      setCancelTarget(null);
+    }
+  };
+
+  if (!loading && invites.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl border border-ink-100 bg-white">
+      <div className="flex items-center justify-between border-b border-ink-100 px-5 py-3.5">
+        <div className="flex items-center gap-2">
+          <MailPlus className="h-4 w-4 text-brand-600" />
+          <h3 className="text-sm font-semibold text-ink-900">Pending invitations</h3>
+          {invites.length > 0 && <Badge variant="warning">{invites.length}</Badge>}
+        </div>
+        <button
+          onClick={load}
+          className="rounded-full p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-600"
+          title="Refresh"
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+        </button>
+      </div>
+
+      {loading && invites.length === 0 ? (
+        <div className="flex items-center justify-center py-8 text-sm text-ink-400">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
+        </div>
+      ) : (
+        <ul className="divide-y divide-ink-50">
+          {invites.map((inv) => {
+            const expired = inv.status === "EXPIRED";
+            const busy = busyId === inv.id;
+            return (
+              <li key={inv.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="truncate text-sm font-medium text-ink-900">
+                      {inv.name || inv.phone}
+                    </span>
+                    <Badge variant={expired ? "danger" : "warning"}>
+                      {expired ? "Expired" : "Awaiting registration"}
+                    </Badge>
+                    <span className="text-[11px] font-medium capitalize text-ink-400">
+                      {inv.role.replace(/_/g, " ").toLowerCase()}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-ink-500">
+                    {inv.phone} · {inv.email}
+                  </p>
+                  <p className="mt-0.5 flex items-center gap-1 text-[11px] text-ink-400">
+                    <Clock className="h-3 w-3" /> {daysLeftLabel(inv.expiresAt)}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  {!expired && (
+                    <>
+                      <IconBtn
+                        title="Copy link"
+                        onClick={() => copyText(inv.onboardingLink)}
+                        icon={<Copy className="h-4 w-4" />}
+                      />
+                      <IconBtn
+                        title="Share link"
+                        onClick={() => shareInviteLink(inv.onboardingLink, inv.name)}
+                        icon={<Share2 className="h-4 w-4" />}
+                      />
+                      <IconBtn
+                        title="Resend reminder"
+                        disabled={busy}
+                        onClick={() => act(inv, "resend")}
+                        icon={<Send className="h-4 w-4" />}
+                      />
+                      <IconBtn
+                        title="Edit contact"
+                        disabled={busy}
+                        onClick={() => setEditing(inv)}
+                        icon={<Pencil className="h-4 w-4" />}
+                      />
+                    </>
+                  )}
+                  {expired && (
+                    <IconBtn
+                      title="Reshare with a fresh link"
+                      disabled={busy}
+                      onClick={() => act(inv, "reshare")}
+                      icon={<Link2 className="h-4 w-4" />}
+                      label="Reshare"
+                    />
+                  )}
+                  <IconBtn
+                    title="Cancel invite"
+                    disabled={busy}
+                    danger
+                    onClick={() => setCancelTarget(inv)}
+                    icon={busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {editing && (
+        <EditInviteModal
+          invite={editing}
+          onClose={() => setEditing(null)}
+          onDone={() => {
+            setEditing(null);
+            load();
+            onChanged();
+          }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={cancelTarget !== null}
+        onClose={() => setCancelTarget(null)}
+        busy={cancelTarget ? busyId === cancelTarget.id : false}
+        tone="danger"
+        title={`Cancel invite for ${cancelTarget?.name || cancelTarget?.phone || "this contact"}?`}
+        description={`The onboarding link will stop working immediately and drop off this list. You can always invite this ${singular} again.`}
+        confirmLabel="Cancel invite"
+        onConfirm={async () => {
+          if (cancelTarget) await act(cancelTarget, "cancel");
+        }}
+      />
+    </div>
+  );
+}
+
+function IconBtn({
+  title,
+  icon,
+  onClick,
+  disabled,
+  danger,
+  label,
+}: {
+  title: string;
+  icon: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  label?: string;
+}) {
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+        danger
+          ? "border-rose-200 text-rose-600 hover:bg-rose-50"
+          : "border-ink-200 text-ink-600 hover:bg-ink-50"
+      }`}
+    >
+      {icon}
+      {label ? <span>{label}</span> : null}
+    </button>
+  );
+}
+
+// ── Edit invite contact modal ──
+
+function EditInviteModal({
+  invite,
+  onClose,
+  onDone,
+}: {
+  invite: PendingInvite;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [name, setName] = useState(invite.name ?? "");
+  const [phone, setPhone] = useState(invite.phone);
+  const [email, setEmail] = useState(invite.email);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/network/invites/${invite.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update",
+          name: name.trim() || undefined,
+          phone: phone.trim(),
+          email: email.trim(),
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        setErr(typeof d.error === "string" ? d.error : "Could not update invite");
+        setBusy(false);
+        return;
+      }
+      toast.success("Invite updated and re-sent");
+      onDone();
+    } catch {
+      setErr("Request failed");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border border-ink-100 bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
+          <div>
+            <h3 className="font-display text-base font-semibold text-ink-900">Edit contact</h3>
+            <p className="text-xs text-ink-500">A refreshed link is sent after you save.</p>
+          </div>
+          <button onClick={onClose} className="rounded-full p-1 text-ink-400 hover:bg-ink-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="space-y-4 p-5">
+          {err && (
+            <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              <AlertCircle className="h-4 w-4 shrink-0" /> {err}
+            </div>
+          )}
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-ink-500">Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Full name"
+              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-ink-500">Phone</label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="10-digit mobile"
+              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-ink-500">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com"
+              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={submit} disabled={busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Save & resend
             </Button>
           </div>
         </div>

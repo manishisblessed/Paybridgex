@@ -9,9 +9,14 @@ export type ServiceRevenueRow = {
   txnCount: number;
   totalVolume: number;
   totalCharge: number;
+  /** GST collected (pass-through liability, netted out of revenue). */
+  gstCollected: number;
+  /** Upstream/vendor cost paid on charge-driven rails (BBPS/Payout). */
+  vendorCost: number;
   grossCommission: number;
   tdsCollected: number;
   netCommission: number;
+  /** (totalCharge − GST) − vendorCost − grossCommission. */
   platformRevenue: number;
 };
 
@@ -43,6 +48,8 @@ export type DailyRevenueRow = {
   txnCount: number;
   totalVolume: number;
   totalCharge: number;
+  gstCollected: number;
+  vendorCost: number;
   grossCommission: number;
   tdsCollected: number;
   netCommission: number;
@@ -81,6 +88,8 @@ export type RevenueReport = {
     txnCount: number;
     totalVolume: number;
     totalCharge: number;
+    gstCollected: number;
+    vendorCost: number;
     grossCommission: number;
     tdsCollected: number;
     netCommission: number;
@@ -117,7 +126,7 @@ export async function getRevenueReport(
           ...serviceFilter,
         },
         _count: { _all: true },
-        _sum: { amount: true, fee: true },
+        _sum: { amount: true, fee: true, gst: true, vendorCharge: true },
       }),
 
       prisma.commissionCredit.groupBy({
@@ -158,6 +167,8 @@ export async function getRevenueReport(
   const byService: ServiceRevenueRow[] = serviceAgg
     .map((s) => {
       const totalCharge = toNumber(dec(s._sum.fee ?? 0));
+      const gstCollected = toNumber(dec(s._sum.gst ?? 0));
+      const vendorCost = toNumber(dec(s._sum.vendorCharge ?? 0));
       const comm = commByServiceMap.get(s.service) ?? {
         gross: 0,
         tds: 0,
@@ -168,13 +179,46 @@ export async function getRevenueReport(
         txnCount: s._count._all,
         totalVolume: toNumber(dec(s._sum.amount ?? 0)),
         totalCharge,
+        gstCollected,
+        vendorCost,
         grossCommission: comm.gross,
         tdsCollected: comm.tds,
         netCommission: comm.net,
-        platformRevenue: round2(totalCharge - comm.gross),
+        platformRevenue: round2(totalCharge - gstCollected - vendorCost - comm.gross),
       };
     })
     .sort((a, b) => b.totalVolume - a.totalVolume);
+
+  // Payouts don't create Transactions — they live on PayoutRequest — so fold a
+  // synthetic PAYOUT row in from the successful payouts in range. serviceCharge
+  // is pre-GST; present totalCharge GST-inclusive for parity with BBPS (whose
+  // Transaction.fee is GST-inclusive). Revenue = serviceCharge − vendor cost.
+  const includePayout = !params.service || params.service === "PAYOUT";
+  if (includePayout) {
+    const payoutAgg = await prisma.payoutRequest.aggregate({
+      where: { status: "SUCCESS", completedAt: { gte: dateStart, lte: dateEnd } },
+      _count: { _all: true },
+      _sum: { amount: true, serviceCharge: true, gst: true, vendorCharge: true },
+    });
+    if (payoutAgg._count._all > 0) {
+      const charge = toNumber(dec(payoutAgg._sum.serviceCharge ?? 0));
+      const gstCollected = toNumber(dec(payoutAgg._sum.gst ?? 0));
+      const vendorCost = toNumber(dec(payoutAgg._sum.vendorCharge ?? 0));
+      byService.push({
+        service: "PAYOUT" as ServiceCode,
+        txnCount: payoutAgg._count._all,
+        totalVolume: toNumber(dec(payoutAgg._sum.amount ?? 0)),
+        totalCharge: round2(charge + gstCollected),
+        gstCollected,
+        vendorCost,
+        grossCommission: 0,
+        tdsCollected: 0,
+        netCommission: 0,
+        platformRevenue: round2(charge - vendorCost),
+      });
+      byService.sort((a, b) => b.totalVolume - a.totalVolume);
+    }
+  }
 
   const byTier: TierCommissionRow[] = commissionByTier
     .map((t) => ({
@@ -197,25 +241,71 @@ export async function getRevenueReport(
     ])
   );
 
-  const byDay: DailyRevenueRow[] = dailyTxns.map((d) => {
+  const byDayMap = new Map<string, DailyRevenueRow>();
+  for (const d of dailyTxns) {
     const charge = parseFloat(d.charge);
+    const gstCollected = parseFloat(d.gst);
+    const vendorCost = parseFloat(d.vendor);
     const comm = dailyCommMap.get(d.day) ?? { gross: 0, tds: 0, net: 0 };
-    return {
+    byDayMap.set(d.day, {
       date: d.day,
       txnCount: Number(d.count),
       totalVolume: parseFloat(d.volume),
       totalCharge: charge,
+      gstCollected,
+      vendorCost,
       grossCommission: comm.gross,
       tdsCollected: comm.tds,
       netCommission: comm.net,
-      platformRevenue: round2(charge - comm.gross),
-    };
-  });
+      platformRevenue: round2(charge - gstCollected - vendorCost - comm.gross),
+    });
+  }
+
+  // Fold successful payouts (which live on PayoutRequest, not Transaction) into
+  // the daily rows — bucketed by completedAt — so byDay reconciles with the
+  // payout-inclusive service totals. serviceCharge is ex-GST; present
+  // totalCharge GST-inclusive for parity with BBPS. Revenue = charge − vendor.
+  if (includePayout) {
+    const dailyPayouts = await fetchDailyPayouts(dateStart, dateEnd);
+    for (const p of dailyPayouts) {
+      const charge = parseFloat(p.charge);
+      const gst = parseFloat(p.gst);
+      const vendor = parseFloat(p.vendor);
+      const existing = byDayMap.get(p.day);
+      if (existing) {
+        existing.txnCount += Number(p.count);
+        existing.totalVolume = round2(existing.totalVolume + parseFloat(p.volume));
+        existing.totalCharge = round2(existing.totalCharge + charge + gst);
+        existing.gstCollected = round2(existing.gstCollected + gst);
+        existing.vendorCost = round2(existing.vendorCost + vendor);
+        existing.platformRevenue = round2(existing.platformRevenue + (charge - vendor));
+      } else {
+        byDayMap.set(p.day, {
+          date: p.day,
+          txnCount: Number(p.count),
+          totalVolume: parseFloat(p.volume),
+          totalCharge: round2(charge + gst),
+          gstCollected: gst,
+          vendorCost: vendor,
+          grossCommission: 0,
+          tdsCollected: 0,
+          netCommission: 0,
+          platformRevenue: round2(charge - vendor),
+        });
+      }
+    }
+  }
+
+  const byDay: DailyRevenueRow[] = Array.from(byDayMap.values()).sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0
+  );
 
   const totals = {
     txnCount: byService.reduce((n, r) => n + r.txnCount, 0),
     totalVolume: sumRound(byService.map((r) => r.totalVolume)),
     totalCharge: sumRound(byService.map((r) => r.totalCharge)),
+    gstCollected: sumRound(byService.map((r) => r.gstCollected)),
+    vendorCost: sumRound(byService.map((r) => r.vendorCost)),
     grossCommission: sumRound(byService.map((r) => r.grossCommission)),
     tdsCollected: sumRound(byService.map((r) => r.tdsCollected)),
     netCommission: sumRound(byService.map((r) => r.netCommission)),
@@ -277,8 +367,9 @@ function legLabel(settlementType: string | null): string {
 }
 
 /**
- * The actual revenue-account wallet: current balance, PLATFORM_REVENUE credited
- * in the selected window, and the most recent revenue ledger entries.
+ * The actual revenue-account wallet: current balance, margin credited in the
+ * selected window (MDR_MARGIN + SERVICE_MARGIN), commission funded out of it,
+ * and the most recent revenue ledger entries.
  */
 async function getRevenueWallet(from: Date, to: Date): Promise<RevenueWallet> {
   const accountId = await getRevenueAccountId();
@@ -300,7 +391,7 @@ async function getRevenueWallet(from: Date, to: Date): Promise<RevenueWallet> {
         userId: accountId,
         walletType: "REVENUE",
         direction: "CREDIT",
-        reason: "MDR_MARGIN",
+        reason: { in: ["MDR_MARGIN", "SERVICE_MARGIN"] },
         createdAt: { gte: from, lte: to },
       },
       _sum: { amount: true },
@@ -361,8 +452,31 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-type DailyTxnRow = { day: string; count: bigint; volume: string; charge: string };
+type DailyTxnRow = { day: string; count: bigint; volume: string; charge: string; gst: string; vendor: string };
 type DailyCommRow = { day: string; gross: string; tds: string; net: string };
+type DailyPayoutRow = { day: string; count: bigint; volume: string; charge: string; gst: string; vendor: string };
+
+/**
+ * Daily successful-payout aggregates (IST day of completedAt). serviceCharge is
+ * ex-GST; gst + vendorCharge are broken out so the caller can net revenue the
+ * same way as Transaction rows.
+ */
+async function fetchDailyPayouts(from: Date, to: Date): Promise<DailyPayoutRow[]> {
+  return prisma.$queryRaw<DailyPayoutRow[]>`
+    SELECT
+      TO_CHAR("completedAt" AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS day,
+      COUNT(*)::bigint AS count,
+      COALESCE(SUM(amount), 0)::text AS volume,
+      COALESCE(SUM("serviceCharge"), 0)::text AS charge,
+      COALESCE(SUM(gst), 0)::text AS gst,
+      COALESCE(SUM("vendorCharge"), 0)::text AS vendor
+    FROM "PayoutRequest"
+    WHERE status = 'SUCCESS'
+      AND "completedAt" >= ${from}
+      AND "completedAt" <= ${to}
+    GROUP BY day ORDER BY day
+  `;
+}
 
 async function fetchDailyTxns(
   from: Date,
@@ -375,7 +489,9 @@ async function fetchDailyTxns(
         TO_CHAR("createdAt" AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS day,
         COUNT(*)::bigint AS count,
         COALESCE(SUM(amount), 0)::text AS volume,
-        COALESCE(SUM(fee), 0)::text AS charge
+        COALESCE(SUM(fee), 0)::text AS charge,
+        COALESCE(SUM(gst), 0)::text AS gst,
+        COALESCE(SUM("vendorCharge"), 0)::text AS vendor
       FROM "Transaction"
       WHERE status = 'SUCCESS'
         AND "createdAt" >= ${from}
@@ -389,7 +505,9 @@ async function fetchDailyTxns(
       TO_CHAR("createdAt" AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS day,
       COUNT(*)::bigint AS count,
       COALESCE(SUM(amount), 0)::text AS volume,
-      COALESCE(SUM(fee), 0)::text AS charge
+      COALESCE(SUM(fee), 0)::text AS charge,
+      COALESCE(SUM(gst), 0)::text AS gst,
+      COALESCE(SUM("vendorCharge"), 0)::text AS vendor
     FROM "Transaction"
     WHERE status = 'SUCCESS'
       AND "createdAt" >= ${from}

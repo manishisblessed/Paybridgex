@@ -26,6 +26,7 @@ import { priceSchemeSettlement, startOfTodayIst, SETTLED_VIA } from "../settleme
 import { railScopeKey } from "../mdr/floor";
 import { distributeMdrCommission } from "../commission/distribute";
 import { recordPayin } from "../wallet/payin";
+import { resolveLiveQr } from "./rotation";
 
 export class QrClaimError extends Error {
   public statusCode: number;
@@ -60,6 +61,16 @@ export function dailyClaimAmountLimit(): number {
   return num(process.env.QR_CLAIM_DAILY_LIMIT_AMOUNT, 200_000);
 }
 
+/**
+ * Grace window (ms) after a QR is switched out — auto-paused on hitting its
+ * daily cap, or rotated by an admin — during which a payment made on it can
+ * still be claimed. Protects a customer who was already mid-scan when the QR
+ * flipped. Default 10 minutes.
+ */
+export function switchGraceMs(): number {
+  return num(process.env.QR_CLAIM_SWITCH_GRACE_MINUTES, 10) * 60 * 1000;
+}
+
 /** How far back a payment may be dated. */
 export const QR_CLAIM_MAX_AGE_DAYS = 7;
 /** Clock-skew allowance for "paidAt is in the future" checks. */
@@ -90,20 +101,34 @@ export type QrClaimPrecheckInput = {
   userId: string;
   qrId: string;
   amount: number;
-  utr: string;
-  paidAt: Date;
+  /** Last 4 digits of the RuPay credit card used — required. */
+  cardLast4: string;
+  /** UPI UTR / RRN — optional (card collections have none). */
+  utr?: string | null;
+  /** When the customer paid — optional. */
+  paidAt?: Date | null;
   /** sha256 hex of the screenshot bytes. */
   screenshotHash: string;
 };
+
+const CARD_LAST4_RE = /^\d{4}$/;
 
 /**
  * Run every submission-time validation WITHOUT creating anything. The route
  * calls this before paying for the Cloudinary upload; `submitQrClaim` runs it
  * again right before insert (the DB uniques stay authoritative under races).
  */
-export async function precheckQrClaim(input: QrClaimPrecheckInput): Promise<{ utr: string; amount: number }> {
-  const utr = normalizeUtr(input.utr);
-  if (!UTR_RE.test(utr)) {
+export async function precheckQrClaim(input: QrClaimPrecheckInput): Promise<{ utr: string | null; amount: number }> {
+  // Card last-4 is the required identifier for RuPay credit-card collections.
+  const cardLast4 = input.cardLast4?.trim();
+  if (!cardLast4 || !CARD_LAST4_RE.test(cardLast4)) {
+    throw new QrClaimError("Enter the last 4 digits of the RuPay card used", 400, "INVALID_CARD_LAST4");
+  }
+
+  // UTR is optional; when supplied it must still be a valid 12-digit UPI ref.
+  const rawUtr = input.utr == null ? "" : normalizeUtr(input.utr);
+  const utr = rawUtr === "" ? null : rawUtr;
+  if (utr !== null && !UTR_RE.test(utr)) {
     throw new QrClaimError("UTR must be the 12-digit UPI reference number shown in the payment app", 400, "INVALID_UTR");
   }
 
@@ -113,30 +138,40 @@ export async function precheckQrClaim(input: QrClaimPrecheckInput): Promise<{ ut
     throw new QrClaimError(`Amount exceeds the per-claim limit of ₹${maxClaimAmount().toLocaleString("en-IN")}`, 400, "AMOUNT_TOO_LARGE");
   }
 
+  // paidAt is optional; validate only when the retailer supplied it.
   const now = Date.now();
-  const paidAtMs = input.paidAt.getTime();
-  if (!Number.isFinite(paidAtMs)) throw new QrClaimError("Invalid payment date/time", 400, "INVALID_PAID_AT");
-  if (paidAtMs > now + FUTURE_SKEW_MS) {
-    throw new QrClaimError("Payment date/time cannot be in the future", 400, "INVALID_PAID_AT");
-  }
-  if (paidAtMs < now - QR_CLAIM_MAX_AGE_DAYS * 24 * 60 * 60 * 1000) {
-    throw new QrClaimError(`Payments older than ${QR_CLAIM_MAX_AGE_DAYS} days cannot be claimed`, 400, "PAID_AT_TOO_OLD");
+  const paidAtMs = input.paidAt ? input.paidAt.getTime() : null;
+  if (paidAtMs !== null) {
+    if (!Number.isFinite(paidAtMs)) throw new QrClaimError("Invalid payment date/time", 400, "INVALID_PAID_AT");
+    if (paidAtMs > now + FUTURE_SKEW_MS) {
+      throw new QrClaimError("Payment date/time cannot be in the future", 400, "INVALID_PAID_AT");
+    }
+    if (paidAtMs < now - QR_CLAIM_MAX_AGE_DAYS * 24 * 60 * 60 * 1000) {
+      throw new QrClaimError(`Payments older than ${QR_CLAIM_MAX_AGE_DAYS} days cannot be claimed`, 400, "PAID_AT_TOO_OLD");
+    }
   }
 
   const qr = await prisma.staticQr.findUnique({ where: { id: input.qrId } });
   if (!qr) throw new QrClaimError("QR code not found", 404, "QR_NOT_FOUND");
-  // A rotated-out QR still accepts claims for payments made BEFORE it was
-  // disabled; anything dated after the switch must target the new QR.
+  // A switched-out QR (auto-paused on hitting its daily cap, or rotated by an
+  // admin) still accepts claims for payments made BEFORE the switch, plus a
+  // short grace window for anyone who was already mid-scan. Undated claims (no
+  // paidAt) are treated as "now". Anything later must target the current live QR.
   if (!qr.active) {
     const cutoff = qr.disabledAt?.getTime();
-    if (!cutoff || paidAtMs > cutoff) {
-      throw new QrClaimError("This QR code is disabled — payments after the switch must be claimed on the current QR", 400, "QR_DISABLED");
+    const effectivePaidMs = paidAtMs ?? now;
+    if (!cutoff || effectivePaidMs > cutoff + switchGraceMs()) {
+      throw new QrClaimError("This QR code is disabled or full — payments after the switch must be claimed on the current live QR", 400, "QR_DISABLED");
     }
   }
 
   // Friendly duplicate errors (the unique indexes are the real enforcement).
-  const dupUtr = await prisma.qrClaim.findFirst({ where: { utr }, select: { id: true } });
-  if (dupUtr) throw new QrClaimError("This UTR has already been claimed — a payment can be settled only once", 409, "DUPLICATE_UTR");
+  // Only meaningful when a UTR is present — card-only claims dedupe on the
+  // screenshot hash alone.
+  if (utr !== null) {
+    const dupUtr = await prisma.qrClaim.findFirst({ where: { utr }, select: { id: true } });
+    if (dupUtr) throw new QrClaimError("This UTR has already been claimed — a payment can be settled only once", 409, "DUPLICATE_UTR");
+  }
   const dupShot = await prisma.qrClaim.findFirst({ where: { screenshotHash: input.screenshotHash }, select: { id: true } });
   if (dupShot) throw new QrClaimError("This screenshot has already been submitted", 409, "DUPLICATE_SCREENSHOT");
 
@@ -174,8 +209,9 @@ export async function submitQrClaim(input: QrClaimSubmitInput) {
         userId: input.userId,
         qrId: input.qrId,
         amount: new Prisma.Decimal(amount),
+        cardLast4: input.cardLast4.trim(),
         utr,
-        paidAt: input.paidAt,
+        paidAt: input.paidAt ?? null,
         screenshotPublicId: input.screenshotPublicId,
         screenshotFormat: input.screenshotFormat ?? null,
         screenshotHash: input.screenshotHash,
@@ -195,9 +231,18 @@ export async function submitQrClaim(input: QrClaimSubmitInput) {
       action: "qr_claim.submitted",
       entity: "QrClaim",
       entityId: claim.id,
-      meta: { qrId: input.qrId, amount, utr },
+      meta: { qrId: input.qrId, amount, utr, cardLast4: input.cardLast4.trim() },
     },
   });
+
+  // This claim just moved the QR's daily counter — re-resolve the live QR so a
+  // filled QR auto-pauses immediately (not only on the next /api/qr/active
+  // poll). Best-effort: never fail a successfully-recorded claim over rotation.
+  try {
+    await resolveLiveQr();
+  } catch {
+    /* the next /api/qr/active call re-resolves */
+  }
 
   return claim;
 }
@@ -309,8 +354,16 @@ type SettleableClaim = {
   id: string;
   userId: string;
   amount: Prisma.Decimal | number | string;
-  utr: string;
+  utr: string | null;
+  cardLast4?: string | null;
 };
+
+/** Human-readable identifier for ledger notes: the UTR when present, else card. */
+function claimRef(claim: { utr: string | null; cardLast4?: string | null }): string {
+  if (claim.utr) return `UTR ${claim.utr}`;
+  if (claim.cardLast4) return `card ****${claim.cardLast4}`;
+  return "no ref";
+}
 
 /**
  * Settle ONE SETTLEABLE claim: price the scheme's QR MDR (T0 for instant, T1
@@ -368,7 +421,7 @@ async function settleClaim(
         reason: "SETTLEMENT",
         refType: "QrClaim",
         refId: claim.id,
-        note: `QR ${settlementType === "T0" ? "instant" : "T+1"} settlement (UTR ${claim.utr})`,
+        note: `QR ${settlementType === "T0" ? "instant" : "T+1"} settlement (${claimRef(claim)})`,
         idempotencyKey: `qrsettle:${claim.id}`,
       },
       tx
@@ -407,7 +460,7 @@ async function settleClaim(
       grossAmount: Number(claim.amount),
       refType: "QrClaim",
       refId: claim.id,
-      note: `QR payin (UTR ${claim.utr})`,
+      note: `QR payin (${claimRef(claim)})`,
     });
   }
 
@@ -578,7 +631,8 @@ export async function listSettleableQrClaims(userId: string) {
       qrLabel: c.qr.label,
       amount: gross,
       utr: c.utr,
-      paidAt: c.paidAt.toISOString(),
+      cardLast4: c.cardLast4,
+      paidAt: c.paidAt?.toISOString() ?? null,
       settleableAt: c.settleableAt?.toISOString() ?? null,
       instant: instant ? { mdrAmount: toNumber(instant.mdrAmount), netAmount: toNumber(instant.netAmount) } : null,
       t1: t1 ? { mdrAmount: toNumber(t1.mdrAmount), netAmount: toNumber(t1.netAmount) } : null,
@@ -654,7 +708,7 @@ export async function clawbackQrClaim(input: QrClaimReviewInput & { note: string
         reason: "REVERSAL",
         refType: "QrClaim",
         refId: claim.id,
-        note: `QR claim clawback (UTR ${claim.utr})`,
+        note: `QR claim clawback (${claimRef(claim)})`,
         idempotencyKey: `qrclaim-clawback:${claim.id}`,
       },
       tx

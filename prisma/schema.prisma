@@ -506,6 +506,7 @@ enum WalletReason {
   PARENT_PULL       // Network parent debiting child
   PLATFORM_REVENUE  // Company margin: service charge minus commissions paid to the chain
   MDR_MARGIN        // MDR spread (serviceCharge − vendorCharge) credited to the revenue wallet per txn
+  SERVICE_MARGIN    // Service-rail spread (BBPS/Payout: charge − GST − vendor) credited to the revenue wallet per txn
   COMMISSION_PAYOUT // Debit from the revenue wallet to fund an upline (DT/MD/SD) commission
   TDS_WITHHELD      // TDS withheld from a commission (moved to the TDS liability ledger)
   LIEN              // Admin lien recovery: funds swept from a user to the Company Suspense account
@@ -597,6 +598,11 @@ model Transaction {
   fee          Decimal     @default(0) @db.Decimal(14, 2)
   commission   Decimal     @default(0) @db.Decimal(14, 2)
   gst          Decimal     @default(0) @db.Decimal(14, 2)
+  // Upstream/vendor cost the company paid for this txn (charge-driven service
+  // rails: BBPS/Payout). Company revenue per txn = (fee − gst) − vendorCharge.
+  // 0 for acquiring rails (POS/PG/QR settle margin via MDR_MARGIN) and for any
+  // service with no vendor rate card, preserving legacy behaviour.
+  vendorCharge Decimal     @default(0) @db.Decimal(14, 2)
   status       TxnStatus   @default(INITIATED)
   customer     String? // mobile / consumerNo / VPA / a/c last 4
   operator     String? // SBI, Jio, BSES, etc.
@@ -719,6 +725,13 @@ model SchemeSlab {
   // When true the chargeValue already includes 18% GST (no extra GST added).
   // When false (default) the charge is the base amount and GST is added on top.
   chargeGstInclusive Boolean @default(false)
+
+  // Vendor/upstream cost the company pays the partner for this band, LOCKED from
+  // the provider's approved service rate card (RailMdrRate, serviceKind
+  // BBPS/PAYOUT) at slab-save time. Company revenue per txn = chargeValue −
+  // vendorCharge. 0 when the slab's provider has no rate card (no enforcement),
+  // preserving legacy behaviour. Same FLAT/PERCENT semantics as chargeType.
+  vendorCharge Decimal @default(0) @db.Decimal(14, 4)
 
   // Commission split across the distribution chain. Same flat/percent semantics
   // as the charge (driven by commissionType). All three may be zero.
@@ -1073,6 +1086,50 @@ model Invite {
   @@index([email])
 }
 
+// ---------- Join Requests (public lead capture) ----------
+// A prospective agent submits the public Join Form (/register). NO account is
+// created and NO credentials are set — this is a lead the support team reviews
+// and then converts into a proper onboarding Invite. Keeps self-serve signup
+// off the platform while still capturing interest from the marketing site.
+
+enum JoinRequestStatus {
+  NEW // just submitted, nobody has reached out yet
+  CONTACTED // support has connected with the applicant
+  INVITED // converted into an onboarding invite
+  CLOSED // handled / not proceeding (generic close)
+  REJECTED // explicitly declined
+}
+
+model JoinRequest {
+  id       String            @id @default(cuid())
+  name     String
+  phone    String
+  email    String
+  shopName String?
+  city     String?
+  state    String?
+  role     Role              @default(RETAILER) // interest expressed (RT/DT/MD/SD)
+  message  String? // optional note from the applicant
+  status   JoinRequestStatus @default(NEW)
+
+  // Support workflow. handledById is a plain user id (no relation) mirroring
+  // Invite.invitedById; inviteId links the invite this lead was converted into.
+  handledById String?
+  handledAt   DateTime?
+  notes       String? // internal support notes
+  inviteId    String?
+
+  ip        String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([phone])
+  @@index([email])
+}
+
 // ---------- Verification Results (eKYC Hub) ----------
 
 model VerificationResult {
@@ -1248,6 +1305,11 @@ model PayoutRequest {
   serviceCharge Decimal @db.Decimal(14, 2)
   gst           Decimal @db.Decimal(14, 2) // 18% of serviceCharge
   totalDebit    Decimal @db.Decimal(14, 2) // amount + serviceCharge + gst
+  // Upstream/partner cost the company pays to disburse this payout, LOCKED from
+  // the provider's approved PAYOUT rate card at quote time. Company revenue per
+  // payout = serviceCharge − vendorCharge (GST is a pass-through liability).
+  // 0 when the scheme has no vendor rate card, preserving legacy behaviour.
+  vendorCharge  Decimal @default(0) @db.Decimal(14, 2)
 
   status PayoutStatus @default(PENDING_APPROVAL)
 
@@ -1558,7 +1620,19 @@ model StaticQr {
   upiVpa        String? // VPA encoded in the QR (shown to admins for eyeball checks)
   imagePublicId String // Cloudinary public_id
   imageUrl      String // secure_url (public delivery — the QR itself is not a secret)
-  active        Boolean @default(true)
+  active        Boolean @default(true) // the single QR currently shown to retailers (derived by the rotation engine)
+
+  // Priority-queue rotation with per-QR daily caps. Retailers always collect on
+  // the lowest-`priority` `enabled` QR that still has headroom today; when it
+  // fills up (claims filed today ≥ its cap) the engine auto-pauses it and
+  // promotes the next one. `enabled` is the admin master switch; `autoPausedOn`
+  // is the IST day-date it hit its cap (cleared automatically next day, so the
+  // limit resets daily). Both null caps ⇒ the QR is effectively unlimited.
+  priority        Int      @default(100) // lower = collected first
+  dailyLimit      Decimal? @db.Decimal(14, 2) // max gross (non-rejected) claim value per IST day; null = unlimited
+  dailyLimitCount Int? // optional cap on #claims per IST day; null = unlimited
+  enabled         Boolean  @default(true) // admin master switch — only enabled QRs join the queue
+  autoPausedOn    DateTime? // set when it filled its daily cap; a rollover past IST midnight clears it
 
   createdById String
   createdBy   User   @relation("StaticQrCreator", fields: [createdById], references: [id])
@@ -1571,6 +1645,7 @@ model StaticQr {
   claims QrClaim[]
 
   @@index([active])
+  @@index([enabled, priority])
 }
 
 // =====================================================================
@@ -1712,6 +1787,10 @@ enum MdrServiceKind {
   PG
   QR
   UPI
+  // Service rails (charge-driven). Reuse the RailMdrRate rate card to hold each
+  // provider's Vendor cost + Minimum charge per transaction, mirroring PG/QR.
+  BBPS
+  PAYOUT
 }
 
 model MdrSlab {
@@ -2143,9 +2222,14 @@ model QrClaim {
   qr   StaticQr @relation(fields: [qrId], references: [id])
 
   amount Decimal  @db.Decimal(14, 2)
-  // UPI UTR / RRN — 12 digits, visible in every UPI app. THE dedupe key.
-  utr    String   @unique
-  paidAt DateTime // when the customer paid (per the retailer)
+  // UPI UTR / RRN — 12 digits, visible in every UPI app. OPTIONAL: RuPay
+  // credit-card collections have no UPI UTR. Still the dedupe key when present
+  // (unique; Postgres allows multiple NULLs so card-only claims don't collide).
+  utr    String?  @unique
+  paidAt DateTime? // when the customer paid (per the retailer); optional
+  // Last 4 digits of the RuPay credit card used. Required for NEW claims at the
+  // app layer; nullable in the DB so pre-existing UPI-only rows are preserved.
+  cardLast4 String?
 
   // Screenshot proof — stored privately in Cloudinary; admins view via signed
   // URLs. The sha256 of the uploaded bytes blocks image re-use across claims.

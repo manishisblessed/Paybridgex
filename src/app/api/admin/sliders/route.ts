@@ -5,6 +5,7 @@ import { isAdminRole } from "@/lib/security/ownership";
 import { enforceRateLimit, RateLimitError, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { prisma } from "@/lib/db";
 import {
+  SLIDER_ROLES,
   SliderKindEnum,
   SliderRoleEnum,
   serializeSlider,
@@ -38,7 +39,7 @@ const CreateBody = z
     imageUrl: z.string().trim().url().max(1000),
     linkUrl: z.string().trim().url().max(1000).optional().nullable(),
     kind: SliderKindEnum.default("SLIDE"),
-    audienceRoles: z.array(SliderRoleEnum).max(6).default([]),
+    audienceRoles: z.array(SliderRoleEnum).max(SLIDER_ROLES.length).default([]),
     active: z.boolean().default(true),
     sortOrder: z.number().int().min(0).max(100000).default(0),
     startAt: z.string().datetime().optional().nullable(),

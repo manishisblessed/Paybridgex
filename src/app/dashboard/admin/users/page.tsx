@@ -62,6 +62,7 @@ export default function AdminUsersPage() {
   const [servicesUser, setServicesUser] = useState<UserRow | null>(null);
   const [moreUser, setMoreUser] = useState<UserRow | null>(null);
   const [closeTarget, setCloseTarget] = useState<UserRow | null>(null);
+  const [statusTarget, setStatusTarget] = useState<UserRow | null>(null);
   const [resetPwUser, setResetPwUser] = useState<UserRow | null>(null);
   const [resetPwResult, setResetPwResult] = useState<{ user: UserRow; password: string } | null>(null);
   const [resettingPw, setResettingPw] = useState(false);
@@ -395,10 +396,27 @@ export default function AdminUsersPage() {
             setCloseTarget(moreUser);
             setMoreUser(null);
           }}
+          onSetStatus={() => {
+            setStatusTarget(moreUser);
+            setMoreUser(null);
+          }}
           onCopied={() => {
             notify("User ID copied", true);
             setMoreUser(null);
           }}
+        />
+      )}
+
+      {statusTarget && (
+        <ApprovalStatusDialog
+          user={statusTarget}
+          onClose={() => setStatusTarget(null)}
+          onDone={(msg) => {
+            notify(msg, true);
+            setStatusTarget(null);
+            fetchUsers();
+          }}
+          onError={(msg) => notify(msg, false)}
         />
       )}
 
@@ -460,6 +478,7 @@ function UserMoreMenu({
   onManageServices,
   onResetPassword,
   onCloseAccount,
+  onSetStatus,
   onCopied,
 }: {
   user: UserRow;
@@ -467,6 +486,7 @@ function UserMoreMenu({
   onManageServices: () => void;
   onResetPassword: () => void;
   onCloseAccount: () => void;
+  onSetStatus: () => void;
   onCopied: () => void;
 }) {
   useEffect(() => {
@@ -555,6 +575,15 @@ function UserMoreMenu({
           <button
             type="button"
             role="menuitem"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-ink-800 transition hover:bg-ink-50"
+            onClick={onSetStatus}
+          >
+            <ShieldCheck className="h-4 w-4 text-ink-500" />
+            Set approval status
+          </button>
+          <button
+            type="button"
+            role="menuitem"
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-amber-700 transition hover:bg-amber-50"
             onClick={onResetPassword}
           >
@@ -573,6 +602,162 @@ function UserMoreMenu({
               Close account
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------- */
+
+type ApprovalTarget = "APPROVED" | "PENDING" | "REJECTED";
+
+const APPROVAL_CHOICES: { target: ApprovalTarget; label: string; on: string }[] = [
+  { target: "APPROVED", label: "Approved", on: "border-emerald-300 bg-emerald-50 text-emerald-700" },
+  { target: "PENDING", label: "Pending", on: "border-amber-300 bg-amber-50 text-amber-700" },
+  { target: "REJECTED", label: "Rejected", on: "border-rose-300 bg-rose-50 text-rose-700" },
+];
+
+function displayStatusToApproval(status: string): ApprovalTarget {
+  if (status === "Active") return "APPROVED";
+  if (status === "Suspended" || status === "Closed") return "REJECTED";
+  return "PENDING";
+}
+
+function ApprovalStatusDialog({
+  user,
+  onClose,
+  onDone,
+  onError,
+}: {
+  user: UserRow;
+  onClose: () => void;
+  onDone: (msg: string) => void;
+  onError: (msg: string) => void;
+}) {
+  const current = displayStatusToApproval(user.status);
+  const [target, setTarget] = useState<ApprovalTarget>(current);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const dirty = target !== current;
+  const needsReason = target === "REJECTED";
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function apply() {
+    if (needsReason && reason.trim().length < 3) {
+      onError("A reason is required to reject an account (min 3 characters).");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setApprovalStatus",
+          target,
+          reason: reason.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "Update failed");
+      onDone(
+        target === "APPROVED"
+          ? `${user.name} approved — account is active.`
+          : target === "REJECTED"
+          ? `${user.name} rejected — login & transactions blocked.`
+          : `${user.name} moved to pending review.`
+      );
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4" onClick={onClose}>
+      <div
+        className="w-full max-w-sm overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-ink-100 px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">Approval status</p>
+            <h3 className="mt-1 truncate font-display text-base font-bold text-ink-900">{user.name}</h3>
+            <p className="truncate text-xs text-ink-500">
+              {user.role} · <span className="font-medium text-brand-600">{user.userCode}</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-500 hover:bg-ink-100"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="px-5 py-4">
+          <div className="mb-3 flex items-center justify-between text-sm">
+            <span className="text-ink-500">Current</span>
+            <Badge variant={current === "APPROVED" ? "success" : current === "REJECTED" ? "danger" : "warning"}>
+              {APPROVAL_CHOICES.find((c) => c.target === current)?.label}
+            </Badge>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {APPROVAL_CHOICES.map((c) => (
+              <button
+                key={c.target}
+                type="button"
+                disabled={busy}
+                onClick={() => setTarget(c.target)}
+                className={`rounded-xl border px-3 py-2 text-xs font-semibold transition disabled:opacity-60 ${
+                  target === c.target ? c.on : "border-ink-200 text-ink-500 hover:border-ink-300"
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+
+          {needsReason && (
+            <input
+              type="text"
+              placeholder="Reason for rejection (required)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="mt-3 w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+            />
+          )}
+
+          <p className="mt-3 text-[11px] leading-relaxed text-ink-400">
+            Change the status in any direction. <b>Rejected</b> fully locks the account —
+            no login and no transactions — and signs the user out immediately.
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-ink-100 bg-ink-50/40 px-5 py-3">
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            onClick={apply}
+            disabled={!dirty || busy || (needsReason && reason.trim().length < 3)}
+            isLoading={busy}
+          >
+            Update status
+          </Button>
         </div>
       </div>
     </div>

@@ -9,9 +9,9 @@ import { validateMdrAgainstFloor } from "@/lib/mdr/floor";
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
 
-function parseRail(kind: string): "PG" | "QR" | null {
+function parseRail(kind: string): "PG" | "QR" | "BBPS" | "PAYOUT" | null {
   const k = kind.toUpperCase();
-  return k === "PG" || k === "QR" ? k : null;
+  return k === "PG" || k === "QR" || k === "BBPS" || k === "PAYOUT" ? k : null;
 }
 
 const norm = (v: string) => (v === "*" ? "*" : v.toUpperCase());

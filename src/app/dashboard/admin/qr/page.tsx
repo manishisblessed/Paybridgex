@@ -18,6 +18,7 @@ import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Modal } from "@/components/ui/Modal";
 import { Input, Label } from "@/components/ui/Input";
 import { formatINR } from "@/lib/utils";
 
@@ -38,8 +39,9 @@ type ClaimRow = {
   qrLabel: string;
   qrVpa: string | null;
   amount: number;
-  utr: string;
-  paidAt: string;
+  utr: string | null;
+  cardLast4: string | null;
+  paidAt: string | null;
   status: "PENDING" | "AWAITING_SECOND_APPROVAL" | "APPROVED" | "SETTLEABLE" | "SETTLED" | "REJECTED" | "CLAWED_BACK";
   reviewNote: string | null;
   firstApprovedById: string | null;
@@ -51,8 +53,16 @@ type ClaimRow = {
   reviewedByCode: string | null;
   reviewedAt: string | null;
   createdAt: string;
-  screenshotUrl: string;
 };
+
+/** UTR when present, else the RuPay card's last 4 (card collections have no UTR). */
+function claimIdentifier(row: { utr: string | null; cardLast4: string | null }): string {
+  if (row.utr) return row.utr;
+  if (row.cardLast4) return `•••• ${row.cardLast4}`;
+  return "—";
+}
+
+type QrState = "LIVE" | "QUEUED" | "FULL_TODAY" | "DISABLED";
 
 type QrRow = {
   id: string;
@@ -60,6 +70,13 @@ type QrRow = {
   upiVpa: string | null;
   imageUrl: string;
   active: boolean;
+  enabled: boolean;
+  priority: number;
+  dailyLimit: number | null;
+  dailyLimitCount: number | null;
+  collectedToday: number;
+  collectedTodayCount: number;
+  state: QrState;
   claimCount: number;
   createdBy: string;
   createdAt: string;
@@ -164,7 +181,7 @@ function ReviewQueueTab() {
         </div>
       ),
     },
-    { key: "utr", header: "UTR", render: (r) => <span className="font-mono text-xs">{r.utr}</span> },
+    { key: "utr", header: "UTR / Card", render: (r) => <span className="font-mono text-xs">{claimIdentifier(r)}</span> },
     {
       key: "amount",
       header: "Amount",
@@ -181,7 +198,8 @@ function ReviewQueueTab() {
     {
       key: "paidAt",
       header: "Paid at",
-      render: (r) => new Date(r.paidAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+      render: (r) =>
+        r.paidAt ? new Date(r.paidAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—",
     },
     {
       key: "status",
@@ -248,6 +266,23 @@ function ReviewQueueTab() {
       },
     },
     {
+      key: "screenshot",
+      header: "Proof",
+      align: "right",
+      render: (r) => (
+        <a
+          href={`/api/admin/qr/claims/${r.id}/screenshot`}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 rounded-lg border border-ink-200 px-2.5 py-1 text-xs font-semibold text-ink-700 hover:border-ink-300"
+          title="Open the payment screenshot"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          View
+        </a>
+      ),
+    },
+    {
       key: "id",
       header: "",
       align: "right",
@@ -292,12 +327,19 @@ function ReviewQueueTab() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-widest text-ink-500">Reviewing claim</p>
               <p className="mt-1 font-display text-xl font-bold text-ink-900">
-                {formatINR(selected.amount)} · UTR <span className="font-mono">{selected.utr}</span>
+                {formatINR(selected.amount)} · {selected.utr ? "UTR" : "Card"}{" "}
+                <span className="font-mono">{claimIdentifier(selected)}</span>
               </p>
               <p className="mt-1 text-sm text-ink-600">
-                {selected.retailer.name} ({selected.retailer.shopName ?? selected.retailer.phone}) · paid{" "}
-                {new Date(selected.paidAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })} on{" "}
-                {selected.qrLabel}
+                {selected.retailer.name} ({selected.retailer.shopName ?? selected.retailer.phone})
+                {selected.paidAt ? (
+                  <>
+                    {" "}
+                    · paid{" "}
+                    {new Date(selected.paidAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                  </>
+                ) : null}{" "}
+                on {selected.qrLabel}
                 {selected.qrVpa ? (
                   <>
                     {" "}
@@ -305,6 +347,12 @@ function ReviewQueueTab() {
                   </>
                 ) : null}
               </p>
+              {selected.cardLast4 && (
+                <p className="mt-1 text-sm text-ink-600">
+                  RuPay card: <span className="font-mono font-semibold">•••• {selected.cardLast4}</span>
+                  {selected.utr ? <span className="ml-2 text-ink-400">UTR {selected.utr}</span> : null}
+                </p>
+              )}
               {selected.status === "AWAITING_SECOND_APPROVAL" && (
                 <p className="mt-2 rounded-lg bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">
                   Second approval — must be a different admin than the first approver
@@ -316,13 +364,13 @@ function ReviewQueueTab() {
               )}
             </div>
             <a
-              href={selected.screenshotUrl}
+              href={`/api/admin/qr/claims/${selected.id}/screenshot`}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-xl border border-ink-200 px-4 py-2.5 text-sm font-semibold text-ink-700 hover:border-ink-300"
             >
               <ExternalLink className="h-4 w-4" />
-              Open screenshot (signed, 5 min)
+              Open screenshot
             </a>
           </div>
 
@@ -330,8 +378,8 @@ function ReviewQueueTab() {
             <p className="text-xs font-semibold text-ink-700">Verification checklist</p>
             <ul className="space-y-1 text-xs text-ink-600">
               <li>1. Screenshot shows a SUCCESSFUL payment to the correct VPA{selected.qrVpa ? ` (${selected.qrVpa})` : ""}.</li>
-              <li>2. Amount, date/time and UTR typed above match what is visible in the image.</li>
-              <li>3. The UTR exists in the provider&apos;s merchant portal with the same amount.</li>
+              <li>2. Amount, card last-4{selected.utr ? ", UTR" : ""} and any date/time typed above match what is visible in the image.</li>
+              <li>3. The payment exists in the provider&apos;s merchant portal with the same amount.</li>
             </ul>
             <label className="flex items-start gap-2 rounded-xl border border-ink-200 bg-white p-3 text-sm">
               <input
@@ -418,17 +466,36 @@ function ReviewQueueTab() {
 // Tab 2 — static QR management
 // ---------------------------------------------------------------------------
 
+const QR_STATE_BADGE: Record<QrState, { variant: "success" | "brand" | "warning" | "default"; label: string }> = {
+  LIVE: { variant: "success", label: "Live" },
+  QUEUED: { variant: "brand", label: "Queued" },
+  FULL_TODAY: { variant: "warning", label: "Full today" },
+  DISABLED: { variant: "default", label: "Disabled" },
+};
+
 function QrManageTab() {
   const [qrs, setQrs] = useState<QrRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [label, setLabel] = useState("");
   const [vpa, setVpa] = useState("");
+  const [priority, setPriority] = useState("100");
+  const [dailyLimit, setDailyLimit] = useState("");
+  const [dailyLimitCount, setDailyLimitCount] = useState("");
   const [image, setImage] = useState<{ name: string; dataUrl: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
+
   const [toggleTarget, setToggleTarget] = useState<QrRow | null>(null);
   const [toggleBusy, setToggleBusy] = useState(false);
+  const [liveTarget, setLiveTarget] = useState<QrRow | null>(null);
+  const [liveBusy, setLiveBusy] = useState(false);
+
+  const [editTarget, setEditTarget] = useState<QrRow | null>(null);
+  const [editPriority, setEditPriority] = useState("");
+  const [editLimit, setEditLimit] = useState("");
+  const [editCount, setEditCount] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -459,17 +526,8 @@ function QrManageTab() {
     reader.readAsDataURL(file);
   }
 
-  function createQr(e: React.FormEvent) {
+  async function submitQr(e: React.FormEvent) {
     e.preventDefault();
-    if (!image) return;
-    if (qrs.some((q) => q.active)) {
-      setReplaceConfirmOpen(true);
-      return;
-    }
-    void submitQr();
-  }
-
-  async function submitQr() {
     if (!image) return;
     setBusy(true);
     try {
@@ -479,6 +537,9 @@ function QrManageTab() {
         body: JSON.stringify({
           label: label.trim(),
           upiVpa: vpa.trim() || undefined,
+          priority: priority.trim() ? Number(priority) : undefined,
+          dailyLimit: dailyLimit.trim() ? Number(dailyLimit) : undefined,
+          dailyLimitCount: dailyLimitCount.trim() ? Number(dailyLimitCount) : undefined,
           dataUrl: image.dataUrl,
         }),
       });
@@ -487,9 +548,12 @@ function QrManageTab() {
         toast.error(typeof d.error === "string" ? d.error : "Upload failed — check the fields");
         return;
       }
-      toast.success(`"${d.label}" is now the live QR for all retailers.`);
+      toast.success(d.active ? `"${d.label}" is now the live QR.` : `"${d.label}" added to the queue (priority ${d.priority}).`);
       setLabel("");
       setVpa("");
+      setPriority("100");
+      setDailyLimit("");
+      setDailyLimitCount("");
       setImage(null);
       if (fileRef.current) fileRef.current.value = "";
       refresh();
@@ -500,23 +564,67 @@ function QrManageTab() {
     }
   }
 
+  async function patchQr(id: string, body: Record<string, unknown>): Promise<boolean> {
+    const res = await fetch(`/api/admin/qr/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      toast.error(typeof d.error === "string" ? d.error : "Could not update the QR");
+      return false;
+    }
+    return true;
+  }
+
   async function toggle(qr: QrRow) {
     setToggleBusy(true);
     try {
-      const res = await fetch(`/api/admin/qr/${qr.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: !qr.active }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        toast.error(typeof d.error === "string" ? d.error : "Could not update the QR");
-        return;
+      if (await patchQr(qr.id, { enabled: !qr.enabled })) {
+        toast.success(qr.enabled ? "QR removed from the queue." : "QR added back to the queue.");
+        refresh();
       }
-      toast.success(qr.active ? "QR disabled." : "QR activated for all retailers.");
-      refresh();
     } finally {
       setToggleBusy(false);
+    }
+  }
+
+  async function makeLive(qr: QrRow) {
+    setLiveBusy(true);
+    try {
+      if (await patchQr(qr.id, { makeLiveNow: true })) {
+        toast.success(`"${qr.label}" is now live for all retailers.`);
+        refresh();
+      }
+    } finally {
+      setLiveBusy(false);
+    }
+  }
+
+  function openEdit(qr: QrRow) {
+    setEditPriority(String(qr.priority));
+    setEditLimit(qr.dailyLimit != null ? String(qr.dailyLimit) : "");
+    setEditCount(qr.dailyLimitCount != null ? String(qr.dailyLimitCount) : "");
+    setEditTarget(qr);
+  }
+
+  async function saveEdit() {
+    if (!editTarget) return;
+    setEditBusy(true);
+    try {
+      const ok = await patchQr(editTarget.id, {
+        priority: editPriority.trim() ? Number(editPriority) : undefined,
+        dailyLimit: editLimit.trim() ? Number(editLimit) : null,
+        dailyLimitCount: editCount.trim() ? Number(editCount) : null,
+      });
+      if (ok) {
+        toast.success("QR limits updated.");
+        setEditTarget(null);
+        refresh();
+      }
+    } finally {
+      setEditBusy(false);
     }
   }
 
@@ -531,17 +639,54 @@ function QrManageTab() {
         </a>
       ),
     },
-    { key: "label", header: "Label" },
     {
-      key: "upiVpa",
-      header: "VPA",
-      render: (r) => (r.upiVpa ? <span className="font-mono text-xs">{r.upiVpa}</span> : "—"),
+      key: "label",
+      header: "Label",
+      render: (r) => (
+        <div>
+          <div className="font-medium text-ink-900">{r.label}</div>
+          {r.upiVpa && <div className="font-mono text-xs text-ink-500">{r.upiVpa}</div>}
+        </div>
+      ),
+    },
+    { key: "priority", header: "Priority", align: "right" },
+    {
+      key: "collectedToday",
+      header: "Today",
+      align: "right",
+      render: (r) => {
+        const pct = r.dailyLimit != null && r.dailyLimit > 0 ? Math.min(100, (r.collectedToday / r.dailyLimit) * 100) : 0;
+        return (
+          <div className="ml-auto w-28">
+            <div className="text-sm font-medium text-ink-900">
+              {formatINR(r.collectedToday)}
+              <span className="text-ink-400"> / {r.dailyLimit != null ? formatINR(r.dailyLimit) : "∞"}</span>
+            </div>
+            {r.dailyLimitCount != null && (
+              <div className="text-xs text-ink-500">
+                {r.collectedTodayCount}/{r.dailyLimitCount} txns
+              </div>
+            )}
+            {r.dailyLimit != null && (
+              <div className="mt-1 h-1 w-full rounded-full bg-ink-100">
+                <div
+                  className={`h-1 rounded-full ${pct >= 100 ? "bg-amber-500" : "bg-brand-500"}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     { key: "claimCount", header: "Claims", align: "right" },
     {
-      key: "active",
+      key: "state",
       header: "Status",
-      render: (r) => <Badge variant={r.active ? "success" : "default"}>{r.active ? "Live" : "Disabled"}</Badge>,
+      render: (r) => {
+        const b = QR_STATE_BADGE[r.state];
+        return <Badge variant={b.variant}>{b.label}</Badge>;
+      },
     },
     {
       key: "createdAt",
@@ -558,9 +703,19 @@ function QrManageTab() {
       header: "",
       align: "right",
       render: (r) => (
-        <Button variant="outline" onClick={() => setToggleTarget(r)} className="h-8 px-3 text-xs">
-          {r.active ? "Disable" : "Activate"}
-        </Button>
+        <div className="flex justify-end gap-2">
+          {r.enabled && r.state !== "LIVE" && (
+            <Button variant="outline" onClick={() => setLiveTarget(r)} className="h-8 px-3 text-xs">
+              Make live
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => openEdit(r)} className="h-8 px-3 text-xs">
+            Edit
+          </Button>
+          <Button variant="outline" onClick={() => setToggleTarget(r)} className="h-8 px-3 text-xs">
+            {r.enabled ? "Disable" : "Enable"}
+          </Button>
+        </div>
       ),
     },
   ];
@@ -568,21 +723,21 @@ function QrManageTab() {
   return (
     <div className="space-y-6">
 
-      <form onSubmit={createQr} className="rounded-2xl border border-ink-100 bg-white p-6">
+      <form onSubmit={submitQr} className="rounded-2xl border border-ink-100 bg-white p-6">
         <div className="flex items-center gap-2">
           <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white">
             <QrCode className="h-4 w-4" />
           </span>
           <div>
-            <h3 className="font-display text-base font-semibold text-ink-900">Upload &amp; activate a new QR</h3>
+            <h3 className="font-display text-base font-semibold text-ink-900">Add a QR to the collection queue</h3>
             <p className="text-xs text-ink-500">
-              Goes live for every retailer instantly; the previous QR is disabled in the same step (old payments on it
-              can still be claimed).
+              Retailers collect on the lowest-priority QR with daily headroom. When it hits its daily limit it
+              auto-pauses and the next QR takes over; limits reset every day (IST).
             </p>
           </div>
         </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <Label htmlFor="qr-label">Label</Label>
             <Input
@@ -606,6 +761,41 @@ function QrManageTab() {
             <p className="mt-1 text-xs text-ink-500">Shown to reviewers to eyeball-match screenshots.</p>
           </div>
           <div>
+            <Label htmlFor="qr-priority">Priority</Label>
+            <Input
+              id="qr-priority"
+              type="number"
+              min={0}
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              placeholder="100"
+            />
+            <p className="mt-1 text-xs text-ink-500">Lower number = collected first.</p>
+          </div>
+          <div>
+            <Label htmlFor="qr-limit">Daily limit (₹)</Label>
+            <Input
+              id="qr-limit"
+              type="number"
+              min={1}
+              value={dailyLimit}
+              onChange={(e) => setDailyLimit(e.target.value)}
+              placeholder="e.g. 200000 (blank = unlimited)"
+            />
+            <p className="mt-1 text-xs text-ink-500">Auto-switches to the next QR once reached.</p>
+          </div>
+          <div>
+            <Label htmlFor="qr-count">Max transactions / day</Label>
+            <Input
+              id="qr-count"
+              type="number"
+              min={1}
+              value={dailyLimitCount}
+              onChange={(e) => setDailyLimitCount(e.target.value)}
+              placeholder="optional"
+            />
+          </div>
+          <div>
             <Label htmlFor="qr-image">QR image (PNG/JPEG/WebP)</Label>
             <input
               id="qr-image"
@@ -621,29 +811,31 @@ function QrManageTab() {
         </div>
 
         <Button type="submit" className="mt-4" disabled={busy || !image || !label.trim()} isLoading={busy}>
-          Upload & make live
+          Add to queue
         </Button>
       </form>
 
       <DataTable
-        title="QR history"
+        title="QR queue"
         loading={loading}
-        description="Old QRs are kept (never deleted) so historical claims stay traceable."
+        description="Ordered by priority. Retailers collect on the highest-priority QR with daily headroom; full QRs auto-resume tomorrow. Old QRs are never deleted so historical claims stay traceable."
         columns={cols}
         data={qrs}
         empty="No QR uploaded yet — retailers currently have nothing to collect on."
       />
 
       <ConfirmDialog
-        open={replaceConfirmOpen}
-        onClose={() => setReplaceConfirmOpen(false)}
-        busy={busy}
-        title="Replace the live QR?"
-        description="Activating a new QR will disable the current one for ALL retailers immediately."
-        confirmLabel="Upload & make live"
+        open={liveTarget !== null}
+        onClose={() => setLiveTarget(null)}
+        busy={liveBusy}
+        tone="default"
+        title="Make this QR live now?"
+        description="It jumps to the top of the queue and every retailer collects on it immediately (today's auto-pause, if any, is cleared)."
+        confirmLabel="Make live"
         onConfirm={async () => {
-          await submitQr();
-          setReplaceConfirmOpen(false);
+          if (!liveTarget) return;
+          await makeLive(liveTarget);
+          setLiveTarget(null);
         }}
       />
 
@@ -651,19 +843,74 @@ function QrManageTab() {
         open={toggleTarget !== null}
         onClose={() => setToggleTarget(null)}
         busy={toggleBusy}
-        title={toggleTarget?.active ? "Disable this QR?" : "Activate this QR?"}
+        title={toggleTarget?.enabled ? "Remove this QR from the queue?" : "Add this QR back to the queue?"}
         description={
-          toggleTarget?.active
-            ? "Retailers will have NO live QR until you activate another one."
-            : "The currently live QR (if any) will be disabled."
+          toggleTarget?.enabled
+            ? "Retailers will no longer be routed to it. If it was live, the next-priority QR takes over."
+            : "It rejoins the queue at its priority and can be selected again."
         }
-        confirmLabel={toggleTarget?.active ? "Disable" : "Activate"}
+        confirmLabel={toggleTarget?.enabled ? "Disable" : "Enable"}
         onConfirm={async () => {
           if (!toggleTarget) return;
           await toggle(toggleTarget);
           setToggleTarget(null);
         }}
       />
+
+      <Modal
+        open={editTarget !== null}
+        onClose={() => (editBusy ? undefined : setEditTarget(null))}
+        eyebrow="QR settings"
+        title={editTarget?.label}
+        subtitle="Priority and daily caps. Blank limit = unlimited."
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setEditTarget(null)} disabled={editBusy}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={saveEdit} isLoading={editBusy} disabled={editBusy}>
+              Save
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="edit-priority">Priority</Label>
+            <Input
+              id="edit-priority"
+              type="number"
+              min={0}
+              value={editPriority}
+              onChange={(e) => setEditPriority(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-ink-500">Lower number = collected first.</p>
+          </div>
+          <div>
+            <Label htmlFor="edit-limit">Daily limit (₹)</Label>
+            <Input
+              id="edit-limit"
+              type="number"
+              min={1}
+              value={editLimit}
+              onChange={(e) => setEditLimit(e.target.value)}
+              placeholder="blank = unlimited"
+            />
+          </div>
+          <div>
+            <Label htmlFor="edit-count">Max transactions / day</Label>
+            <Input
+              id="edit-count"
+              type="number"
+              min={1}
+              value={editCount}
+              onChange={(e) => setEditCount(e.target.value)}
+              placeholder="blank = unlimited"
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

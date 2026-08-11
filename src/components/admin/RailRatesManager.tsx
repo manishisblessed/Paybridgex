@@ -28,10 +28,25 @@ import {
   Sparkles,
   CreditCard,
   QrCode,
+  Receipt,
+  Banknote,
   ChevronRight,
 } from "lucide-react";
 
-type RailKind = "PG" | "QR";
+type RailKind = "PG" | "QR" | "BBPS" | "PAYOUT";
+
+/** Service rails (BBPS/Payout) are flat ₹/txn and carry no card dimensions. */
+const isServiceRail = (kind: RailKind) => kind === "BBPS" || kind === "PAYOUT";
+
+const RAIL_META: Record<
+  RailKind,
+  { label: string; targetNoun: string; Icon: typeof CreditCard; vendorNoun: string }
+> = {
+  PG: { label: "Payment Gateway", targetNoun: "pipeline", Icon: CreditCard, vendorNoun: "acquirer" },
+  QR: { label: "QR", targetNoun: "provider", Icon: QrCode, vendorNoun: "acquirer" },
+  BBPS: { label: "BBPS", targetNoun: "provider", Icon: Receipt, vendorNoun: "partner" },
+  PAYOUT: { label: "Payout", targetNoun: "provider", Icon: Banknote, vendorNoun: "partner" },
+};
 
 type RailRate = {
   id: string;
@@ -81,9 +96,11 @@ const INSTRUMENT_LABEL = (paymentMode: string, cardType: string | null) =>
  */
 export function RailRatesManager({ serviceKind }: { serviceKind: RailKind }) {
   const kindPath = serviceKind.toLowerCase();
-  const railLabel = serviceKind === "PG" ? "Payment Gateway" : "QR";
-  const targetNoun = serviceKind === "PG" ? "pipeline" : "provider";
-  const RailIcon = serviceKind === "PG" ? CreditCard : QrCode;
+  const meta = RAIL_META[serviceKind];
+  const railLabel = meta.label;
+  const targetNoun = meta.targetNoun;
+  const RailIcon = meta.Icon;
+  const serviceRail = isServiceRail(serviceKind);
 
   const [providers, setProviders] = useState<Provider[]>([]);
   const [cardClassificationEnabled, setCardClassificationEnabled] = useState(false);
@@ -126,11 +143,20 @@ export function RailRatesManager({ serviceKind }: { serviceKind: RailKind }) {
           </div>
           <div>
             <h3 className="text-sm font-bold text-ink-900">{railLabel} rate cards</h3>
-            <p className="mt-1 max-w-2xl text-xs text-ink-500">
-              Per-{targetNoun} acquiring rate cards for {serviceKind}. Every scheme&apos;s {serviceKind} MDR locks its
-              vendor cost to the matching rate here — <span className="font-medium text-ink-700">no scheme can be
-              priced below it</span>.
-            </p>
+            {serviceRail ? (
+              <p className="mt-1 max-w-2xl text-xs text-ink-500">
+                Per-{targetNoun} {railLabel} rate cards. Vendor is the {meta.vendorNoun}&apos;s cost per transaction;
+                Minimum is the least the company will charge. A scheme&apos;s {railLabel} charge can never be priced
+                below the Minimum, and <span className="font-medium text-ink-700">revenue per transaction = customer
+                charge − vendor cost</span>.
+              </p>
+            ) : (
+              <p className="mt-1 max-w-2xl text-xs text-ink-500">
+                Per-{targetNoun} acquiring rate cards for {serviceKind}. Every scheme&apos;s {serviceKind} MDR locks its
+                vendor cost to the matching rate here — <span className="font-medium text-ink-700">no scheme can be
+                priced below it</span>.
+              </p>
+            )}
           </div>
         </div>
         <Button variant="outline" size="sm" onClick={load}>
@@ -227,6 +253,9 @@ function RailRateEditor({
   onNotice: (text: string, ok: boolean) => void;
 }) {
   const kindPath = serviceKind.toLowerCase();
+  const serviceRail = isServiceRail(serviceKind);
+  const meta = RAIL_META[serviceKind];
+  const railLabel = meta.label;
   const defaultInstrument = serviceKind === "QR" ? "UPI" : "";
 
   const emptyForm = {
@@ -236,8 +265,9 @@ function RailRateEditor({
     classification: "",
     minAmount: "1",
     maxAmount: "100000",
-    mdrType: "PERCENT",
-    mdrValue: "0.5",
+    // Service rails (BBPS/Payout) price a flat ₹/txn; acquiring rails use %.
+    mdrType: serviceRail ? "FLAT" : "PERCENT",
+    mdrValue: serviceRail ? "0" : "0.5",
     mdrValueT0: "0",
     minMdrValue: "0",
     minMdrValueT0: "0",
@@ -409,9 +439,11 @@ function RailRateEditor({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="rounded-md bg-ink-100 px-2 py-0.5 text-[11px] font-medium text-ink-600">
-                        {INSTRUMENT_LABEL(r.paymentMode, r.cardType)}
-                      </span>
+                      {!serviceRail && (
+                        <span className="rounded-md bg-ink-100 px-2 py-0.5 text-[11px] font-medium text-ink-600">
+                          {INSTRUMENT_LABEL(r.paymentMode, r.cardType)}
+                        </span>
+                      )}
                       {r.provider !== "*" && (
                         <span className="rounded-md bg-brand-600 px-2 py-0.5 text-[11px] font-bold uppercase text-white">
                           {r.provider}
@@ -441,28 +473,44 @@ function RailRateEditor({
                     {formatINR(r.minAmount)} – {formatINR(r.maxAmount)}
                   </p>
 
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <div className="rounded-xl bg-brand-50 px-3 py-2">
-                      <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-brand-500">
-                        <Clock className="h-3 w-3" /> T+1
-                      </p>
-                      <p className="text-base font-bold text-brand-700">{fmtRate(r.mdrType, r.mdrValue)}</p>
-                    </div>
-                    <div className="rounded-xl bg-ink-50 px-3 py-2">
-                      <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-ink-400">
-                        <Zap className="h-3 w-3" /> Instant
-                      </p>
-                      <p className="text-base font-bold text-ink-700">
-                        {r.mdrValueT0 > 0 ? fmtRate(r.mdrType, r.mdrValueT0) : "—"}
+                  {serviceRail ? (
+                    <div className="mt-3">
+                      <div className="rounded-xl bg-brand-50 px-3 py-2">
+                        <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-brand-500">
+                          <Banknote className="h-3 w-3" /> Vendor / txn
+                        </p>
+                        <p className="text-base font-bold text-brand-700">{fmtRate(r.mdrType, r.mdrValue)}</p>
+                      </div>
+                      <p className="mt-2 text-[11px] text-emerald-600">
+                        Min charge {fmtRate(r.mdrType, r.minMdrValue > 0 ? r.minMdrValue : r.mdrValue)}
                       </p>
                     </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="rounded-xl bg-brand-50 px-3 py-2">
+                          <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-brand-500">
+                            <Clock className="h-3 w-3" /> T+1
+                          </p>
+                          <p className="text-base font-bold text-brand-700">{fmtRate(r.mdrType, r.mdrValue)}</p>
+                        </div>
+                        <div className="rounded-xl bg-ink-50 px-3 py-2">
+                          <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-ink-400">
+                            <Zap className="h-3 w-3" /> Instant
+                          </p>
+                          <p className="text-base font-bold text-ink-700">
+                            {r.mdrValueT0 > 0 ? fmtRate(r.mdrType, r.mdrValueT0) : "—"}
+                          </p>
+                        </div>
+                      </div>
 
-                  {(r.minMdrValue > 0 || r.minMdrValueT0 > 0) && (
-                    <p className="mt-2 text-[11px] text-emerald-600">
-                      Min MDR {fmtRate(r.mdrType, r.minMdrValue > 0 ? r.minMdrValue : r.mdrValue)}
-                      {r.minMdrValueT0 > 0 && <> · instant {fmtRate(r.mdrType, r.minMdrValueT0)}</>}
-                    </p>
+                      {(r.minMdrValue > 0 || r.minMdrValueT0 > 0) && (
+                        <p className="mt-2 text-[11px] text-emerald-600">
+                          Min MDR {fmtRate(r.mdrType, r.minMdrValue > 0 ? r.minMdrValue : r.mdrValue)}
+                          {r.minMdrValueT0 > 0 && <> · instant {fmtRate(r.mdrType, r.minMdrValueT0)}</>}
+                        </p>
+                      )}
+                    </>
                   )}
 
                   <div className="mt-3 flex items-center justify-between border-t border-ink-50 pt-3">
@@ -537,33 +585,37 @@ function RailRateEditor({
               Sub-provider (* = any)
               <input className={`${inputCls} mt-1 w-full`} value={form.provider} onChange={set("provider")} placeholder="*" />
             </label>
-            <label className="text-xs text-ink-500">
-              Instrument
-              <select className={`${inputCls} mt-1 w-full`} value={form.instrument} onChange={set("instrument")}>
-                {CARD_INSTRUMENTS.map((i) => (
-                  <option key={i.value} value={i.value}>
-                    {i.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-ink-500">
-              Network
-              <select
-                className={`${inputCls} mt-1 w-full disabled:opacity-50`}
-                value={form.brandType}
-                onChange={set("brandType")}
-                disabled={!isCard}
-              >
-                <option value="">Any</option>
-                {CARD_NETWORKS.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {showClassification && (
+            {!serviceRail && (
+              <label className="text-xs text-ink-500">
+                Instrument
+                <select className={`${inputCls} mt-1 w-full`} value={form.instrument} onChange={set("instrument")}>
+                  {CARD_INSTRUMENTS.map((i) => (
+                    <option key={i.value} value={i.value}>
+                      {i.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {!serviceRail && (
+              <label className="text-xs text-ink-500">
+                Network
+                <select
+                  className={`${inputCls} mt-1 w-full disabled:opacity-50`}
+                  value={form.brandType}
+                  onChange={set("brandType")}
+                  disabled={!isCard}
+                >
+                  <option value="">Any</option>
+                  {CARD_NETWORKS.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {!serviceRail && showClassification && (
               <label className="text-xs text-ink-500">
                 Classification
                 <select
@@ -597,21 +649,25 @@ function RailRateEditor({
               </select>
             </label>
             <label className="text-xs text-ink-500">
-              Vendor (T+1)
+              {serviceRail ? "Vendor cost / txn" : "Vendor (T+1)"}
               <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.mdrValue} onChange={set("mdrValue")} />
             </label>
+            {!serviceRail && (
+              <label className="text-xs text-ink-500">
+                Vendor (instant)
+                <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.mdrValueT0} onChange={set("mdrValueT0")} />
+              </label>
+            )}
             <label className="text-xs text-ink-500">
-              Vendor (instant)
-              <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.mdrValueT0} onChange={set("mdrValueT0")} />
-            </label>
-            <label className="text-xs text-ink-500">
-              Min MDR (T+1)
+              {serviceRail ? "Minimum charge" : "Min MDR (T+1)"}
               <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.minMdrValue} onChange={set("minMdrValue")} placeholder="0 = vendor" />
             </label>
-            <label className="text-xs text-ink-500">
-              Min MDR (instant)
-              <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.minMdrValueT0} onChange={set("minMdrValueT0")} placeholder="0 = T+1" />
-            </label>
+            {!serviceRail && (
+              <label className="text-xs text-ink-500">
+                Min MDR (instant)
+                <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.minMdrValueT0} onChange={set("minMdrValueT0")} placeholder="0 = T+1" />
+              </label>
+            )}
             <div className="flex items-end gap-2 lg:col-span-8">
               <Button size="sm" onClick={saveRate} disabled={busy} isLoading={busy}>
                 {editing ? (
@@ -631,12 +687,21 @@ function RailRateEditor({
               )}
             </div>
           </div>
-          <p className="mt-3 text-[11px] text-ink-400">
-            Vendor is the acquirer (upstream) cost for {serviceKind}. Min MDR is the floor the company offers
-            downstream (vendor + guaranteed margin): a scheme&apos;s {serviceKind} service charge can never be priced
-            below it, and the chain commission pool is whatever the scheme prices above it. Leave Min MDR 0 to use the
-            vendor cost as the floor. Instant fields are optional — leave 0 to reuse the T+1 value.
-          </p>
+          {serviceRail ? (
+            <p className="mt-3 text-[11px] text-ink-400">
+              Vendor cost is what the {meta.vendorNoun} charges the company per {railLabel} transaction. Minimum charge
+              is the least the company will charge the customer: a scheme&apos;s {railLabel} charge can never be priced
+              below it, and <span className="font-medium text-ink-600">revenue per transaction = customer charge −
+              vendor cost</span>. Leave Minimum 0 to use the vendor cost as the floor.
+            </p>
+          ) : (
+            <p className="mt-3 text-[11px] text-ink-400">
+              Vendor is the acquirer (upstream) cost for {serviceKind}. Min MDR is the floor the company offers
+              downstream (vendor + guaranteed margin): a scheme&apos;s {serviceKind} service charge can never be priced
+              below it, and the chain commission pool is whatever the scheme prices above it. Leave Min MDR 0 to use the
+              vendor cost as the floor. Instant fields are optional — leave 0 to reuse the T+1 value.
+            </p>
+          )}
         </div>
       </div>
 

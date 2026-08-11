@@ -6,6 +6,7 @@ import { isAdminRole } from "@/lib/security/ownership";
 import { prisma } from "@/lib/db";
 import { serializeSlab } from "@/lib/scheme/serialize";
 import { validateNonOverlapping } from "@/lib/scheme/resolver";
+import { resolveServiceVendorLock } from "@/lib/scheme/serviceVendor";
 import { SERVICE_CODES } from "@/lib/scheme/constants";
 
 export const fetchCache = "force-no-store";
@@ -72,6 +73,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   );
   if (overlap) return NextResponse.json({ error: overlap }, { status: 409 });
 
+  // Service rails (BBPS/Payout): lock the vendor cost from the provider's rate
+  // card and enforce charge ≥ the card's Minimum. No-ops for other services and
+  // for un-carded providers (preserves existing behaviour).
+  const lock = await resolveServiceVendorLock({
+    service: body.service as ServiceCode,
+    provider: body.provider ?? null,
+    chargeType: body.chargeType,
+    chargeValue: body.chargeValue,
+    minAmount: body.minAmount,
+  });
+  if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
+
   // Cascade model: admin schemes carry charges only — no commission. Commission
   // is set by each network parent when they derive a scheme for their children.
   const slab = await prisma.schemeSlab.create({
@@ -84,6 +97,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       chargeType: body.chargeType,
       chargeValue: body.chargeValue,
       chargeGstInclusive: body.chargeGstInclusive,
+      vendorCharge: lock.vendorCharge,
       commissionType: body.commissionType,
       commissionRetailer: 0,
       commissionDistributor: 0,

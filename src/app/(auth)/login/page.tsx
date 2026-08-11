@@ -227,7 +227,7 @@ function LoginForm({ location }: { location: LocationData }) {
         <p className="mt-2 text-sm text-ink-500">
           New to NextGenPay?{" "}
           <Link href="/register" className="font-semibold text-brand-700">
-            Create an account
+            Request to join
           </Link>
         </p>
 

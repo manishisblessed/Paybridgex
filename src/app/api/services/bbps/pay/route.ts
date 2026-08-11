@@ -12,7 +12,7 @@ import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { bbpsServiceKey } from "@/lib/services/bbpsKey";
 import { getEffectiveRate, withGst } from "@/lib/scheme/resolver";
-import { toNumber } from "@/lib/money";
+import { toNumber, dec, sub, round } from "@/lib/money";
 import { AuthError } from "@/lib/auth-server";
 
 const Body = z.object({
@@ -73,9 +73,15 @@ export async function POST(req: Request) {
     // Provider-scoped slabs: a slab pinned to this BBPS partner wins over the
     // any-provider slab for the same band.
     const rate = await getEffectiveRate(user.id, service, parsed.data.amount, bbps.name);
-    const fee = rate.chargeGstInclusive
-      ? toNumber(rate.charge)
-      : toNumber(withGst(rate.charge, 18).total);
+    // Split the customer charge into base + GST so revenue math excludes the
+    // GST pass-through. When the slab charge is GST-INCLUSIVE the base is
+    // back-calculated (total / 1.18); otherwise GST (18%) is added on top.
+    const gstInclusive = rate.chargeGstInclusive;
+    const gross = withGst(rate.charge, 18);
+    const feeMoney = gstInclusive ? dec(rate.charge) : gross.total;
+    const baseCharge = gstInclusive ? round(dec(rate.charge).div("1.18")) : dec(rate.charge);
+    const gstMoney = gstInclusive ? round(sub(feeMoney, baseCharge)) : gross.gst;
+    const fee = toNumber(feeMoney);
 
     // Keep the display-only snapshots out of the partner payload.
     const { customerName: _cn, billerName: _bn, ...payInput } = parsed.data;
@@ -85,6 +91,8 @@ export async function POST(req: Request) {
       service,
       amount: parsed.data.amount,
       fee,
+      gst: toNumber(gstMoney),
+      vendorCharge: toNumber(rate.vendorCharge),
       commission: toNumber(rate.commission),
       idempotencyKey: parsed.data.idempotencyKey,
       customer: Object.values(parsed.data.customerParams)[0],

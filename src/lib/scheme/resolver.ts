@@ -1,6 +1,6 @@
 import type { Prisma, RateType, ServiceCode, SchemeSlab } from "@prisma/client";
 import { prisma } from "../db";
-import { add, dec, gt, gte, lte, mul, round, type Money } from "../money";
+import { add, dec, gt, gte, lte, mul, round, sub, type Money } from "../money";
 
 /**
  * Scheme resolver — the single source of truth for "what does this user pay
@@ -36,6 +36,14 @@ export type EffectiveRate = {
   chargeGstInclusive: boolean;
   /** Absolute commission (₹) the user earns on this transaction. */
   commission: Money;
+  /**
+   * Absolute vendor/upstream cost (₹) the company pays the partner for this txn,
+   * locked from the provider's service rate card (BBPS/Payout). Zero when the
+   * slab's provider has no rate card.
+   */
+  vendorCharge: Money;
+  /** Company revenue (₹) per txn = charge − vendorCharge (never negative). */
+  revenue: Money;
 };
 
 /** Map a payout mode to the ServiceCode used for scheme charge lookups. */
@@ -66,6 +74,8 @@ function emptyRate(): EffectiveRate {
     chargeType: null,
     chargeGstInclusive: false,
     commission: dec(0),
+    vendorCharge: dec(0),
+    revenue: dec(0),
   };
 }
 
@@ -99,6 +109,11 @@ export async function getEffectiveRate(
       if (slab) {
         const charge = applyRate(amt, slab.chargeType, slab.chargeValue);
         const commission = applyRate(amt, slab.commissionType, slab.commissionValue);
+        // Vendor cost uses the same rate type as the charge (BBPS/Payout: flat
+        // ₹/txn). Revenue is the company margin, floored at zero. Defaults to 0
+        // when the slab predates the vendorCharge column (legacy / no rate card).
+        const vendorCharge = applyRate(amt, slab.chargeType, slab.vendorCharge ?? 0);
+        const revenue = gt(charge, vendorCharge) ? round(sub(charge, vendorCharge)) : dec(0);
         return {
           source: "USER_SCHEME",
           schemeId: scheme.id,
@@ -108,6 +123,8 @@ export async function getEffectiveRate(
           chargeType: slab.chargeType,
           chargeGstInclusive: (slab as any).chargeGstInclusive ?? false,
           commission,
+          vendorCharge,
+          revenue,
         };
       }
     }

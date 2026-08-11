@@ -2,12 +2,14 @@ import { Prisma, type ServiceCode, type TxnStatus } from "@prisma/client";
 import { nanoid } from "nanoid";
 import { prisma } from "../db";
 import { creditWallet, debitWallet, LedgerError } from "../ledger";
-import { add, round } from "../money";
+import { add, sub, round } from "../money";
 import { assertTransactionRisk } from "../risk/engine";
 import { assertAccountActive } from "../security/accountGate";
 import { requireActiveScheme } from "../scheme/gate";
 import { emitWebhookEvent } from "../platform/webhooks";
 import { distributeCommission, distributeMdrCommission, mdrKindForService } from "../commission/distribute";
+import { creditServiceMargin } from "../commission/revenue";
+import { isChargeDrivenService } from "../scheme/constants";
 import type { PartnerResult } from "../partners/types";
 
 /**
@@ -38,6 +40,18 @@ export type RunTxnInput<TIn, TOut> = {
   /** Calculate fee + commission BEFORE calling the partner. */
   fee?: number;
   commission?: number;
+  /**
+   * GST portion already contained inside `fee` (₹). GST is a pass-through
+   * liability, so it is excluded from company revenue. Defaults to 0.
+   */
+  gst?: number;
+  /**
+   * Upstream/vendor cost the company pays for this txn (₹), locked from the
+   * provider rate card. For charge-driven service rails (BBPS/Payout) the
+   * company revenue = (fee − gst) − vendorCharge is credited to the Revenue
+   * Wallet on success. Defaults to 0 (whole ex-GST charge is revenue).
+   */
+  vendorCharge?: number;
   /** The actual partner call. */
   call: () => Promise<PartnerResult<TOut>>;
 };
@@ -57,6 +71,8 @@ export async function runTransaction<TIn, TOut>(
   // Exact Decimal amounts (never JS float math on money).
   const reserveAmount = round(add(input.amount, input.fee ?? 0));
   const commissionAmount = round(input.commission ?? 0);
+  const gstAmount = round(input.gst ?? 0);
+  const vendorCharge = round(input.vendorCharge ?? 0);
 
   // 1. Idempotency — if we already reserved funds for this key, replay the
   //    original transaction instead of creating a duplicate.
@@ -109,6 +125,8 @@ export async function runTransaction<TIn, TOut>(
           amount: new Prisma.Decimal(round(input.amount)),
           fee: new Prisma.Decimal(round(input.fee ?? 0)),
           commission: new Prisma.Decimal(commissionAmount),
+          gst: new Prisma.Decimal(gstAmount),
+          vendorCharge: new Prisma.Decimal(vendorCharge),
           status: "PROCESSING",
           customer: input.customer,
           operator: input.operator,
@@ -209,6 +227,14 @@ export async function runTransaction<TIn, TOut>(
       } catch {
         // Scheme lookup failed — commission stays uncredited;
         // the recon sweep / support can replay distribution idempotently.
+      }
+
+      // Charge-driven service rails (BBPS/Payout) pay no chain commission, so
+      // the company's booked earning is the spread: (fee − GST) − vendor cost.
+      // Credit it to the Revenue Wallet (idempotent, best-effort inside tx).
+      if (isChargeDrivenService(input.service)) {
+        const margin = round(sub(sub(input.fee ?? 0, gstAmount), vendorCharge));
+        await creditServiceMargin(txn.id, input.service, margin, tx);
       }
 
       await tx.auditLog.create({

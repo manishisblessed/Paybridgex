@@ -37,6 +37,7 @@ export class RateLimitError extends Error {
 export const RATE_LIMITS = {
   login: { limit: 5, windowSec: 300 }, // 5 / 5 min per identifier AND per ip
   register: { limit: 5, windowSec: 3600 }, // 5 new accounts / hour per ip
+  join: { limit: 5, windowSec: 3600 }, // 5 public join-form submissions / hour per ip
   otp: { limit: 5, windowSec: 600 }, // 5 OTP sends / 10 min per target
   otpIp: { limit: 20, windowSec: 600 }, // 20 OTP sends / 10 min per ip (bot fan-out guard)
   twoFactor: { limit: 10, windowSec: 300 }, // 2FA code submissions / 5 min per ip

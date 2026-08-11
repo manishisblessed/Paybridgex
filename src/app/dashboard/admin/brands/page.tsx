@@ -34,6 +34,8 @@ import {
   Sparkles,
   Store,
   QrCode,
+  Receipt,
+  Banknote,
 } from "lucide-react";
 
 type Brand = {
@@ -129,7 +131,9 @@ export default function BrandsPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<BrandDetail | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [tab, setTab] = useState<"pos" | "pg" | "qr">("pos");
+  const [tab, setTab] = useState<"pos" | "pg" | "qr" | "services">("pos");
+  // Inner toggle for the combined Services tab (BBPS + Payout rate cards).
+  const [serviceTab, setServiceTab] = useState<"BBPS" | "PAYOUT">("BBPS");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -275,7 +279,7 @@ export default function BrandsPage() {
     <div className="space-y-6">
       <PageHeader
         title="MDR & minimum charges"
-        description="Define the acquiring cost floor for each rail — POS (per-brand rate cards), PG, and QR. These are the company minimums: every scheme MDR is validated against them, so no scheme can ever be priced below the rail's charge."
+        description="Define the cost floor for each rail — POS, PG, QR (acquiring rate cards) and Services (BBPS & Payout: per-provider vendor cost + minimum charge). These are the company minimums: every scheme charge is validated against them, so nothing can ever be priced below the rail's floor."
         actions={
           tab === "pos" ? (
             <div className="flex gap-2">
@@ -314,6 +318,14 @@ export default function BrandsPage() {
           }`}
         >
           <QrCode className="h-4 w-4" /> QR
+        </button>
+        <button
+          onClick={() => setTab("services")}
+          className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+            tab === "services" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
+          }`}
+        >
+          <Receipt className="h-4 w-4" /> Services
         </button>
       </div>
 
@@ -366,6 +378,30 @@ export default function BrandsPage() {
       {tab === "pg" && <RailRatesManager serviceKind="PG" />}
 
       {tab === "qr" && <RailRatesManager serviceKind="QR" />}
+
+      {tab === "services" && (
+        <div className="space-y-4">
+          <div className="flex w-fit gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
+            <button
+              onClick={() => setServiceTab("BBPS")}
+              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                serviceTab === "BBPS" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
+              }`}
+            >
+              <Receipt className="h-4 w-4" /> BBPS
+            </button>
+            <button
+              onClick={() => setServiceTab("PAYOUT")}
+              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                serviceTab === "PAYOUT" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
+              }`}
+            >
+              <Banknote className="h-4 w-4" /> Payout
+            </button>
+          </div>
+          <RailRatesManager serviceKind={serviceTab} />
+        </div>
+      )}
     </div>
   );
 }

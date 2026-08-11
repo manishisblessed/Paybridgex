@@ -181,6 +181,9 @@ export async function GET(req: Request) {
     // Exclude ADMIN, SUPPORT, and MASTER_ADMIN from default user list unless explicitly filtered
     where.role = where.role ?? { notIn: ["ADMIN", "SUPPORT", "MASTER_ADMIN"] };
 
+    // Never surface soft-deleted accounts in the operator console (list + count).
+    where.deletedAt = null;
+
     const [users, total] = await Promise.all([
       prisma.user.findMany({
         where: where as any,

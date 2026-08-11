@@ -8,9 +8,7 @@ import { getPartner } from "@/lib/partners";
 import { env } from "@/lib/env";
 import { renderInviteEmail, renderAccountApprovedEmail } from "@/lib/email/templates";
 import { adminInviteInScope } from "@/lib/security/ownership";
-
-// Keep in sync with the create route — how long a fresh onboarding link stays valid.
-const INVITE_EXPIRY_DAYS = 15;
+import { computeInviteExpiry } from "@/lib/onboarding/inviteExpiry";
 
 // A plain admin needs the master-admin-granted "invites" tab to touch invites.
 function adminLacksInvitePermission(user: { role: string; allowedTabs?: string[] }): boolean {
@@ -266,7 +264,7 @@ export async function PATCH(
       data: {
         token: freshToken,
         status: "PENDING",
-        expiresAt: new Date(Date.now() + INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
+        expiresAt: await computeInviteExpiry(),
       },
     });
 

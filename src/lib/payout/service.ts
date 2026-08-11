@@ -2,7 +2,8 @@ import { Prisma, type PayoutRequest, type PayoutStatus, type ServiceCode } from 
 import { prisma } from "@/lib/db";
 import { captureHold, creditWallet, releaseHold, LedgerError } from "@/lib/ledger";
 import { decryptField } from "@/lib/crypto/fieldEncryption";
-import { toNumber } from "@/lib/money";
+import { toNumber, sub, round } from "@/lib/money";
+import { creditServiceMargin, reverseServiceMargin } from "@/lib/commission/revenue";
 import { getPartner } from "@/lib/partners";
 import { enqueue, QUEUES } from "@/lib/queue";
 import { emitWebhookEvent } from "@/lib/platform/webhooks";
@@ -80,6 +81,15 @@ export async function finalizePayoutSuccess(
       },
       tx
     );
+
+    // Payout pays no chain commission, so the company's booked earning is the
+    // spread: serviceCharge − vendor/partner cost (GST is a pass-through
+    // liability). Credit it to the Revenue Wallet (idempotent, best-effort).
+    const margin = round(sub(row.serviceCharge, row.vendorCharge));
+    await creditServiceMargin(row.id, "PAYOUT", margin, tx, {
+      refType: "PayoutRequest",
+      idempotencyKey: `service-margin:payout:${row.id}`,
+    });
   });
 
   await prisma.auditLog.create({
@@ -92,7 +102,8 @@ export async function finalizePayoutSuccess(
     },
   });
 
-  // Payout does not earn commission (only PG/POS/QR do).
+  // Payout earns no chain commission; the company margin (serviceCharge −
+  // vendor) was credited to the Revenue Wallet inside the transaction above.
 
   // Partner webhook (best-effort; never blocks finalization).
   void emitWebhookEvent(row.userId, "payout.success", {
@@ -196,6 +207,14 @@ export async function reversePayout(
   });
 
   if (reversed) {
+    // Claw the booked service margin back out of the Revenue Wallet — the
+    // company never realised it. Best-effort (own txn); never blocks the refund.
+    await reverseServiceMargin(
+      row.id,
+      "PAYOUT",
+      round(sub(row.serviceCharge, row.vendorCharge)),
+      { refType: "PayoutRequest", idempotencyKey: `service-margin-reversal:payout:${row.id}` }
+    );
     await prisma.auditLog.create({
       data: {
         userId: row.userId,

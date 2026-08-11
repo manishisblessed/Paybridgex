@@ -968,8 +968,19 @@ function UserDrawer({
           </div>
         </Section>
 
-        {/* Hierarchy Transfer (Master Admin only) */}
-        {user.parent && <TransferParentSection user={user} onChanged={onChanged} busy={busy} setBusy={setBusy} />}
+        {/* Approval status override (Pending / Approved / Rejected) */}
+        <ApprovalStatusSection user={user} onChanged={onChanged} onClose={onClose} busy={busy} setBusy={setBusy} />
+
+        {/* Change distributor / parent (Master Admin only) */}
+        {user.parent && (
+          <TransferParentSection
+            user={user}
+            onChanged={onChanged}
+            onClose={onClose}
+            busy={busy}
+            setBusy={setBusy}
+          />
+        )}
 
         {/* Security */}
         <Section icon={KeyRound} title="Access">
@@ -1266,11 +1277,13 @@ type ParentCandidate = { id: string; name: string; shopName: string | null; phon
 function TransferParentSection({
   user,
   onChanged,
+  onClose,
   busy,
   setBusy,
 }: {
   user: NetworkUser;
   onChanged: (msg: string, ok: boolean) => void;
+  onClose: () => void;
   busy: string | null;
   setBusy: (v: string | null) => void;
 }) {
@@ -1330,40 +1343,49 @@ function TransferParentSection({
     }
   };
 
-  const initiateTransfer = async () => {
+  const changeDistributor = async () => {
     if (!selectedParent) return;
+    if (reason.trim().length < 3) {
+      onChanged("A change reason is required (min 3 characters).", false);
+      return;
+    }
     setBusy("transfer");
     try {
       const res = await fetch(`/api/admin/network/${user.id}/transfer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ newParentId: selectedParent.id, reason: reason || undefined }),
+        body: JSON.stringify({
+          newParentId: selectedParent.id,
+          reason: reason.trim(),
+          mode: "direct",
+        }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "Transfer failed");
+      if (!res.ok) throw new Error(data?.error ?? "Change failed");
       onChanged(
-        `Transfer initiated — ${selectedParent.name} must approve the declaration within 7 days.`,
+        `${user.name} moved under ${selectedParent.name}. ID, wallet & history unchanged; scheme reset to platform default.`,
         true
       );
-      setOpen(false);
-      setSelectedParent(null);
-      setReason("");
-      setSearchQ("");
-      setCandidates([]);
-      setHistoryLoaded(false);
+      // The user's parent/scheme snapshot in the drawer is now stale — close it
+      // so a fresh open reflects the change.
+      onClose();
     } catch (e) {
-      onChanged(e instanceof Error ? e.message : "Transfer failed", false);
+      onChanged(e instanceof Error ? e.message : "Change failed", false);
     } finally {
       setBusy(null);
     }
   };
 
+  const parentLabel =
+    user.parent?.role === "DISTRIBUTOR" ? "distributor" : user.parent?.role?.replace(/_/g, " ").toLowerCase() ?? "parent";
+  const sectionTitle = user.parent?.role === "DISTRIBUTOR" ? "Change distributor" : "Change parent";
+
   return (
-    <Section icon={GitBranch} title="Transfer parent">
+    <Section icon={GitBranch} title={sectionTitle}>
       <div className="space-y-2">
         <div className="flex items-center justify-between rounded-xl border border-ink-100 px-3 py-2.5">
           <div className="text-sm text-ink-700">
-            Current: <span className="font-semibold">{user.parent?.name ?? "None"}</span>
+            Current {parentLabel}: <span className="font-semibold">{user.parent?.name ?? "None"}</span>
             <span className="ml-1 text-xs text-ink-400">
               ({user.parent?.role?.replace(/_/g, " ") ?? "—"})
             </span>
@@ -1377,13 +1399,13 @@ function TransferParentSection({
               variant="outline"
               onClick={() => { setOpen(true); loadHistory(); }}
             >
-              Transfer to new parent
+              Change {parentLabel}
             </Button>
           </div>
         ) : (
           <div className="space-y-3 rounded-xl border border-brand-200 bg-brand-50/30 p-3">
             <p className="text-xs font-semibold text-brand-700">
-              Reassign {user.name} under a new {user.parent?.role?.replace(/_/g, " ") ?? "parent"}
+              Move {user.name} under a new {parentLabel}
             </p>
 
             {/* Search for new parent */}
@@ -1435,10 +1457,10 @@ function TransferParentSection({
               </div>
             )}
 
-            {/* Reason */}
+            {/* Reason (required) */}
             <input
               type="text"
-              placeholder="Reason for transfer (optional)"
+              placeholder="Reason for change (required)"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               className="w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
@@ -1448,33 +1470,34 @@ function TransferParentSection({
             <div className="flex gap-2">
               <Button
                 size="sm"
-                disabled={!selectedParent || busy === "transfer"}
-                onClick={initiateTransfer}
+                disabled={!selectedParent || reason.trim().length < 3 || busy === "transfer"}
+                onClick={changeDistributor}
               >
-                {busy === "transfer" ? "Initiating..." : "Initiate transfer"}
+                {busy === "transfer" ? "Applying..." : `Change ${parentLabel} now`}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => { setOpen(false); setSelectedParent(null); setSearchQ(""); }}>
+              <Button size="sm" variant="outline" onClick={() => { setOpen(false); setSelectedParent(null); setSearchQ(""); setReason(""); }}>
                 Cancel
               </Button>
             </div>
 
             <p className="text-[11px] text-ink-400">
-              The new parent must approve a responsibility declaration (signature + selfie + GPS) within 7 days. 
-              The user&apos;s scheme will be cleared on transfer.
+              Takes effect immediately. The retailer keeps the same ID, wallet and
+              transaction history — only the {parentLabel} changes and the scheme is
+              reset to the platform default.
             </p>
 
-            {/* Transfer History */}
+            {/* Change history — Current → New, reason, changed by, date */}
             {transferHistory.length > 0 && (
               <div className="mt-2 space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Transfer history</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-ink-500">Change history</p>
                 {transferHistory.map((t: any) => (
                   <div key={t.id} className="rounded-lg border border-ink-100 bg-white px-2.5 py-1.5 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span>
-                        {t.oldParent?.name} → {t.newParent?.name}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-ink-800">
+                        {t.oldParent?.name ?? "—"} → {t.newParent?.name ?? "—"}
                       </span>
                       <span
-                        className={`font-semibold ${
+                        className={`shrink-0 font-semibold ${
                           t.status === "APPROVED"
                             ? "text-emerald-600"
                             : t.status === "REJECTED"
@@ -1487,10 +1510,17 @@ function TransferParentSection({
                         {t.status.replace(/_/g, " ")}
                       </span>
                     </div>
-                    <p className="text-ink-400">
-                      {new Date(t.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-                      {t.reason && ` — ${t.reason}`}
+                    <p className="mt-0.5 text-ink-500">
+                      {new Date(t.approvedAt ?? t.createdAt).toLocaleString("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      {t.initiatedBy?.name && ` · by ${t.initiatedBy.name}`}
                     </p>
+                    {t.reason && <p className="text-ink-400">Reason: {t.reason}</p>}
                   </div>
                 ))}
               </div>
@@ -1504,6 +1534,152 @@ function TransferParentSection({
 
 function getParentRoleForTier(currentParentRole: string): string {
   return currentParentRole || "DISTRIBUTOR";
+}
+
+/* ─── Approval status override (Pending / Approved / Rejected) ─────────────── */
+
+type ApprovalTarget = "APPROVED" | "PENDING" | "REJECTED";
+
+const APPROVAL_OPTIONS: {
+  target: ApprovalTarget;
+  label: string;
+  on: string;
+  off: string;
+}[] = [
+  {
+    target: "APPROVED",
+    label: "Approved",
+    on: "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm",
+    off: "border-ink-200 text-ink-500 hover:border-emerald-200 hover:text-emerald-600",
+  },
+  {
+    target: "PENDING",
+    label: "Pending",
+    on: "border-amber-300 bg-amber-50 text-amber-700 shadow-sm",
+    off: "border-ink-200 text-ink-500 hover:border-amber-200 hover:text-amber-600",
+  },
+  {
+    target: "REJECTED",
+    label: "Rejected",
+    on: "border-rose-300 bg-rose-50 text-rose-700 shadow-sm",
+    off: "border-ink-200 text-ink-500 hover:border-rose-200 hover:text-rose-600",
+  },
+];
+
+/** Map a User.status to its approval label for the current-state display. */
+function statusToApproval(status: string): ApprovalTarget {
+  if (status === "ACTIVE") return "APPROVED";
+  if (status === "SUSPENDED" || status === "CLOSED") return "REJECTED";
+  return "PENDING";
+}
+
+function ApprovalStatusSection({
+  user,
+  onChanged,
+  onClose,
+  busy,
+  setBusy,
+}: {
+  user: NetworkUser;
+  onChanged: (msg: string, ok: boolean) => void;
+  onClose: () => void;
+  busy: string | null;
+  setBusy: (v: string | null) => void;
+}) {
+  const current = statusToApproval(user.status);
+  const [target, setTarget] = useState<ApprovalTarget>(current);
+  const [reason, setReason] = useState("");
+
+  const dirty = target !== current;
+  const needsReason = target === "REJECTED";
+
+  const apply = async () => {
+    if (needsReason && reason.trim().length < 3) {
+      onChanged("A reason is required to reject an account (min 3 characters).", false);
+      return;
+    }
+    setBusy("approval");
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setApprovalStatus",
+          target,
+          reason: reason.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Update failed");
+      const msg =
+        target === "APPROVED"
+          ? `${user.name} approved — account is active.`
+          : target === "REJECTED"
+          ? `${user.name} rejected — login and transactions are now blocked.`
+          : `${user.name} moved to pending review — access paused.`;
+      onChanged(msg, true);
+      onClose();
+    } catch (e) {
+      onChanged(e instanceof Error ? e.message : "Update failed", false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Section icon={CheckCircle2} title="Approval status">
+      <div className="flex items-center justify-between rounded-xl border border-ink-100 px-3 py-2.5 text-sm">
+        <span className="text-ink-500">Current</span>
+        <Badge
+          variant={
+            current === "APPROVED" ? "success" : current === "REJECTED" ? "danger" : "warning"
+          }
+        >
+          {APPROVAL_OPTIONS.find((o) => o.target === current)?.label}
+        </Badge>
+      </div>
+
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        {APPROVAL_OPTIONS.map((o) => (
+          <button
+            key={o.target}
+            type="button"
+            disabled={busy !== null}
+            onClick={() => setTarget(o.target)}
+            className={`rounded-xl border px-3 py-2 text-xs font-semibold transition disabled:opacity-60 ${
+              target === o.target ? o.on : o.off
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {needsReason && (
+        <input
+          type="text"
+          placeholder="Reason for rejection (required)"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className={`${inputCls} mt-2 w-full`}
+        />
+      )}
+
+      <Button
+        size="sm"
+        className="mt-3 w-full"
+        disabled={!dirty || busy !== null || (needsReason && reason.trim().length < 3)}
+        onClick={apply}
+      >
+        {busy === "approval" ? "Applying..." : "Update status"}
+      </Button>
+
+      <p className="mt-2 text-[11px] leading-relaxed text-ink-400">
+        Change the status in any direction. <b>Rejected</b> fully locks the account —
+        no login and no transactions. Any active session is signed out immediately.
+      </p>
+    </Section>
+  );
 }
 
 function Section({

@@ -2,9 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
-import { CheckCircle2, AlertCircle } from "lucide-react";
+import { CheckCircle2, AlertCircle, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { Turnstile, captchaConfigured } from "@/components/security/Turnstile";
@@ -15,19 +13,34 @@ const roleMap = {
   "master-distributor": "MASTER_DISTRIBUTOR",
 } as const;
 
-export default function RegisterPage() {
-  const router = useRouter();
+const STATES = [
+  "Delhi",
+  "Uttar Pradesh",
+  "Bihar",
+  "Maharashtra",
+  "Karnataka",
+  "Tamil Nadu",
+  "West Bengal",
+  "Punjab",
+  "Rajasthan",
+  "Gujarat",
+  "Other",
+];
+
+export default function JoinPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [captchaToken, setCaptchaToken] = useState("");
   const [form, setForm] = useState({
     name: "",
     email: "",
     phone: "",
-    password: "",
     shopName: "",
+    city: "",
     state: "Delhi",
-    role: "retailer" as keyof typeof roleMap
+    message: "",
+    role: "retailer" as keyof typeof roleMap,
   });
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
@@ -40,40 +53,35 @@ export default function RegisterPage() {
     setError("");
 
     try {
-      const res = await fetch("/api/auth/register", {
+      const res = await fetch("/api/join", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: form.name,
           email: form.email,
-          phone: form.phone,
-          password: form.password,
+          phone: form.phone.replace(/\s/g, ""),
+          shopName: form.shopName || undefined,
+          city: form.city || undefined,
+          state: form.state || undefined,
           role: roleMap[form.role],
+          message: form.message || undefined,
           captchaToken,
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(typeof data.error === "string" ? data.error : "Registration failed. Please try again.");
+        setError(
+          typeof data.error === "string"
+            ? data.error
+            : "Could not submit your request. Please try again."
+        );
         setLoading(false);
         return;
       }
 
-      const signInResult = await signIn("credentials", {
-        identifier: form.email,
-        password: form.password,
-        redirect: false,
-      });
-
-      if (signInResult?.error) {
-        router.push("/login");
-        return;
-      }
-
-      router.push("/dashboard");
-      router.refresh();
+      setSubmitted(true);
     } catch {
       setError("Network error. Please try again.");
       setLoading(false);
@@ -94,7 +102,8 @@ export default function RegisterPage() {
             </span>
           </h2>
           <p className="mt-3 text-white/85">
-            Sign up in 60 seconds. Complete eKYC. Go live with 60+ services.
+            Share your details and our onboarding team will call you back, verify
+            your KYC and get you live with 60+ services.
           </p>
         </div>
 
@@ -103,7 +112,7 @@ export default function RegisterPage() {
             "Zero joining fee, zero hidden charges",
             "Free RuPay business card on activation",
             "Earn up to 1.2% commission per transaction",
-            "24x7 WhatsApp & phone support"
+            "24x7 WhatsApp & phone support",
           ].map((t) => (
             <li key={t} className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-300" />
@@ -114,151 +123,188 @@ export default function RegisterPage() {
       </div>
 
       <div className="rounded-3xl border border-ink-100 bg-white p-8 shadow-soft md:p-10">
-        <h1 className="heading-md">Create your NextGenPay account</h1>
-        <p className="mt-2 text-sm text-ink-500">
-          Already a member?{" "}
-          <Link href="/login" className="font-semibold text-brand-700">
-            Login here
-          </Link>
-        </p>
-
-        {error && (
-          <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            {error}
-          </div>
-        )}
-
-        <form className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2" onSubmit={onSubmit}>
-          <div className="sm:col-span-2">
-            <Label htmlFor="name">Full name</Label>
-            <Input
-              id="name"
-              value={form.name}
-              onChange={(e) => update("name", e.target.value)}
-              placeholder="As per Aadhaar"
-              required
-            />
-          </div>
-          <div>
-            <Label htmlFor="phone">Mobile</Label>
-            <Input
-              id="phone"
-              type="tel"
-              value={form.phone}
-              onChange={(e) => update("phone", e.target.value)}
-              placeholder="10-digit mobile"
-              required
-            />
-          </div>
-          <div>
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={form.email}
-              onChange={(e) => update("email", e.target.value)}
-              placeholder="you@email.com"
-              required
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              value={form.password}
-              onChange={(e) => update("password", e.target.value)}
-              placeholder="Minimum 8 characters"
-              minLength={8}
-              required
-            />
-          </div>
-          <div>
-            <Label htmlFor="shopName">Shop / Business name</Label>
-            <Input
-              id="shopName"
-              value={form.shopName}
-              onChange={(e) => update("shopName", e.target.value)}
-              placeholder="e.g. Sharma Mobile World"
-            />
-          </div>
-          <div>
-            <Label htmlFor="state">State</Label>
-            <Select
-              id="state"
-              value={form.state}
-              onChange={(e) => update("state", e.target.value)}
-            >
-              {[
-                "Delhi",
-                "Uttar Pradesh",
-                "Bihar",
-                "Maharashtra",
-                "Karnataka",
-                "Tamil Nadu",
-                "West Bengal",
-                "Punjab",
-                "Rajasthan",
-                "Gujarat",
-                "Other"
-              ].map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Account type</Label>
-            <div className="mt-1 grid grid-cols-3 gap-2">
-              {(["retailer", "distributor", "master-distributor"] as const).map((r) => (
-                <button
-                  type="button"
-                  key={r}
-                  onClick={() => update("role", r)}
-                  className={`rounded-xl border px-3 py-2 text-sm font-medium capitalize transition ${
-                    form.role === r
-                      ? "border-brand-500 bg-brand-50 text-brand-700"
-                      : "border-ink-200 bg-white text-ink-700 hover:border-ink-300"
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
+        {submitted ? (
+          <div className="flex flex-col items-center py-6 text-center">
+            <div className="grid h-16 w-16 place-items-center rounded-full bg-emerald-50 text-emerald-600">
+              <CheckCircle2 className="h-9 w-9" />
+            </div>
+            <h1 className="heading-md mt-6">Request received!</h1>
+            <p className="mt-3 max-w-sm text-sm text-ink-500">
+              Thanks{form.name ? `, ${form.name.split(" ")[0]}` : ""}! Our
+              onboarding team will connect with you shortly on{" "}
+              <span className="font-semibold text-ink-700">{form.phone}</span> to
+              complete your setup.
+            </p>
+            <div className="mt-6 flex w-full max-w-xs flex-col gap-3">
+              <div className="flex items-center gap-2 rounded-xl border border-ink-100 bg-ink-50/60 px-4 py-3 text-left text-sm text-ink-600">
+                <PhoneCall className="h-4 w-4 shrink-0 text-brand-600" />
+                Keep your Aadhaar, PAN & bank details handy for eKYC.
+              </div>
+              <Link href="/">
+                <Button variant="outline" size="lg" className="w-full">
+                  Back to home
+                </Button>
+              </Link>
             </div>
           </div>
-          <div className="sm:col-span-2">
-            <label className="flex items-start gap-2 text-xs text-ink-600">
-              <input
-                type="checkbox"
-                defaultChecked
-                required
-                className="mt-0.5 h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
-              />
-              I agree to NextGenPay&apos;s{" "}
-              <Link href="/legal/terms" className="font-semibold text-brand-700">
-                Terms
-              </Link>{" "}
-              &{" "}
-              <Link href="/legal/privacy" className="font-semibold text-brand-700">
-                Privacy Policy
+        ) : (
+          <>
+            <h1 className="heading-md">Join NextGenPay</h1>
+            <p className="mt-2 text-sm text-ink-500">
+              Fill in your details — our support team will reach out and complete
+              your onboarding. Already a member?{" "}
+              <Link href="/login" className="font-semibold text-brand-700">
+                Login here
               </Link>
-              .
-            </label>
-          </div>
-          <div className="sm:col-span-2">
-            <Turnstile onToken={setCaptchaToken} className="mb-3 flex justify-center" />
-            <Button
-              type="submit"
-              size="lg"
-              className="w-full"
-              disabled={loading || (captchaConfigured && !captchaToken)}
+            </p>
+
+            {error && (
+              <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <form
+              className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2"
+              onSubmit={onSubmit}
             >
-              {loading ? "Creating account..." : "Create my agent account"}
-            </Button>
-          </div>
-        </form>
+              <div className="sm:col-span-2">
+                <Label htmlFor="name">Full name</Label>
+                <Input
+                  id="name"
+                  value={form.name}
+                  onChange={(e) => update("name", e.target.value)}
+                  placeholder="As per Aadhaar"
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="phone">Mobile</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  value={form.phone}
+                  onChange={(e) => update("phone", e.target.value)}
+                  placeholder="10-digit mobile"
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => update("email", e.target.value)}
+                  placeholder="you@email.com"
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="shopName">Shop / Business name</Label>
+                <Input
+                  id="shopName"
+                  value={form.shopName}
+                  onChange={(e) => update("shopName", e.target.value)}
+                  placeholder="e.g. Sharma Mobile World"
+                />
+              </div>
+              <div>
+                <Label htmlFor="city">City</Label>
+                <Input
+                  id="city"
+                  value={form.city}
+                  onChange={(e) => update("city", e.target.value)}
+                  placeholder="e.g. Surat"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <Label htmlFor="state">State</Label>
+                <Select
+                  id="state"
+                  value={form.state}
+                  onChange={(e) => update("state", e.target.value)}
+                >
+                  {STATES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="sm:col-span-2">
+                <Label>I want to join as</Label>
+                <div className="mt-1 grid grid-cols-3 gap-2">
+                  {(["retailer", "distributor", "master-distributor"] as const).map(
+                    (r) => (
+                      <button
+                        type="button"
+                        key={r}
+                        onClick={() => update("role", r)}
+                        className={`rounded-xl border px-3 py-2 text-sm font-medium capitalize transition ${
+                          form.role === r
+                            ? "border-brand-500 bg-brand-50 text-brand-700"
+                            : "border-ink-200 bg-white text-ink-700 hover:border-ink-300"
+                        }`}
+                      >
+                        {r.replace("-", " ")}
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+              <div className="sm:col-span-2">
+                <Label htmlFor="message">Message (optional)</Label>
+                <textarea
+                  id="message"
+                  value={form.message}
+                  onChange={(e) => update("message", e.target.value)}
+                  placeholder="Tell us anything that helps us onboard you faster."
+                  rows={3}
+                  maxLength={1000}
+                  className="flex w-full rounded-xl border border-ink-200 bg-white px-4 py-2.5 text-sm text-ink-900 shadow-sm transition placeholder:text-ink-400 focus:border-brand-400 focus:outline-none focus:ring-4 focus:ring-brand-100"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="flex items-start gap-2 text-xs text-ink-600">
+                  <input
+                    type="checkbox"
+                    defaultChecked
+                    required
+                    className="mt-0.5 h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  I agree to be contacted by NextGenPay and accept the{" "}
+                  <Link href="/legal/terms" className="font-semibold text-brand-700">
+                    Terms
+                  </Link>{" "}
+                  &{" "}
+                  <Link
+                    href="/legal/privacy"
+                    className="font-semibold text-brand-700"
+                  >
+                    Privacy Policy
+                  </Link>
+                  .
+                </label>
+              </div>
+              <div className="sm:col-span-2">
+                <Turnstile
+                  onToken={setCaptchaToken}
+                  className="mb-3 flex justify-center"
+                />
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full"
+                  disabled={loading || (captchaConfigured && !captchaToken)}
+                >
+                  {loading ? "Submitting..." : "Submit join request"}
+                </Button>
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );

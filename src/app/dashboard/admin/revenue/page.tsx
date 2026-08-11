@@ -17,6 +17,8 @@ type ServiceRow = {
   txnCount: number;
   totalVolume: number;
   totalCharge: number;
+  gstCollected: number;
+  vendorCost: number;
   grossCommission: number;
   tdsCollected: number;
   netCommission: number;
@@ -46,6 +48,8 @@ type DailyRow = {
   txnCount: number;
   totalVolume: number;
   totalCharge: number;
+  gstCollected: number;
+  vendorCost: number;
   grossCommission: number;
   tdsCollected: number;
   netCommission: number;
@@ -84,6 +88,8 @@ type RevenueData = {
     txnCount: number;
     totalVolume: number;
     totalCharge: number;
+    gstCollected: number;
+    vendorCost: number;
     grossCommission: number;
     tdsCollected: number;
     netCommission: number;
@@ -170,6 +176,21 @@ export default function RevenuePage() {
       render: (r) => <span className="font-semibold">{formatINR(r.totalVolume)}</span>,
     },
     { key: "totalCharge", header: "Charges", render: (r) => <span>{formatINR(r.totalCharge)}</span> },
+    {
+      key: "gstCollected",
+      header: "GST",
+      render: (r) => <span className="text-ink-500">{formatINR(r.gstCollected)}</span>,
+    },
+    {
+      key: "vendorCost",
+      header: "Vendor Cost",
+      render: (r) =>
+        r.vendorCost > 0 ? (
+          <span className="text-amber-600">{formatINR(r.vendorCost)}</span>
+        ) : (
+          <span className="text-ink-300">—</span>
+        ),
+    },
     {
       key: "grossCommission",
       header: "Gross Commission",
@@ -323,6 +344,8 @@ export default function RevenuePage() {
     { key: "txnCount", header: "Transactions", format: "int" },
     { key: "totalVolume", header: "Volume", format: "money" },
     { key: "totalCharge", header: "Charges Collected", format: "money" },
+    { key: "gstCollected", header: "GST", format: "money" },
+    { key: "vendorCost", header: "Vendor Cost", format: "money" },
     { key: "grossCommission", header: "Gross Commission", format: "money" },
     { key: "tdsCollected", header: "TDS (2%)", format: "money" },
     { key: "netCommission", header: "Net Commission", format: "money" },
@@ -501,7 +524,7 @@ export default function RevenuePage() {
             <Stat label="TDS Collected (2%)" value={formatINR(data.totals.tdsCollected)} />
             <Stat label="Net Commission Paid" value={formatINR(data.totals.netCommission)} />
             <Stat
-              label="Revenue = Charges − Gross Comm."
+              label="Revenue = Charges − GST − Vendor − Comm."
               value={formatINR(data.totals.platformRevenue)}
               tone="good"
             />

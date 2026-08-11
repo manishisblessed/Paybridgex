@@ -5,6 +5,7 @@ import { isAdminRole } from "@/lib/security/ownership";
 import { prisma } from "@/lib/db";
 import { deleteFromCloudinary } from "@/lib/cloudinary";
 import {
+  SLIDER_ROLES,
   SliderKindEnum,
   SliderRoleEnum,
   serializeSlider,
@@ -22,7 +23,7 @@ const UpdateBody = z
     imageUrl: z.string().trim().url().max(1000).optional(),
     linkUrl: z.string().trim().url().max(1000).nullable().optional(),
     kind: SliderKindEnum.optional(),
-    audienceRoles: z.array(SliderRoleEnum).max(6).optional(),
+    audienceRoles: z.array(SliderRoleEnum).max(SLIDER_ROLES.length).optional(),
     active: z.boolean().optional(),
     sortOrder: z.number().int().min(0).max(100000).optional(),
     startAt: z.string().datetime().nullable().optional(),

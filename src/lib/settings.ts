@@ -18,6 +18,16 @@ const SETTING_SCHEMAS = {
     amount: z.number().positive().default(500_000),
   }),
 
+  /**
+   * Onboarding invite link validity. `days` is how long a freshly shared
+   * onboarding link (and a targeted document re-upload link) stays usable
+   * before it expires. Applied at creation/reshare time, so changing it only
+   * affects links generated afterwards.
+   */
+  "onboarding.invite_expiry": z.object({
+    days: z.number().int().min(1).max(90).default(30),
+  }),
+
   /** @deprecated No longer enforced — admin wallet PUSH/PULL executes
    *  immediately for any authorized admin. Kept so existing stored rows
    *  validate. */

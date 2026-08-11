@@ -139,6 +139,92 @@ export async function creditMdrMargin(
 }
 
 /**
+ * Credit the company's SERVICE-rail margin (BBPS/Payout) to the platform
+ * Revenue Wallet (the REVENUE book on the revenue account). Unlike acquiring
+ * rails — which fund upline commissions out of this pool — service rails pay no
+ * chain commission, so this credit is the company's booked earning on the txn:
+ *
+ *   margin = customer charge (ex-GST) − vendor/upstream cost
+ *
+ * (GST is a pass-through liability, never revenue.) Idempotency-keyed per
+ * ref so replays / duplicate webhook deliveries never double-credit.
+ *
+ * @param refId   the owning entity id (Transaction.id or PayoutRequest.id)
+ * @param service ServiceCode (recorded on the ledger note)
+ * @param margin  charge (ex-GST) − vendor cost (₹); skipped when ≤ 0
+ * @param opts    refType (default "Transaction") + idempotency key override
+ * @returns the revenue account id when credited, else null.
+ */
+export async function creditServiceMargin(
+  refId: string,
+  service: ServiceCode,
+  margin: Money | number,
+  tx?: Prisma.TransactionClient,
+  opts?: { refType?: string; idempotencyKey?: string }
+): Promise<string | null> {
+  const accountId = await getRevenueAccountId(tx);
+  if (!accountId) return null;
+  if (!gt(dec(margin), 0)) return accountId;
+
+  try {
+    await creditWallet(
+      {
+        userId: accountId,
+        amount: round(margin),
+        reason: "SERVICE_MARGIN",
+        walletType: "REVENUE",
+        refType: opts?.refType ?? "Transaction",
+        refId,
+        note: `Service margin on ${service}`,
+        idempotencyKey: opts?.idempotencyKey ?? `service-margin:${refId}`,
+      },
+      tx
+    );
+  } catch {
+    // Never block settlement / payout finalization on the revenue credit.
+  }
+  return accountId;
+}
+
+/**
+ * Reverse a previously-credited SERVICE_MARGIN (e.g. a SUCCEEDED payout that the
+ * bank later returned). Debits the Revenue Wallet by the same margin so the
+ * company doesn't keep an earning it never realised. Runs in its OWN
+ * transaction and is fully best-effort: it must NEVER block the user refund, so
+ * a missing revenue account / insufficient revenue balance is swallowed (the
+ * balance simply can't go negative). Idempotency-keyed so replays are safe.
+ *
+ * @param refId   the owning entity id (PayoutRequest.id / Transaction.id)
+ * @param service ServiceCode (recorded on the ledger note)
+ * @param margin  the margin to claw back (₹); skipped when ≤ 0
+ */
+export async function reverseServiceMargin(
+  refId: string,
+  service: ServiceCode,
+  margin: Money | number,
+  opts?: { refType?: string; idempotencyKey?: string }
+): Promise<void> {
+  if (!gt(dec(margin), 0)) return;
+  const accountId = await getRevenueAccountId();
+  if (!accountId) return;
+  try {
+    await debitWallet({
+      userId: accountId,
+      amount: round(margin),
+      reason: "SERVICE_MARGIN",
+      walletType: "REVENUE",
+      refType: opts?.refType ?? "Transaction",
+      refId,
+      note: `Service margin reversal on ${service}`,
+      idempotencyKey: opts?.idempotencyKey ?? `service-margin-reversal:${refId}`,
+    });
+  } catch {
+    // Revenue wallet already drained (commissions paid) or no account — the
+    // reversal of the user's funds already happened; never block on this.
+  }
+}
+
+/**
  * Debit a gross commission from the Revenue Wallet to fund an upline payout.
  * Idempotency-keyed per (txn, recipient) so replays never double-debit. The
  * commission is always funded from the same-transaction margin credited by
@@ -180,7 +266,7 @@ export type RevenueWalletSummary = {
   accountId: string | null;
   /** Current Revenue Wallet balance (all-time accumulated margin − payouts). */
   balance: number;
-  /** MDR margin credited to the Revenue Wallet TODAY (IST). */
+  /** MDR + service-rail margin credited to the Revenue Wallet TODAY (IST). */
   marginInToday: number;
   /** Commission funded out of the Revenue Wallet TODAY (IST). */
   commissionOutToday: number;
@@ -208,7 +294,7 @@ export async function getRevenueWalletSummary(): Promise<RevenueWalletSummary> {
         userId: accountId,
         walletType: "REVENUE",
         direction: "CREDIT",
-        reason: "MDR_MARGIN",
+        reason: { in: ["MDR_MARGIN", "SERVICE_MARGIN"] },
         createdAt: { gte: dayStart },
       },
       _sum: { amount: true },

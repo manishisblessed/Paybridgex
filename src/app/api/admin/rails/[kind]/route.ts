@@ -6,10 +6,10 @@ import { getCardClassificationSetting } from "@/lib/settings";
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
 
-/** Parse the [kind] route segment into a PG/QR rail, or null when invalid. */
-function parseRail(kind: string): "PG" | "QR" | null {
+/** Parse the [kind] route segment into a supported rail, or null when invalid. */
+function parseRail(kind: string): "PG" | "QR" | "BBPS" | "PAYOUT" | null {
   const k = kind.toUpperCase();
-  return k === "PG" || k === "QR" ? k : null;
+  return k === "PG" || k === "QR" || k === "BBPS" || k === "PAYOUT" ? k : null;
 }
 
 /**

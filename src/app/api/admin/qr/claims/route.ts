@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth-server";
 import { toErrorResponse } from "@/lib/security/apiErrors";
-import { signedDeliveryUrl } from "@/lib/cloudinary";
 import { prisma } from "@/lib/db";
 import { getQrClaimOverview, secondApprovalThreshold } from "@/lib/qr/claims";
 import type { QrClaimStatus } from "@prisma/client";
@@ -68,7 +67,8 @@ export async function GET(req: Request) {
       qrVpa: c.qr.upiVpa,
       amount: Number(c.amount),
       utr: c.utr,
-      paidAt: c.paidAt.toISOString(),
+      cardLast4: c.cardLast4,
+      paidAt: c.paidAt?.toISOString() ?? null,
       status: c.status,
       reviewNote: c.reviewNote,
       // Maker-checker reconciliation trail: who approved (and, for large
@@ -82,11 +82,9 @@ export async function GET(req: Request) {
       reviewedByCode: c.reviewedBy?.userCode ?? null,
       reviewedAt: c.reviewedAt?.toISOString() ?? null,
       createdAt: c.createdAt.toISOString(),
-      // 5-minute signed link for the private screenshot.
-      screenshotUrl: signedDeliveryUrl(c.screenshotPublicId, {
-        format: c.screenshotFormat ?? "jpg",
-        expiresInSec: 300,
-      }),
+      // The private screenshot is fetched on demand through a per-claim endpoint
+      // that mints a FRESH signed URL each click (see [id]/screenshot) — so the
+      // "View" button never goes stale, unlike a link baked into this payload.
     })),
   });
 }

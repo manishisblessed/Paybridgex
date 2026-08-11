@@ -86,10 +86,12 @@ export type QrReportRetailer = {
 
 export type QrSettlementReportRow = {
   id: string;
-  utr: string;
+  utr: string | null;
+  /** Last 4 digits of the RuPay credit card used (card collections). */
+  cardLast4: string | null;
   qrLabel: string | null;
-  /** When the customer paid (per the retailer). */
-  txnTime: string;
+  /** When the customer paid (per the retailer); optional. */
+  txnTime: string | null;
   /** When the claim was filed. */
   submittedAt: string;
   retailer: QrReportRetailer | null;
@@ -319,6 +321,7 @@ type ClaimRow = Prisma.QrClaimGetPayload<{
   select: {
     id: true;
     utr: true;
+    cardLast4: true;
     userId: true;
     amount: true;
     mdrAmount: true;
@@ -336,6 +339,7 @@ type ClaimRow = Prisma.QrClaimGetPayload<{
 const CLAIM_SELECT = {
   id: true,
   utr: true,
+  cardLast4: true,
   userId: true,
   amount: true,
   mdrAmount: true,
@@ -358,8 +362,9 @@ function toRow(
   return {
     id: c.id,
     utr: c.utr,
+    cardLast4: c.cardLast4,
     qrLabel: c.qr?.label ?? null,
-    txnTime: c.paidAt.toISOString(),
+    txnTime: c.paidAt ? c.paidAt.toISOString() : null,
     submittedAt: c.createdAt.toISOString(),
     retailer: c.user
       ? {

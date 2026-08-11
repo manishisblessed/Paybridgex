@@ -15,9 +15,7 @@ import {
 import { env } from "@/lib/env";
 import { renderInviteEmail } from "@/lib/email/templates";
 import { getAdminInviteScope } from "@/lib/security/ownership";
-
-// How long an onboarding invite link stays valid after it is created.
-const INVITE_EXPIRY_DAYS = 15;
+import { computeInviteExpiry } from "@/lib/onboarding/inviteExpiry";
 
 /**
  * A PENDING invite whose link has passed `expiresAt` is effectively EXPIRED —
@@ -150,7 +148,7 @@ export async function POST(req: Request) {
       role,
       parentId,
       invitedById: user.id,
-      expiresAt: new Date(Date.now() + INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
+      expiresAt: await computeInviteExpiry(),
     },
   });
 

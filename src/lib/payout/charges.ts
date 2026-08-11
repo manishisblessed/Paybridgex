@@ -1,5 +1,5 @@
 import type { PayoutMode } from "@prisma/client";
-import { add, dec, gt, percentOf, round, type Money } from "@/lib/money";
+import { add, dec, gt, percentOf, round, sub, type Money } from "@/lib/money";
 import { getEffectiveRate, PAYOUT_MODE_SERVICE } from "@/lib/scheme/resolver";
 
 /**
@@ -96,27 +96,42 @@ export async function quotePayoutForUser(
   userId: string,
   amount: Money | string | number,
   mode: PayoutMode
-): Promise<PayoutQuote & { source: string }> {
+): Promise<PayoutQuote & { source: string; vendorCharge: Money }> {
   const amt = round(amount);
   const service = PAYOUT_MODE_SERVICE[mode];
 
+  // serviceCharge is always stored EX-GST; `gst` is broken out separately so
+  // company revenue (serviceCharge − vendorCharge) never includes the GST
+  // pass-through. Upstream/partner cost is locked from the scheme rate card;
+  // 0 for the static-slab fallback (no vendor card → whole charge is revenue).
   let serviceCharge: Money;
+  let gst: Money;
   let source = "STATIC_SLABS";
-  let gstInclusive = false;
+  let vendorCharge: Money = dec(0);
   if (service) {
     const rate = await getEffectiveRate(userId, service, amt, PAYOUT_MODE_PROVIDER[mode]);
     if (rate.source !== "NONE") {
-      serviceCharge = round(rate.charge);
       source = rate.source;
-      gstInclusive = rate.chargeGstInclusive;
+      vendorCharge = round(rate.vendorCharge);
+      if (rate.chargeGstInclusive) {
+        // Slab charge already bakes in GST → split back into base + GST so the
+        // ex-GST base drives revenue while totalDebit stays identical.
+        const total = round(rate.charge);
+        serviceCharge = round(dec(total).div("1.18"));
+        gst = round(sub(total, serviceCharge));
+      } else {
+        serviceCharge = round(rate.charge);
+        gst = percentOf(serviceCharge, GST_PERCENT);
+      }
     } else {
       serviceCharge = payoutServiceCharge(amt, mode);
+      gst = percentOf(serviceCharge, GST_PERCENT);
     }
   } else {
     serviceCharge = payoutServiceCharge(amt, mode);
+    gst = percentOf(serviceCharge, GST_PERCENT);
   }
 
-  const gst = gstInclusive ? dec(0) : percentOf(serviceCharge, GST_PERCENT);
   const totalDebit = round(add(add(amt, serviceCharge), gst));
-  return { amount: amt, serviceCharge, gst, totalDebit, source };
+  return { amount: amt, serviceCharge, gst, totalDebit, source, vendorCharge };
 }

@@ -64,15 +64,18 @@ const nextUtr = () => String(utrSeq++);
 const hashOf = (s: string) => screenshotSha256(Buffer.from(s));
 
 function validClaim(overrides: Partial<Parameters<typeof submitQrClaim>[0]> = {}) {
-  const utr = overrides.utr ?? nextUtr();
+  // Always derive a unique token for the screenshot hash/public id even when the
+  // claim itself carries no UTR (card-only), so each fixture stays distinct.
+  const token = overrides.utr ?? nextUtr();
   return {
     userId: "retailer1",
     qrId: "qr1",
     amount: 500,
-    utr,
+    cardLast4: "1234",
+    utr: token,
     paidAt: new Date(Date.now() - 60 * 60 * 1000), // an hour ago
-    screenshotHash: overrides.screenshotHash ?? hashOf(`shot-${utr}`),
-    screenshotPublicId: `cld/${utr}`,
+    screenshotHash: overrides.screenshotHash ?? hashOf(`shot-${token}`),
+    screenshotPublicId: `cld/${token}`,
     screenshotFormat: "jpg",
     ...overrides,
   };
@@ -96,6 +99,19 @@ describe("submitQrClaim — validation", () => {
   it("rejects malformed UTRs", async () => {
     await expect(submitQrClaim(validClaim({ utr: "12345" }))).rejects.toThrow(QrClaimError);
     await expect(submitQrClaim(validClaim({ utr: "ABCD12345678" }))).rejects.toThrow(/12-digit/);
+  });
+
+  it("requires the RuPay card last-4", async () => {
+    await expect(submitQrClaim(validClaim({ cardLast4: "" }))).rejects.toThrow(/last 4/);
+    await expect(submitQrClaim(validClaim({ cardLast4: "12" }))).rejects.toThrow(/last 4/);
+  });
+
+  it("accepts a card-only claim with no UTR and no paid-on time", async () => {
+    const claim = await submitQrClaim(validClaim({ utr: null, paidAt: null }));
+    expect(claim.status).toBe("PENDING");
+    expect(claim.utr).toBeNull();
+    expect(claim.paidAt).toBeNull();
+    expect(claim.cardLast4).toBe("1234");
   });
 
   it("normalizes spaces/hyphens in the UTR", async () => {

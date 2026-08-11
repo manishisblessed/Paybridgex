@@ -13,6 +13,9 @@ export function serializeSlab(s: SchemeSlab) {
     chargeType: s.chargeType,
     chargeValue: Number(s.chargeValue),
     chargeGstInclusive: s.chargeGstInclusive,
+    // Vendor cost locked from the service rate card (BBPS/Payout); revenue per
+    // txn = chargeValue − vendorCharge. 0 for un-carded / acquiring services.
+    vendorCharge: Number(s.vendorCharge),
     commissionType: s.commissionType,
     commissionRetailer: Number(s.commissionRetailer),
     commissionDistributor: Number(s.commissionDistributor),

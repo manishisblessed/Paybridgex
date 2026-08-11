@@ -43,6 +43,7 @@ import {
   SlidersHorizontal,
   Tag,
   TrendingUp,
+  Inbox,
   type LucideIcon
 } from "lucide-react";
 import type { Role } from "@/lib/auth";
@@ -98,6 +99,7 @@ const account: NavItem[] = [
 /** Canonical tab slugs (without role prefix) used for permission assignment */
 export const ASSIGNABLE_ADMIN_TABS = [
   { href: "invites", label: "Onboarding Invites" },
+  { href: "join-requests", label: "Join Requests" },
   { href: "users", label: "Users" },
   { href: "network", label: "Network Manager" },
   { href: "sub-admins", label: "Sub-Admins" },
@@ -177,6 +179,7 @@ const masterAdminMoneyOps: NavItem[] = adminMoneyOps.flatMap((item) =>
 const adminWorkspace: NavItem[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/dashboard/admin/invites", label: "Onboarding Invites", icon: PackagePlus, badge: "New" },
+  { href: "/dashboard/admin/join-requests", label: "Join Requests", icon: Inbox, badge: "New" },
   { href: "/dashboard/admin/users", label: "Users", icon: Users },
   { href: "/dashboard/admin/network", label: "Network Manager", icon: Users, badge: "New" },
   { href: "/dashboard/admin/sub-admins", label: "Sub-Admins", icon: UserCog },
@@ -203,6 +206,7 @@ export const navByRole: Record<Role, NavGroup[]> = {
         { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
         { href: "/dashboard/admin/admins", label: "Manage Admins", icon: ShieldCheck, badge: "New" },
         { href: "/dashboard/admin/invites", label: "Onboarding Invites", icon: PackagePlus, badge: "New" },
+        { href: "/dashboard/admin/join-requests", label: "Join Requests", icon: Inbox, badge: "New" },
         { href: "/dashboard/admin/users", label: "Users", icon: Users },
         { href: "/dashboard/admin/network", label: "Network Manager", icon: Users, badge: "New" },
         { href: "/dashboard/admin/sub-admins", label: "Sub-Admins", icon: UserCog },

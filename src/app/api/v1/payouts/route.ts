@@ -200,6 +200,7 @@ export async function POST(req: Request) {
               serviceCharge: quote.serviceCharge,
               gst: quote.gst,
               totalDebit: quote.totalDebit,
+              vendorCharge: quote.vendorCharge,
               status: autoApprove ? "APPROVED" : "PENDING_APPROVAL",
               bulkpeReferenceId,
               remarks: body.remarks ? `[API] ${body.remarks}` : "[API]",

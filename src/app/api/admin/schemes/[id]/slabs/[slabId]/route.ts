@@ -5,6 +5,7 @@ import { isAdminRole } from "@/lib/security/ownership";
 import { prisma } from "@/lib/db";
 import { serializeSlab } from "@/lib/scheme/serialize";
 import { validateNonOverlapping } from "@/lib/scheme/resolver";
+import { resolveServiceVendorLock } from "@/lib/scheme/serviceVendor";
 
 export const fetchCache = "force-no-store";
 
@@ -73,9 +74,20 @@ export async function PATCH(
     if (overlap) return NextResponse.json({ error: overlap }, { status: 409 });
   }
 
+  // Service rails (BBPS/Payout): re-lock the vendor cost from the provider's
+  // rate card and enforce charge ≥ the card's Minimum against the merged values.
+  const lock = await resolveServiceVendorLock({
+    service: existing.service,
+    provider: nextProvider ?? null,
+    chargeType: body.chargeType ?? existing.chargeType,
+    chargeValue: body.chargeValue ?? Number(existing.chargeValue),
+    minAmount: nextMin,
+  });
+  if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
+
   const updated = await prisma.schemeSlab.update({
     where: { id: params.slabId },
-    data: body,
+    data: { ...body, vendorCharge: lock.vendorCharge },
   });
 
   await prisma.auditLog.create({

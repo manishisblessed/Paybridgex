@@ -518,10 +518,12 @@ function SliderForm({
       };
     });
 
-  // Empty audienceRoles = visible to everyone (matches API semantics), so
-  // "All roles" simply clears the selection rather than listing every role.
-  const allRolesSelected = form.audienceRoles.length === 0;
-  const selectAllRoles = () => set("audienceRoles", []);
+  // "All roles" explicitly selects every role chip. (An empty selection is also
+  // treated as "visible to everyone" by the API, so both are equivalent.)
+  const allRolesSelected = ROLE_OPTIONS.every((r) =>
+    form.audienceRoles.includes(r.value)
+  );
+  const selectAllRoles = () => set("audienceRoles", ROLE_OPTIONS.map((r) => r.value));
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
