@@ -13,6 +13,7 @@ import {
   precheckQrClaim,
   submitQrClaim,
   screenshotSha256,
+  getRetailerDailyClaimUsage,
 } from "@/lib/qr/claims";
 
 /**
@@ -52,14 +53,18 @@ export async function GET() {
     return toErrorResponse(e);
   }
 
-  const claims = await prisma.qrClaim.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-    include: { qr: { select: { label: true } } },
-  });
+  const [claims, dailyUsage] = await Promise.all([
+    prisma.qrClaim.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      include: { qr: { select: { label: true } } },
+    }),
+    getRetailerDailyClaimUsage(user.id),
+  ]);
 
   return NextResponse.json({
+    dailyUsage,
     claims: claims.map((c) => ({
       id: c.id,
       qrLabel: c.qr.label,

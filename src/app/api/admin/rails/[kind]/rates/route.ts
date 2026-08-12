@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { validateRailRate } from "@/lib/rail/mdr";
 import { validateMdrAgainstFloor } from "@/lib/mdr/floor";
+import { relockServiceSlabsForRail } from "@/lib/scheme/serviceVendor";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,20 @@ export const dynamic = "force-dynamic";
 function parseRail(kind: string): "PG" | "QR" | "BBPS" | "PAYOUT" | null {
   const k = kind.toUpperCase();
   return k === "PG" || k === "QR" || k === "BBPS" || k === "PAYOUT" ? k : null;
+}
+
+/**
+ * After a service rate card (BBPS/Payout) changes, re-lock the vendorCharge
+ * snapshot on affected scheme slabs so transaction-time revenue stays in sync
+ * without manual re-saving. Best-effort — never blocks the card mutation.
+ */
+async function relockIfService(rail: "PG" | "QR" | "BBPS" | "PAYOUT") {
+  if (rail !== "BBPS" && rail !== "PAYOUT") return;
+  try {
+    await relockServiceSlabsForRail(rail);
+  } catch (e) {
+    console.error("[rails/rates] relock failed:", e);
+  }
 }
 
 const norm = (v: string) => (v === "*" ? "*" : v.toUpperCase());
@@ -137,6 +152,8 @@ export async function POST(req: Request, { params }: { params: { kind: string } 
     },
   });
 
+  await relockIfService(rail);
+
   return NextResponse.json({ ok: true, rateId: rate.id }, { status: 201 });
 }
 
@@ -248,6 +265,8 @@ export async function PATCH(req: Request, { params }: { params: { kind: string }
     },
   });
 
+  await relockIfService(rail);
+
   return NextResponse.json({ ok: true, rateId: updated.id });
 }
 
@@ -287,6 +306,8 @@ export async function DELETE(req: Request, { params }: { params: { kind: string 
       ip: clientIp(req),
     },
   });
+
+  await relockIfService(rail);
 
   return NextResponse.json({ ok: true });
 }

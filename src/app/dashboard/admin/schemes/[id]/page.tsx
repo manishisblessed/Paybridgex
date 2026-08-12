@@ -40,6 +40,10 @@ type Slab = {
   chargeGstInclusive: boolean;
   /** Vendor/upstream cost locked from the BBPS/Payout rate card (0 = none). */
   vendorCharge: number;
+  /** Live vendor cost resolved from the CURRENT rate card (null = no card). */
+  vendorChargeLive?: number | null;
+  /** Live minimum charge from the current rate card (null = no card). */
+  minChargeLive?: number | null;
   commissionType: RateType;
   /** Cascade model: commission the ASSIGNED user earns on this slab. */
   commissionValue: number;
@@ -221,6 +225,7 @@ export default function SchemeEditorPage() {
                       <th className="px-5 py-2.5 font-semibold">Range</th>
                       <th className="px-5 py-2.5 font-semibold">Provider</th>
                       <th className="px-5 py-2.5 text-right font-semibold">Charge</th>
+                      <th className="px-5 py-2.5 text-right font-semibold">Vendor / txn</th>
                       <th className="px-5 py-2.5 text-right font-semibold">Revenue / txn</th>
                       <th className="px-5 py-2.5 text-right font-semibold">User Commission</th>
                       <th className="px-5 py-2.5 text-center font-semibold">Status</th>
@@ -240,6 +245,7 @@ export default function SchemeEditorPage() {
                             {s.chargeGstInclusive ? "incl. GST" : "+ GST"}
                           </span>
                         </td>
+                        <td className="px-5 py-3 text-right">{fmtVendor(s)}</td>
                         <td className="px-5 py-3 text-right">{fmtRevenue(s)}</td>
                         <td className="px-5 py-3 text-right font-semibold text-emerald-700">{fmtRate(s.commissionType, s.commissionValue)}</td>
                         <td className="px-5 py-3 text-center">
@@ -305,19 +311,49 @@ function fmtRate(type: RateType, value: number): string {
 }
 
 /**
- * Company revenue per transaction = customer charge − vendor cost. Only applies
- * to flat ₹/txn service rails (BBPS/Payout) with a vendor cost locked from the
- * rate card; everything else has no vendor basis, so it renders a dash.
+ * Effective vendor cost for a slab: the live rate-card value when available
+ * (never stale), else the save-time snapshot. null when neither is set.
  */
-function fmtRevenue(s: Slab) {
-  if (s.vendorCharge <= 0 || s.chargeType !== "FLAT") {
+function effectiveVendor(s: Slab): number {
+  const live = s.vendorChargeLive;
+  return live != null ? live : s.vendorCharge;
+}
+
+/**
+ * Vendor cost per txn from the service rate card (BBPS/Payout). Shows the min
+ * charge as a sub-line. Dash for services with no rate card / non-flat charge.
+ */
+function fmtVendor(s: Slab) {
+  const vendor = effectiveVendor(s);
+  if (vendor <= 0 || s.chargeType !== "FLAT") {
     return <span className="text-ink-300">—</span>;
   }
-  const revenue = Math.max(s.chargeValue - s.vendorCharge, 0);
+  return (
+    <div className="leading-tight">
+      <span className="font-semibold text-amber-600">₹{vendor.toLocaleString("en-IN")}</span>
+      {s.minChargeLive != null && s.minChargeLive > 0 && (
+        <div className="text-[10px] text-ink-400">min ₹{s.minChargeLive.toLocaleString("en-IN")}</div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Company revenue per transaction = customer charge − vendor cost. Only applies
+ * to flat ₹/txn service rails (BBPS/Payout) with a vendor cost from the rate
+ * card; everything else has no vendor basis, so it renders a dash. Services pay
+ * no commission, so this whole spread is the company's revenue.
+ */
+function fmtRevenue(s: Slab) {
+  const vendor = effectiveVendor(s);
+  if (vendor <= 0 || s.chargeType !== "FLAT") {
+    return <span className="text-ink-300">—</span>;
+  }
+  const revenue = Math.max(s.chargeValue - vendor, 0);
   return (
     <div className="leading-tight">
       <span className="font-semibold text-brand-700">₹{revenue.toLocaleString("en-IN")}</span>
-      <div className="text-[10px] text-ink-400">vendor ₹{s.vendorCharge.toLocaleString("en-IN")}</div>
+      <div className="text-[10px] text-ink-400">charge ₹{s.chargeValue.toLocaleString("en-IN")}</div>
     </div>
   );
 }
@@ -348,6 +384,80 @@ function SlabModal({
   const [comOwn, setComOwn] = useState(String(editing?.commissionValue ?? 0));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Live rate-card preview (BBPS/Payout): the vendor cost + minimum for the
+  // selected product, so the admin sees revenue = charge − vendor and can't
+  // save below the minimum. Resolved server-side (exact scope → family).
+  const [vendorInfo, setVendorInfo] = useState<{ vendorCharge: number; minCharge: number } | null>(null);
+  const [vendorLoading, setVendorLoading] = useState(false);
+  // BBPS product scopes that actually have an active rate card, so the Product
+  // dropdown only offers priceable products (null = not yet loaded / N/A).
+  const [cardedScopes, setCardedScopes] = useState<Set<string> | null>(null);
+
+  // Which product scopes have a rate card (BBPS only) — refreshed per service.
+  useEffect(() => {
+    const bbps = service.startsWith("BILL_") || service === "RECHARGE_BROADBAND";
+    if (!bbps) {
+      setCardedScopes(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/rails/BBPS");
+        const data = await res.json();
+        if (!cancelled && res.ok && Array.isArray(data.providers)) {
+          setCardedScopes(
+            new Set<string>(
+              data.providers
+                .filter((p: { rateCount?: number }) => (p.rateCount ?? 0) > 0)
+                .map((p: { scopeKey: string }) => p.scopeKey)
+            )
+          );
+        }
+      } catch {
+        /* leave unfiltered on failure */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [service]);
+
+  // Live vendor cost + minimum for the chosen product + amount (debounced).
+  useEffect(() => {
+    const serviceRail =
+      service.startsWith("BILL_") || service === "RECHARGE_BROADBAND" || service === "PAYOUT";
+    if (!serviceRail || !provider) {
+      setVendorInfo(null);
+      return;
+    }
+    const amt = Number(minAmount) || 0;
+    let cancelled = false;
+    setVendorLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/schemes/vendor-preview?service=${encodeURIComponent(service)}&provider=${encodeURIComponent(provider)}&amount=${amt}`
+        );
+        const data = await res.json();
+        if (!cancelled) {
+          setVendorInfo(
+            res.ok && data.vendorCharge != null
+              ? { vendorCharge: data.vendorCharge, minCharge: data.minCharge ?? data.vendorCharge }
+              : null
+          );
+        }
+      } catch {
+        if (!cancelled) setVendorInfo(null);
+      } finally {
+        if (!cancelled) setVendorLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [service, provider, minAmount]);
 
   function toStored(type: RateType, raw: string): number {
     const n = Number(raw);
@@ -365,6 +475,14 @@ function SlabModal({
     }
     if (max < min) {
       setError("Max amount must be ≥ min amount.");
+      return;
+    }
+    // Services earn no commission — the charge must at least cover the vendor
+    // cost + the product minimum, else there is no revenue. Enforce client-side
+    // for instant feedback (the server re-validates authoritatively).
+    const chargeNum = Number(chargeValue);
+    if (vendorInfo && chargeType === "FLAT" && chargeNum + 1e-6 < vendorInfo.minCharge) {
+      setError(`Customer charge must be at least ₹${vendorInfo.minCharge.toLocaleString("en-IN")} (the product minimum).`);
       return;
     }
     setSaving(true);
@@ -412,7 +530,13 @@ function SlabModal({
     service === "BILL_CREDIT_CARD"
       ? [BBPS_PRICE_SCOPES.BBPS_SAMEDAY, BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD, BBPS_PRICE_SCOPES.RECHARGEKIT_CC]
       : [BBPS_PRICE_SCOPES.BBPS_SAMEDAY, BBPS_PRICE_SCOPES.BBPS_BULKPE];
-  const scopeOptions = BBPS_PRICE_SCOPE_OPTIONS.filter((o) => scopeKeys.includes(o.key));
+  const scopeOptionsAll = BBPS_PRICE_SCOPE_OPTIONS.filter((o) => scopeKeys.includes(o.key));
+  // Only offer products that have an active rate card (so a slab always locks a
+  // vendor cost); always keep the currently-pinned value when editing. Falls
+  // back to all products if the card list hasn't loaded.
+  const scopeOptions = cardedScopes
+    ? scopeOptionsAll.filter((o) => cardedScopes.has(o.key) || o.key === provider)
+    : scopeOptionsAll;
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -517,6 +641,55 @@ function SlabModal({
                 : flatHint + ". 18% GST will be added on top."}
             </p>
           </div>
+
+          {/* Live rate-card preview — vendor cost, minimum, and company revenue */}
+          {(isBbpsService || service === "PAYOUT") && provider && (
+            <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-3">
+              <p className="mb-2 text-xs font-bold uppercase tracking-widest text-brand-700">
+                Revenue preview {vendorLoading && <span className="text-ink-400">· loading…</span>}
+              </p>
+              {vendorInfo ? (
+                (() => {
+                  const charge = Number(chargeValue) || 0;
+                  const revenue = Math.max(charge - vendorInfo.vendorCharge, 0);
+                  const belowMin = charge + 1e-6 < vendorInfo.minCharge;
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-lg bg-white p-2">
+                          <p className="text-[10px] uppercase tracking-wider text-ink-400">Vendor / txn</p>
+                          <p className="font-semibold text-amber-600">₹{vendorInfo.vendorCharge.toLocaleString("en-IN")}</p>
+                        </div>
+                        <div className="rounded-lg bg-white p-2">
+                          <p className="text-[10px] uppercase tracking-wider text-ink-400">Min charge</p>
+                          <p className="font-semibold text-ink-700">₹{vendorInfo.minCharge.toLocaleString("en-IN")}</p>
+                        </div>
+                        <div className="rounded-lg bg-white p-2">
+                          <p className="text-[10px] uppercase tracking-wider text-ink-400">Revenue / txn</p>
+                          <p className="font-bold text-brand-700">₹{revenue.toLocaleString("en-IN")}</p>
+                        </div>
+                      </div>
+                      {belowMin ? (
+                        <p className="text-xs font-medium text-rose-600">
+                          Charge is below the ₹{vendorInfo.minCharge.toLocaleString("en-IN")} minimum — raise it to save.
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-ink-400">
+                          Company revenue = customer charge − vendor cost (no commission on services).
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : (
+                <p className="text-xs text-ink-500">
+                  {vendorLoading
+                    ? "Resolving the product's rate card…"
+                    : "No rate card found for this product — the slab will earn the whole charge as revenue. Add a vendor rate in MDR & minimum charges to track cost."}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
             <p className="mb-2 text-xs font-bold uppercase tracking-widest text-emerald-700">User commission</p>

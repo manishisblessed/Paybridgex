@@ -59,6 +59,21 @@ export function isOverDailyLimit(qr: Pick<StaticQr, "dailyLimit" | "dailyLimitCo
   return overAmount || overCount;
 }
 
+/**
+ * Is this QR within `ratio` of either daily cap? Used only to warn retailers a
+ * switch may be imminent — deliberately coarse (no exact remaining is exposed,
+ * since the claim-based counter lags and the QR is shared across retailers).
+ */
+export function isNearDailyLimit(
+  qr: Pick<StaticQr, "dailyLimit" | "dailyLimitCount">,
+  used: QrUsage,
+  ratio = 0.8
+): boolean {
+  const nearAmount = qr.dailyLimit != null && Number(qr.dailyLimit) > 0 && used.amount >= ratio * Number(qr.dailyLimit);
+  const nearCount = qr.dailyLimitCount != null && qr.dailyLimitCount > 0 && used.count >= ratio * qr.dailyLimitCount;
+  return nearAmount || nearCount;
+}
+
 export type QrLiveState = "LIVE" | "QUEUED" | "FULL_TODAY" | "DISABLED";
 
 /** Categorize a QR for admin display given its usage today. */

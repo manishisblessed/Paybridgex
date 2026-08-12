@@ -15,6 +15,7 @@ import {
   Store,
   Receipt,
   ExternalLink,
+  AlertTriangle,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { StatCard } from "@/components/dashboard/StatCard";
@@ -32,6 +33,14 @@ type ActiveQr = {
   upiVpa: string | null;
   imageUrl: string;
   activatedAt: string;
+  nearFull?: boolean;
+};
+
+type DailyUsage = {
+  amount: number;
+  count: number;
+  amountLimit: number;
+  countLimit: number;
 };
 
 type Claim = {
@@ -106,6 +115,7 @@ export default function QrCollectionsPage() {
   const [qr, setQr] = useState<ActiveQr | null>(null);
   const [qrReason, setQrReason] = useState<string | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
+  const [dailyUsage, setDailyUsage] = useState<DailyUsage | null>(null);
   const [settleable, setSettleable] = useState<SettleableClaim[]>([]);
   const [instantEnabled, setInstantEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -148,7 +158,11 @@ export default function QrCollectionsPage() {
         setQr(d.qr);
         setQrReason(d.reason ?? null);
       }
-      if (clRes.ok) setClaims((await clRes.json()).claims ?? []);
+      if (clRes.ok) {
+        const cd = await clRes.json();
+        setClaims(cd.claims ?? []);
+        setDailyUsage(cd.dailyUsage ?? null);
+      }
       if (stRes.ok) {
         const st = await stRes.json();
         setSettleable(st.claims ?? []);
@@ -527,6 +541,13 @@ export default function QrCollectionsPage() {
                   </>
                 ) : null}
               </p>
+              {qr.nearFull && (
+                <div className="mx-auto mt-3 flex max-w-xs items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-left text-[11px] font-medium text-amber-800">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  This QR is close to today&apos;s collection limit — you may be switched to another QR shortly. Keep
+                  refreshing before each new payment.
+                </div>
+              )}
               <div className="mx-auto mt-6 grid max-w-xs place-items-center rounded-2xl bg-white p-4 shadow-soft">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={qr.imageUrl} alt="Shop collection QR" className="w-full rounded-xl" />
@@ -640,6 +661,35 @@ export default function QrCollectionsPage() {
             />
             {screenshot && <p className="mt-1 text-xs text-emerald-600">Attached: {screenshot.name}</p>}
           </div>
+
+          {dailyUsage && (() => {
+            const amtPct = dailyUsage.amountLimit > 0 ? (dailyUsage.amount / dailyUsage.amountLimit) * 100 : 0;
+            const remainingAmount = Math.max(0, dailyUsage.amountLimit - dailyUsage.amount);
+            const remainingCount = Math.max(0, dailyUsage.countLimit - dailyUsage.count);
+            const maxed = remainingAmount <= 0 || remainingCount <= 0;
+            return (
+              <div className="rounded-xl border border-ink-100 bg-ink-50/60 p-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-ink-700">Your daily claim usage</span>
+                  <span className="text-ink-500">
+                    {formatINR(dailyUsage.amount)} / {formatINR(dailyUsage.amountLimit)} · {dailyUsage.count}/
+                    {dailyUsage.countLimit} claims
+                  </span>
+                </div>
+                <div className="mt-2 h-1.5 w-full rounded-full bg-ink-100">
+                  <div
+                    className={`h-1.5 rounded-full ${amtPct >= 100 ? "bg-rose-500" : amtPct >= 80 ? "bg-amber-500" : "bg-brand-500"}`}
+                    style={{ width: `${Math.min(100, amtPct)}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-ink-500">
+                  {maxed
+                    ? "You've reached today's claim limit — it resets tomorrow, or contact support."
+                    : `You can still claim ${formatINR(remainingAmount)} across ${remainingCount} more claim${remainingCount === 1 ? "" : "s"} today.`}
+                </p>
+              </div>
+            );
+          })()}
 
           <div className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
             Claims are verified against the payment provider&apos;s settlement data. Fraudulent or

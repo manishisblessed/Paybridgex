@@ -3,7 +3,8 @@ import { z } from "zod";
 import { requireRole, AuthError } from "@/lib/auth-server";
 import { isAdminRole } from "@/lib/security/ownership";
 import { prisma } from "@/lib/db";
-import { serializeScheme } from "@/lib/scheme/serialize";
+import { serializeScheme, serializeSlab } from "@/lib/scheme/serialize";
+import { resolveServiceVendorInfo } from "@/lib/scheme/serviceVendor";
 import { requireStepUp, readStepUpCode } from "@/lib/security/stepUp";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { clientIp } from "@/lib/security/audit";
@@ -34,8 +35,27 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       take: 200,
     });
 
+    // Resolve the CURRENT vendor cost + minimum per BBPS/Payout slab live from
+    // the rate cards, so the slab table's revenue always reflects the latest
+    // card (the stored vendorCharge is a save-time snapshot and can be stale).
+    const serialized = serializeScheme(scheme);
+    const slabsWithLive = await Promise.all(
+      scheme.slabs.map(async (s) => {
+        const info = await resolveServiceVendorInfo({
+          service: s.service,
+          provider: s.provider,
+          amount: Number(s.minAmount),
+        });
+        return {
+          ...serializeSlab(s),
+          vendorChargeLive: info?.vendorCharge ?? null,
+          minChargeLive: info?.minCharge ?? null,
+        };
+      })
+    );
+
     return NextResponse.json({
-      scheme: serializeScheme(scheme),
+      scheme: { ...serialized, slabs: slabsWithLive },
       assignedUsers,
     });
   } catch (e: unknown) {

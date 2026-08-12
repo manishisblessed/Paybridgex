@@ -4,7 +4,7 @@ import { toErrorResponse } from "@/lib/security/apiErrors";
 import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { prisma } from "@/lib/db";
-import { resolveLiveQr } from "@/lib/qr/rotation";
+import { resolveLiveQr, collectedToday, isNearDailyLimit } from "@/lib/qr/rotation";
 
 /**
  * The one live static QR every retailer collects payments on. The rotation
@@ -34,6 +34,11 @@ export async function GET() {
     return NextResponse.json({ qr: null, reason: anyEnabled > 0 ? "LIMIT_REACHED" : "NOT_CONFIGURED" });
   }
 
+  // Coarse "may switch soon" hint (no exact remaining — the counter is
+  // claim-based/lagging and the QR is shared across retailers).
+  const used = await collectedToday(qr.id);
+  const nearFull = isNearDailyLimit(qr, used);
+
   return NextResponse.json({
     qr: {
       id: qr.id,
@@ -41,6 +46,7 @@ export async function GET() {
       upiVpa: qr.upiVpa,
       imageUrl: qr.imageUrl,
       activatedAt: qr.createdAt.toISOString(),
+      nearFull,
     },
   });
 }

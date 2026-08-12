@@ -95,6 +95,35 @@ export function normalizeUtr(raw: string): string {
   return raw.replace(/[\s-]/g, "");
 }
 
+export type RetailerDailyClaimUsage = {
+  amount: number;
+  count: number;
+  amountLimit: number;
+  countLimit: number;
+};
+
+/**
+ * The caller's own QR-claim usage for the current velocity day, measured over
+ * the EXACT window `precheckQrClaim` enforces (server-local midnight) and
+ * counting EVERY claim filed today (any status, incl. rejected) — because that
+ * is what the daily caps count. Powers the retailer's "₹X of ₹Y claimed today"
+ * indicator so the number they see matches what the API will actually allow.
+ */
+export async function getRetailerDailyClaimUsage(userId: string): Promise<RetailerDailyClaimUsage> {
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const [count, sum] = await Promise.all([
+    prisma.qrClaim.count({ where: { userId, createdAt: { gte: dayStart } } }),
+    prisma.qrClaim.aggregate({ _sum: { amount: true }, where: { userId, createdAt: { gte: dayStart } } }),
+  ]);
+  return {
+    amount: Number(sum._sum.amount ?? 0),
+    count,
+    amountLimit: dailyClaimAmountLimit(),
+    countLimit: dailyClaimCountLimit(),
+  };
+}
+
 // ── Submission ──────────────────────────────────────────────────────────────
 
 export type QrClaimPrecheckInput = {
