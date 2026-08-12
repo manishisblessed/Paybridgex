@@ -75,13 +75,17 @@ export async function PATCH(
   }
 
   // Service rails (BBPS/Payout): re-lock the vendor cost from the provider's
-  // rate card and enforce charge ≥ the card's Minimum against the merged values.
+  // rate card and enforce charge ≥ the card's Minimum (ex-GST) against the
+  // merged values. `requireCard` brings edited slabs into the provider-pinned +
+  // carded model (legacy un-pinned slabs stay valid until they are next edited).
   const lock = await resolveServiceVendorLock({
     service: existing.service,
     provider: nextProvider ?? null,
     chargeType: body.chargeType ?? existing.chargeType,
     chargeValue: body.chargeValue ?? Number(existing.chargeValue),
+    chargeGstInclusive: body.chargeGstInclusive ?? existing.chargeGstInclusive,
     minAmount: nextMin,
+    requireCard: true,
   });
   if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
 

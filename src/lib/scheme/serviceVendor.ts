@@ -26,6 +26,13 @@ export type ServiceVendorLock =
 
 const PASS_THROUGH: ServiceVendorLock = { ok: true, enforced: false, vendorCharge: 0, minCharge: 0 };
 
+/** GST rate applied to service charges/vendor costs (18%). */
+const GST_DIVISOR = 1.18;
+
+/** Strip 18% GST from a value when it is quoted GST-inclusive. */
+const exGst = (value: number, gstInclusive: boolean): number =>
+  gstInclusive ? value / GST_DIVISOR : value;
+
 /** Vendor cost + minimum resolved from a service rate card (no enforcement). */
 export type ServiceVendorInfo = {
   /** Upstream/vendor cost per txn (₹) locked from the card's flat/percent rate. */
@@ -64,8 +71,12 @@ export async function resolveServiceVendorInfo(input: {
     const fam = priceScopeFamily(raw);
     if (fam) candidates.push(fam);
   } else {
+    // Try the raw provider as an exact scope key first (rate cards may be keyed
+    // by the ServiceRoute key or the partner family, both surfaced verbatim by
+    // schemes/meta), then the normalized partner tag as a fallback.
+    if (raw) candidates.push(raw);
     const norm = normalizeProviderTag(input.provider);
-    if (norm) candidates.push(norm);
+    if (norm && norm !== raw) candidates.push(norm);
   }
   if (candidates.length === 0) return null;
 
@@ -82,9 +93,16 @@ export async function resolveServiceVendorInfo(input: {
       classification: null,
     });
     if (approved) {
-      const vendorCharge = Number(approved.mdrValue);
+      // When the card is quoted GST-inclusive, strip 18% so the vendor cost and
+      // minimum are returned ex-GST — company revenue = customer charge (ex-GST)
+      // − ex-GST vendor cost, and GST is a pass-through / input credit. This is
+      // the single choke point: the slab vendorCharge snapshot, the modal
+      // preview, and the relock backfill all consume these ex-GST values.
+      const inclusive = Boolean(approved.gstInclusive);
+      const vendorCharge = exGst(Number(approved.mdrValue), inclusive);
       // Minimum charge defaults to the vendor cost when the card leaves it at 0.
-      const minCharge = Number(approved.minMdrValue) > 0 ? Number(approved.minMdrValue) : vendorCharge;
+      const rawMin = Number(approved.minMdrValue) > 0 ? Number(approved.minMdrValue) : Number(approved.mdrValue);
+      const minCharge = exGst(rawMin, inclusive);
       return { vendorCharge, minCharge, scopeKey, mdrType: approved.mdrType };
     }
   }
@@ -97,13 +115,41 @@ export async function resolveServiceVendorLock(input: {
   chargeType: "FLAT" | "PERCENT";
   chargeValue: number;
   minAmount: number;
+  /** True when the slab's customer charge already includes 18% GST. */
+  chargeGstInclusive?: boolean;
+  /**
+   * Strict mode (BBPS/Payout): require the slab to be pinned to a provider that
+   * has an approved rate card. When set, a missing provider or missing card is
+   * a hard error instead of the legacy pass-through (used by the admin flow so
+   * every service slab has an auditable vendor cost + minimum).
+   */
+  requireCard?: boolean;
 }): Promise<ServiceVendorLock> {
+  const family = familyOf(input.service).key;
+  const isServiceRail = family === "BBPS" || family === "PAYOUT";
+
+  // Strict mode: a service slab must be scoped to a provider with a rate card.
+  if (input.requireCard && isServiceRail && !(input.provider ?? "").trim()) {
+    return {
+      ok: false,
+      error: `${family} slabs must be pinned to a provider with an approved rate card. Select a provider, or add its rate in MDR & minimum charges first.`,
+    };
+  }
+
   const info = await resolveServiceVendorInfo({
     service: input.service,
     provider: input.provider,
     amount: input.minAmount,
   });
-  if (!info) return PASS_THROUGH;
+  if (!info) {
+    if (input.requireCard && isServiceRail) {
+      return {
+        ok: false,
+        error: `No approved ${family} rate exists for ${(input.provider ?? "").trim() || "this provider"}. Add it in MDR & minimum charges first.`,
+      };
+    }
+    return PASS_THROUGH;
+  }
 
   // Service rails price a flat ₹/txn. A percentage rate card (or slab) can't be
   // compared to a flat charge, so skip enforcement but still surface the vendor.
@@ -111,12 +157,15 @@ export async function resolveServiceVendorLock(input: {
     return { ok: true, enforced: false, vendorCharge: info.vendorCharge, minCharge: 0 };
   }
 
+  // Compare on an ex-GST basis: the card's minimum is already ex-GST, so strip
+  // GST from the slab's customer charge when it is quoted GST-inclusive.
+  const chargeExGst = exGst(input.chargeValue, Boolean(input.chargeGstInclusive));
   const EPS = 1e-6;
-  if (input.chargeValue + EPS < info.minCharge) {
-    const family = familyOf(input.service).key;
+  if (chargeExGst + EPS < info.minCharge) {
+    const minLabel = info.minCharge.toLocaleString("en-IN", { maximumFractionDigits: 2 });
     return {
       ok: false,
-      error: `Charge ₹${input.chargeValue} is below the ${family} minimum of ₹${info.minCharge} for ${info.scopeKey}. Raise the charge to at least ₹${info.minCharge}, or update the rate in MDR & minimum charges.`,
+      error: `Charge (ex-GST ₹${chargeExGst.toLocaleString("en-IN", { maximumFractionDigits: 2 })}) is below the ${family} minimum of ₹${minLabel} for ${info.scopeKey}. Raise the charge to at least ₹${minLabel}, or update the rate in MDR & minimum charges.`,
     };
   }
 

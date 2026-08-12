@@ -93,6 +93,7 @@ export async function GET(_req: Request, { params }: { params: { kind: string } 
             mdrValueT0: Number(r.mdrValueT0),
             minMdrValue: Number(r.minMdrValue),
             minMdrValueT0: Number(r.minMdrValueT0),
+            gstInclusive: r.gstInclusive,
             active: r.active,
           })),
         };

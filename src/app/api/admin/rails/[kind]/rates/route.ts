@@ -74,6 +74,9 @@ const RateBody = z.object({
   // vendor cost as the floor. minMdrValueT0 falls back to minMdrValue when unset.
   minMdrValue: z.number().nonnegative().default(0),
   minMdrValueT0: z.number().nonnegative().default(0),
+  // Service rails (BBPS/Payout): when true the entered vendor cost / minimum
+  // already include 18% GST, so the ex-GST cost = value/1.18. Ignored for PG/QR.
+  gstInclusive: z.boolean().default(false),
 });
 
 /** POST — add a rail (PG/QR) MDR rate for a provider (band-overlap validated). */
@@ -171,6 +174,7 @@ const UpdateBody = z.object({
   mdrValueT0: z.number().nonnegative().optional(),
   minMdrValue: z.number().nonnegative().optional(),
   minMdrValueT0: z.number().nonnegative().optional(),
+  gstInclusive: z.boolean().optional(),
   active: z.boolean().optional(),
 });
 
@@ -250,6 +254,7 @@ export async function PATCH(req: Request, { params }: { params: { kind: string }
       ...(b.mdrValueT0 !== undefined ? { mdrValueT0: b.mdrValueT0 } : {}),
       ...(b.minMdrValue !== undefined ? { minMdrValue: b.minMdrValue } : {}),
       ...(b.minMdrValueT0 !== undefined ? { minMdrValueT0: b.minMdrValueT0 } : {}),
+      ...(b.gstInclusive !== undefined ? { gstInclusive: b.gstInclusive } : {}),
       ...(b.active !== undefined ? { active: b.active } : {}),
     },
   });

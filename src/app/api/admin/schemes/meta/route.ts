@@ -3,6 +3,7 @@ import { requireRole, AuthError } from "@/lib/auth-server";
 import { isAdminRole } from "@/lib/security/ownership";
 import { prisma } from "@/lib/db";
 import { getCardClassificationSetting } from "@/lib/settings";
+import { priceScopeLabel } from "@/lib/services/priceScope";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ export async function GET() {
     throw e;
   }
 
-  const [routes, companiesByField, brands, railRoutes, railRates, cardClassification] = await Promise.all([
+  const [routes, companiesByField, brands, railRoutes, railRates, serviceRailRates, cardClassification] = await Promise.all([
     prisma.serviceRoute.findMany({
       where: { type: "SERVICE", provider: { not: null } },
       select: { kind: true, provider: true, name: true },
@@ -87,6 +88,15 @@ export async function GET() {
         minAmount: true,
         maxAmount: true,
       },
+    }),
+    // Service rails (BBPS/Payout): the providers that actually have an approved
+    // rate card. BBPS is keyed by per-product price scope (ServiceRoute key);
+    // Payout by partner family. Option 1 (provider required): the slab modal
+    // offers ONLY these, so every service slab locks a vendor cost + minimum.
+    prisma.railMdrRate.findMany({
+      where: { serviceKind: { in: ["BBPS", "PAYOUT"] }, active: true },
+      select: { serviceKind: true, scopeKey: true, scopeLabel: true },
+      orderBy: [{ scopeKey: "asc" }],
     }),
     getCardClassificationSetting(),
   ]);
@@ -231,8 +241,37 @@ export async function GET() {
       .sort((a, b) => a.label.localeCompare(b.label));
   }
 
+  // ---- Service rails (BBPS/Payout) carded providers ----
+  // De-duplicate by scopeKey per kind. Label priority: the card's own
+  // scopeLabel, then the BBPS product label / a matching route name, then the
+  // raw scope key. The dropdown VALUE is the scopeKey the resolver + runtime
+  // matcher understand (BBPS price scope, or Payout partner family).
+  const serviceProvidersByKind: Record<"BBPS" | "PAYOUT", Array<{ provider: string; name: string }>> = {
+    BBPS: [],
+    PAYOUT: [],
+  };
+  const routeNameByProvider = new Map<string, string>(); // `${kind}:${provider}` -> name
+  for (const r of routes) {
+    if (r.provider) routeNameByProvider.set(`${r.kind}:${r.provider}`, r.name);
+  }
+  const seenServiceScope: Record<"BBPS" | "PAYOUT", Set<string>> = { BBPS: new Set(), PAYOUT: new Set() };
+  for (const r of serviceRailRates) {
+    const kind = r.serviceKind as "BBPS" | "PAYOUT";
+    if (!serviceProvidersByKind[kind] || seenServiceScope[kind].has(r.scopeKey)) continue;
+    seenServiceScope[kind].add(r.scopeKey);
+    const label =
+      r.scopeLabel?.trim() ||
+      (kind === "BBPS" ? priceScopeLabel(r.scopeKey) : routeNameByProvider.get(`PAYOUT:${r.scopeKey}`)) ||
+      r.scopeKey;
+    serviceProvidersByKind[kind].push({ provider: r.scopeKey, name: label });
+  }
+  for (const kind of ["BBPS", "PAYOUT"] as const) {
+    serviceProvidersByKind[kind].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   return NextResponse.json({
     providersByKind,
+    serviceProvidersByKind,
     posCompanies: Array.from(companyNames).sort(),
     brandRatesByCompany,
     railProvidersByKind,

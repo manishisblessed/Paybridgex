@@ -64,6 +64,9 @@ type Slab = {
   chargeType: RateType;
   chargeValue: number;
   chargeGstInclusive: boolean;
+  // Vendor cost (ex-GST) locked from the provider's rate card; revenue per txn
+  // = chargeValue − vendorCharge. 0 for legacy un-carded slabs.
+  vendorCharge: number;
   active: boolean;
 };
 
@@ -116,6 +119,10 @@ type BrandRate = {
 
 type Meta = {
   providersByKind: Record<string, Array<{ provider: string; name: string }>>;
+  // Service rails (BBPS/Payout): only providers that have an approved rate card.
+  // The `provider` value is the scope key the resolver + runtime matcher use
+  // (BBPS product price scope, or Payout partner family).
+  serviceProvidersByKind: Record<string, Array<{ provider: string; name: string }>>;
   posCompanies: string[];
   brandRatesByCompany: Record<string, BrandRate[]>;
   // PG/QR acquiring rate cards (the POS-brand analogue for the PG & QR rails).
@@ -238,6 +245,7 @@ export default function SchemeManagementPage() {
   const [schemes, setSchemes] = useState<Scheme[]>([]);
   const [meta, setMeta] = useState<Meta>({
     providersByKind: {},
+    serviceProvidersByKind: {},
     posCompanies: [],
     brandRatesByCompany: {},
     railProvidersByKind: EMPTY_RAIL_PROVIDERS,
@@ -268,6 +276,7 @@ export default function SchemeManagementPage() {
         if (metaData.providersByKind)
           setMeta({
             providersByKind: metaData.providersByKind,
+            serviceProvidersByKind: metaData.serviceProvidersByKind ?? {},
             posCompanies: metaData.posCompanies ?? [],
             brandRatesByCompany: metaData.brandRatesByCompany ?? {},
             railProvidersByKind: metaData.railProvidersByKind ?? EMPTY_RAIL_PROVIDERS,
@@ -615,6 +624,8 @@ function SchemeCard({
                             <th className="px-4 py-2 font-semibold">Provider</th>
                             <th className="px-4 py-2 font-semibold">Slab</th>
                             <th className="px-4 py-2 text-right font-semibold">Charge</th>
+                            <th className="px-4 py-2 text-right font-semibold">Vendor</th>
+                            <th className="px-4 py-2 text-right font-semibold text-brand-600">Revenue</th>
                             <th className="px-4 py-2 text-center font-semibold">Status</th>
                             <th className="px-4 py-2" />
                           </tr>
@@ -631,6 +642,23 @@ function SchemeCard({
                                   {s.chargeGstInclusive ? "incl. GST" : "+ GST"}
                                 </span>
                               </td>
+                              {(() => {
+                                // Vendor is a flat ₹ ex-GST snapshot; revenue only
+                                // meaningful for FLAT charges (charge − vendor).
+                                const flat = s.chargeType === "FLAT";
+                                const chargeExGst = s.chargeGstInclusive ? s.chargeValue / 1.18 : s.chargeValue;
+                                const rev = flat ? Math.max(chargeExGst - (s.vendorCharge ?? 0), 0) : null;
+                                return (
+                                  <>
+                                    <td className="px-4 py-2.5 text-right text-xs text-amber-600">
+                                      {s.vendorCharge > 0 ? `₹${s.vendorCharge.toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "—"}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right text-xs font-semibold text-brand-700">
+                                      {rev != null ? `₹${rev.toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "—"}
+                                    </td>
+                                  </>
+                                );
+                              })()}
                               <td className="px-4 py-2.5 text-center">
                                 <Badge variant={s.active ? "success" : "danger"}>{s.active ? "On" : "Off"}</Badge>
                               </td>
@@ -807,7 +835,7 @@ function SchemeCard({
           schemeId={scheme.id}
           family={slabModal.family}
           editing={slabModal.editing}
-          providers={meta.providersByKind[slabModal.family.routeKind] ?? []}
+          providers={meta.serviceProvidersByKind[slabModal.family.routeKind] ?? []}
           onClose={() => setSlabModal(null)}
           onSaved={(msg) => {
             setSlabModal(null);
@@ -897,9 +925,64 @@ function SlabModal({
   const [chargeGstInclusive, setChargeGstInclusive] = useState(editing?.chargeGstInclusive ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Live vendor cost + minimum (ex-GST) resolved from the provider's rate card,
+  // mirroring the POS modal's locked vendor/min. Drives the revenue preview and
+  // the client-side minimum-charge guard (the server is the source of truth).
+  const [vendorInfo, setVendorInfo] = useState<{ vendorCharge: number; minCharge: number } | null>(null);
+  const [vendorLoading, setVendorLoading] = useState(false);
 
   const cfg = FAMILY_ICONS[family.key];
   const Icon = cfg.icon;
+
+  // The representative ServiceCode for the rate-card lookup: Payout is always
+  // "PAYOUT"; BBPS cards are keyed by provider scope (not service), so any
+  // family service resolves the same card when "All Services" is selected.
+  const previewService = family.key === "PAYOUT" ? "PAYOUT" : service === "ALL" ? family.services[0] : service;
+
+  useEffect(() => {
+    if (!provider) {
+      setVendorInfo(null);
+      return;
+    }
+    let cancelled = false;
+    setVendorLoading(true);
+    const amt = Number(minAmount) || 0;
+    fetch(
+      `/api/admin/schemes/vendor-preview?service=${encodeURIComponent(previewService)}&provider=${encodeURIComponent(
+        provider
+      )}&amount=${amt}`
+    )
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        setVendorInfo(
+          d && d.vendorCharge != null
+            ? { vendorCharge: Number(d.vendorCharge), minCharge: Number(d.minCharge ?? 0) }
+            : null
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setVendorInfo(null);
+      })
+      .finally(() => {
+        if (!cancelled) setVendorLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewService, provider, minAmount]);
+
+  // Revenue = customer charge (ex-GST) − vendor cost (ex-GST). Services earn no
+  // commission, so the whole margin is company revenue. Only FLAT charges are
+  // compared to the flat card minimum (mirrors the server; PERCENT skips it).
+  const chargeNum = Number(chargeValue) || 0;
+  const isFlat = chargeType === "FLAT";
+  const chargeExGst = isFlat ? (chargeGstInclusive ? chargeNum / 1.18 : chargeNum) : 0;
+  const revenue = vendorInfo && isFlat ? Math.max(chargeExGst - vendorInfo.vendorCharge, 0) : 0;
+  const belowMin = !!vendorInfo && isFlat && chargeExGst + 1e-6 < vendorInfo.minCharge;
+  const providerMissing = !provider;
+  const noCard = !!provider && !vendorLoading && !vendorInfo;
+  const noProviders = providers.length === 0;
 
   function toStored(type: RateType, raw: string): number {
     const n = Number(raw);
@@ -909,10 +992,18 @@ function SlabModal({
 
   async function submit() {
     setError(null);
+    if (!provider) {
+      setError("Select a provider. A rate card (vendor cost + minimum) is required.");
+      return;
+    }
     const min = Number(minAmount);
     const max = Number(maxAmount);
     if (!isFinite(min) || !isFinite(max) || min < 0 || max < min) {
       setError("Enter a valid amount range.");
+      return;
+    }
+    if (belowMin && vendorInfo) {
+      setError(`Customer charge must be at least ₹${vendorInfo.minCharge.toLocaleString("en-IN")} (the product minimum).`);
       return;
     }
     setSaving(true);
@@ -997,8 +1088,12 @@ function SlabModal({
             </div>
             <div>
               <Label>Provider</Label>
-              <Select value={provider} onChange={(e) => setProvider(e.target.value)}>
-                <option value="">All providers</option>
+              <Select
+                value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+                disabled={noProviders && !editing?.provider}
+              >
+                <option value="">Select a provider…</option>
                 {providers.map((p) => (
                   <option key={p.provider} value={p.provider}>
                     {p.name}
@@ -1006,12 +1101,18 @@ function SlabModal({
                 ))}
                 {/* Keep an unknown/legacy provider selectable while editing */}
                 {editing?.provider && !providers.some((p) => p.provider === editing.provider) && (
-                  <option value={editing.provider}>{editing.provider}</option>
+                  <option value={editing.provider}>{editing.provider} (no rate card)</option>
                 )}
               </Select>
-              <p className="mt-1 text-xs text-ink-400">
-                A provider-specific slab wins over &quot;All providers&quot; for the same band.
-              </p>
+              {noProviders && !editing?.provider ? (
+                <p className="mt-1 text-xs text-rose-600">
+                  No {family.label} provider has an approved rate card yet. Add one in MDR &amp; minimum charges first.
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-ink-400">
+                  Vendor cost &amp; minimum are locked from this provider&apos;s rate card.
+                </p>
+              )}
             </div>
           </div>
 
@@ -1046,16 +1147,65 @@ function SlabModal({
               </Select>
             </div>
           </div>
+
+          {/* Live rate-card preview — locked vendor cost, minimum, and revenue.
+              Mirrors the POS modal (minus commission: services earn none). */}
+          {provider && (
+            <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-3">
+              <p className="mb-2 text-xs font-bold uppercase tracking-widest text-brand-700">
+                Revenue preview {vendorLoading && <span className="font-normal normal-case text-ink-400">· loading…</span>}
+              </p>
+              {vendorInfo && isFlat ? (
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-lg bg-white p-2">
+                      <p className="text-[10px] uppercase tracking-wider text-ink-400">Vendor / txn</p>
+                      <p className="font-semibold text-amber-600">₹{vendorInfo.vendorCharge.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-2">
+                      <p className="text-[10px] uppercase tracking-wider text-ink-400">Min charge</p>
+                      <p className="font-semibold text-ink-700">₹{vendorInfo.minCharge.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p>
+                    </div>
+                    <div className="rounded-lg bg-white p-2">
+                      <p className="text-[10px] uppercase tracking-wider text-ink-400">Revenue / txn</p>
+                      <p className="font-bold text-brand-700">₹{revenue.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p>
+                    </div>
+                  </div>
+                  {belowMin ? (
+                    <p className="text-xs font-medium text-rose-600">
+                      Charge is below the ₹{vendorInfo.minCharge.toLocaleString("en-IN")} minimum — raise it to save.
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-ink-400">
+                      Company revenue = customer charge (ex-GST) − vendor cost. Values are ex-GST; services earn no commission.
+                    </p>
+                  )}
+                </div>
+              ) : vendorInfo && !isFlat ? (
+                <p className="text-xs text-ink-500">
+                  Percent charges can&apos;t be compared to the flat card minimum — vendor cost ₹
+                  {vendorInfo.vendorCharge.toLocaleString("en-IN", { maximumFractionDigits: 2 })} / txn is still locked from the card.
+                </p>
+              ) : (
+                <p className="text-xs text-rose-600">
+                  {vendorLoading
+                    ? "Resolving the provider&apos;s rate card…"
+                    : "No rate card found for this provider — add a vendor rate in MDR & minimum charges before saving."}
+                </p>
+              )}
+            </div>
+          )}
+
           <p className="text-xs text-ink-400">
-            Admin schemes set the charge only. Commission is added by each network parent when they derive a scheme
-            for their children (cascade model). Percent values are entered as human percent (0.5 = 0.5%).
+            The charge is locked to the provider&apos;s rate card: it can never be below the minimum, and company revenue
+            = charge − vendor cost. Services earn no commission. Percent values are entered as human percent (0.5 = 0.5%).
           </p>
         </div>
         <div className="sticky bottom-0 flex justify-end gap-2 border-t border-ink-100 bg-white px-5 py-4">
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={saving}>
+          <Button onClick={submit} disabled={saving || providerMissing || belowMin || noCard}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             Save configuration
           </Button>

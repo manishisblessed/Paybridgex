@@ -74,14 +74,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (overlap) return NextResponse.json({ error: overlap }, { status: 409 });
 
   // Service rails (BBPS/Payout): lock the vendor cost from the provider's rate
-  // card and enforce charge ≥ the card's Minimum. No-ops for other services and
-  // for un-carded providers (preserves existing behaviour).
+  // card and enforce charge ≥ the card's Minimum (ex-GST). `requireCard` makes
+  // this the authoritative admin flow — a BBPS/Payout slab MUST be pinned to a
+  // provider that has an approved rate card (mirrors POS). No-op for other
+  // services and legacy un-carded providers on other rails.
   const lock = await resolveServiceVendorLock({
     service: body.service as ServiceCode,
     provider: body.provider ?? null,
     chargeType: body.chargeType,
     chargeValue: body.chargeValue,
+    chargeGstInclusive: body.chargeGstInclusive,
     minAmount: body.minAmount,
+    requireCard: true,
   });
   if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 400 });
 

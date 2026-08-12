@@ -62,6 +62,8 @@ type RailRate = {
   mdrValueT0: number;
   minMdrValue: number;
   minMdrValueT0: number;
+  /** Service rails only: vendor cost/minimum already include 18% GST. */
+  gstInclusive: boolean;
   active: boolean;
 };
 
@@ -280,6 +282,8 @@ function RailRateEditor({
     mdrValueT0: "0",
     minMdrValue: "0",
     minMdrValueT0: "0",
+    // Service rails: how the entered vendor/minimum are quoted w.r.t. GST.
+    gstInclusive: "exclusive",
   };
   const [form, setForm] = useState(emptyForm);
   const isCard = instrumentIsCard(form.instrument);
@@ -320,6 +324,7 @@ function RailRateEditor({
       mdrValueT0: fromStored(r.mdrValueT0, r.mdrType),
       minMdrValue: fromStored(r.minMdrValue, r.mdrType),
       minMdrValueT0: fromStored(r.minMdrValueT0, r.mdrType),
+      gstInclusive: r.gstInclusive ? "inclusive" : "exclusive",
     });
     if (typeof document !== "undefined") {
       document.getElementById("rail-rate-form")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -345,6 +350,8 @@ function RailRateEditor({
         mdrValueT0: toFraction(form.mdrValueT0, form.mdrType),
         minMdrValue: toFraction(form.minMdrValue, form.mdrType),
         minMdrValueT0: toFraction(form.minMdrValueT0, form.mdrType),
+        // GST treatment is only meaningful for service rails (BBPS/Payout).
+        gstInclusive: serviceRail ? form.gstInclusive === "inclusive" : false,
       };
       const res = await fetch(`/api/admin/rails/${kindPath}/rates`, {
         method: editingId ? "PATCH" : "POST",
@@ -487,6 +494,13 @@ function RailRateEditor({
                       <div className="rounded-xl bg-brand-50 px-3 py-2">
                         <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-brand-500">
                           <Banknote className="h-3 w-3" /> Vendor / txn
+                          <span
+                            className={`ml-auto rounded px-1 py-0.5 text-[9px] font-semibold leading-none ${
+                              r.gstInclusive ? "bg-amber-100 text-amber-700" : "bg-sky-100 text-sky-700"
+                            }`}
+                          >
+                            {r.gstInclusive ? "incl. GST" : "+ GST"}
+                          </span>
                         </p>
                         <p className="text-base font-bold text-brand-700">{fmtRate(r.mdrType, r.mdrValue)}</p>
                       </div>
@@ -677,6 +691,15 @@ function RailRateEditor({
                 <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.minMdrValueT0} onChange={set("minMdrValueT0")} placeholder="0 = T+1" />
               </label>
             )}
+            {serviceRail && (
+              <label className="text-xs text-ink-500">
+                GST
+                <select className={`${inputCls} mt-1 w-full`} value={form.gstInclusive} onChange={set("gstInclusive")}>
+                  <option value="exclusive">Excl. GST (18% on top)</option>
+                  <option value="inclusive">Incl. GST (already in cost)</option>
+                </select>
+              </label>
+            )}
             <div className="flex items-end gap-2 lg:col-span-8">
               <Button size="sm" onClick={saveRate} disabled={busy} isLoading={busy}>
                 {editing ? (
@@ -701,7 +724,9 @@ function RailRateEditor({
               Vendor cost is what the {meta.vendorNoun} charges the company per {railLabel} transaction. Minimum charge
               is the least the company will charge the customer: a scheme&apos;s {railLabel} charge can never be priced
               below it, and <span className="font-medium text-ink-600">revenue per transaction = customer charge −
-              vendor cost</span>. Leave Minimum 0 to use the vendor cost as the floor.
+              vendor cost</span>. Leave Minimum 0 to use the vendor cost as the floor.{" "}
+              <span className="font-medium text-ink-600">GST:</span> choose <em>Incl.</em> if the vendor cost/minimum
+              already include 18% GST (the ex-GST cost = value ÷ 1.18), or <em>Excl.</em> if GST is added on top.
             </p>
           ) : (
             <p className="mt-3 text-[11px] text-ink-400">

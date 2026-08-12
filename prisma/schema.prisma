@@ -2660,6 +2660,13 @@ model RailMdrRate {
   minMdrValue   Decimal @default(0) @db.Decimal(14, 4)
   minMdrValueT0 Decimal @default(0) @db.Decimal(14, 4)
 
+  // GST treatment of the entered vendor cost / minimum (service rails only —
+  // BBPS/Payout). When true the mdrValue/minMdrValue already include 18% GST, so
+  // the ex-GST cost is value/1.18; company revenue = customer charge − ex-GST
+  // vendor cost (GST is a pass-through / input credit). When false (default) the
+  // entered values are already ex-GST. Ignored for PG/QR (kept default false).
+  gstInclusive Boolean @default(false)
+
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
