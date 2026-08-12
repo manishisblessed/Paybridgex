@@ -37,12 +37,12 @@ export const metadata: Metadata = {
     "fintech India",
     "agent banking"
   ],
-  metadataBase: new URL("https://nxtgpay.com"),
+  metadataBase: new URL("https://nxtgenpay.space"),
   openGraph: {
     title: "NextGenPay — Payment Gateway, POS & QR Payments",
     description:
       "Payment gateway, POS machines, QR collections and 60+ digital services for retailers, distributors and merchants.",
-    url: "https://nxtgpay.com",
+    url: "https://nxtgenpay.space",
     siteName: "NextGenPay",
     type: "website"
   }

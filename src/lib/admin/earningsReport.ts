@@ -13,7 +13,7 @@ import { toNumber } from "@/lib/money";
  *
  *   - POS  → Transaction.refId "POS:<ref>"        (service = POS)
  *   - PG   → Transaction.refId "PG<10>"           (service = WALLET_TOPUP placeholder)
- *   - QR   → Transaction.refId "QR<10>"           (service = WALLET_TOPUP placeholder)
+ *   - QR   → Transaction.refId "QR<10>"           (service = QR; legacy rows may be WALLET_TOPUP)
  *   - UPI  → Transaction.service = UPI_COLLECT     (a first-class transaction)
  *
  * Per transaction we surface:

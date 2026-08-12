@@ -24,10 +24,18 @@ export async function GET(_req: Request, { params }: { params: { kind: string } 
     const rail = parseRail(params.kind);
     if (!rail) return NextResponse.json({ error: "Unknown rail" }, { status: 404 });
 
+    // BBPS is priced per PRODUCT (each ServiceRoute is its own rate card, keyed
+    // by the unique route key) — two products on the same partner (e.g. Same Day
+    // Bharat BillPay vs Same Day RechargeKit) must hold separate vendor/minimum
+    // rates. Other rails (PG/QR/Payout) remain keyed by the partner (provider).
+    const scopeByKey = rail === "BBPS";
+
     const [routes, rates, cardClassification] = await Promise.all([
       prisma.serviceRoute.findMany({
-        where: { kind: rail, provider: { not: null } },
-        select: { provider: true, name: true },
+        where: scopeByKey
+          ? { kind: rail, type: "SERVICE" }
+          : { kind: rail, provider: { not: null } },
+        select: { key: true, provider: true, name: true },
         orderBy: [{ sortOrder: "asc" }],
       }),
       prisma.railMdrRate.findMany({
@@ -37,19 +45,21 @@ export async function GET(_req: Request, { params }: { params: { kind: string } 
       getCardClassificationSetting(),
     ]);
 
-    // Build the provider list (de-duplicated), preserving route order.
-    const providers: Array<{ scopeKey: string; name: string }> = [];
+    // Build the card list (de-duplicated), preserving route order. `partner`
+    // records the backing acquirer/partner for display (e.g. two SAMEDAY cards).
+    const providers: Array<{ scopeKey: string; name: string; partner: string | null }> = [];
     const seen = new Set<string>();
     for (const r of routes) {
-      if (!r.provider || seen.has(r.provider)) continue;
-      seen.add(r.provider);
-      providers.push({ scopeKey: r.provider, name: r.name });
+      const scopeKey = scopeByKey ? r.key : r.provider;
+      if (!scopeKey || seen.has(scopeKey)) continue;
+      seen.add(scopeKey);
+      providers.push({ scopeKey, name: r.name, partner: r.provider ?? null });
     }
     // Include orphan scopeKeys that have rates but no matching route.
     for (const rate of rates) {
       if (!seen.has(rate.scopeKey)) {
         seen.add(rate.scopeKey);
-        providers.push({ scopeKey: rate.scopeKey, name: rate.scopeLabel ?? rate.scopeKey });
+        providers.push({ scopeKey: rate.scopeKey, name: rate.scopeLabel ?? rate.scopeKey, partner: null });
       }
     }
 
@@ -67,6 +77,7 @@ export async function GET(_req: Request, { params }: { params: { kind: string } 
         return {
           scopeKey: p.scopeKey,
           name: p.name,
+          partner: p.partner,
           rateCount: list.length,
           rates: list.map((r) => ({
             id: r.id,

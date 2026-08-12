@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Search, Filter, PackagePlus, RefreshCw, ShieldCheck, ShieldOff, Loader2,
   Wallet, ArrowUpDown, Monitor, Layers, X, Check, AlertCircle, Eye,
-  Link2, Copy, Share2, Send, Pencil, Trash2, Clock, MailPlus,
+  Link2, Copy, Share2, Send, Pencil, Trash2, Clock, MailPlus, ListChecks,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/PageHeader";
@@ -19,6 +19,10 @@ import { Pagination } from "@/components/ui/Pagination";
 import { useSession } from "next-auth/react";
 import { useAuth } from "@/lib/useAuth";
 import { formatINR } from "@/lib/utils";
+import {
+  OnboardingProgressView,
+  type OnboardingProgress,
+} from "@/components/network/OnboardingProgressView";
 
 type NetworkUser = {
   id: string;
@@ -745,6 +749,7 @@ function PendingInvitesCard({ singular, onChanged }: { singular: string; onChang
   const [busyId, setBusyId] = useState<string | null>(null);
   const [editing, setEditing] = useState<PendingInvite | null>(null);
   const [cancelTarget, setCancelTarget] = useState<PendingInvite | null>(null);
+  const [progressFor, setProgressFor] = useState<PendingInvite | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -840,6 +845,12 @@ function PendingInvitesCard({ singular, onChanged }: { singular: string; onChang
                 </div>
 
                 <div className="flex items-center gap-1">
+                  <IconBtn
+                    title="View onboarding progress"
+                    onClick={() => setProgressFor(inv)}
+                    icon={<ListChecks className="h-4 w-4" />}
+                    label="Progress"
+                  />
                   {!expired && (
                     <>
                       <IconBtn
@@ -901,6 +912,13 @@ function PendingInvitesCard({ singular, onChanged }: { singular: string; onChang
         />
       )}
 
+      {progressFor && (
+        <InviteProgressModal
+          invite={progressFor}
+          onClose={() => setProgressFor(null)}
+        />
+      )}
+
       <ConfirmDialog
         open={cancelTarget !== null}
         onClose={() => setCancelTarget(null)}
@@ -913,6 +931,90 @@ function PendingInvitesCard({ singular, onChanged }: { singular: string; onChang
           if (cancelTarget) await act(cancelTarget, "cancel");
         }}
       />
+    </div>
+  );
+}
+
+// ── Onboarding progress modal for a not-yet-registered invite ──
+
+function InviteProgressModal({
+  invite,
+  onClose,
+}: {
+  invite: PendingInvite;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<OnboardingProgress | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/network/invites/${invite.id}`);
+      const d = await res.json();
+      if (!res.ok) {
+        setError(d.error ?? "Could not load onboarding progress.");
+        setData(null);
+      } else {
+        setData(d);
+      }
+    } catch {
+      setError("Network error — please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [invite.id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-900/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="my-8 w-full max-w-lg rounded-2xl border border-ink-100 bg-ink-50/40 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between rounded-t-2xl border-b border-ink-100 bg-white px-5 py-4">
+          <div className="min-w-0">
+            <h3 className="font-display text-base font-semibold text-ink-900">
+              Onboarding progress
+            </h3>
+            <p className="truncate text-xs text-ink-500">
+              {invite.name || invite.phone} · {invite.phone}
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={load}
+              className="rounded-full p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-600"
+              title="Refresh"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded-full p-1 text-ink-400 hover:bg-ink-100"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+        <div className="p-4">
+          <OnboardingProgressView
+            loading={loading}
+            error={error}
+            data={data}
+            memberName={invite.name || invite.phone}
+            memberStatus="Pending KYC"
+          />
+        </div>
+      </div>
     </div>
   );
 }

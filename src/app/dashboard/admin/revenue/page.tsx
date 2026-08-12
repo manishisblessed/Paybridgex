@@ -14,6 +14,8 @@ import { downloadCSV, downloadPDF, downloadZIP, type ReportColumn } from "@/lib/
 
 type ServiceRow = {
   service: string;
+  /** Per-product label for BBPS/CC rails (null for other services). */
+  product: string | null;
   txnCount: number;
   totalVolume: number;
   totalCharge: number;
@@ -83,6 +85,7 @@ type RevenueData = {
   byTier: TierRow[];
   byDay: DailyRow[];
   posByLeg: SettlementLegRow[];
+  qrByLeg: SettlementLegRow[];
   wallet: RevenueWallet;
   totals: {
     txnCount: number;
@@ -167,7 +170,12 @@ export default function RevenuePage() {
     {
       key: "service",
       header: "Service",
-      render: (r) => <span className="font-semibold">{r.service.replace(/_/g, " ")}</span>,
+      render: (r) => (
+        <div className="leading-tight">
+          <span className="font-semibold">{r.service.replace(/_/g, " ")}</span>
+          {r.product && <div className="text-[11px] font-medium text-brand-600">{r.product}</div>}
+        </div>
+      ),
     },
     { key: "txnCount", header: "Txns", render: (r) => <span>{formatNumber(r.txnCount)}</span> },
     {
@@ -341,6 +349,7 @@ export default function RevenuePage() {
 
   const csvServiceCols: ReportColumn<ServiceRow>[] = [
     { key: "service", header: "Service" },
+    { key: "product", header: "Product" },
     { key: "txnCount", header: "Transactions", format: "int" },
     { key: "totalVolume", header: "Volume", format: "money" },
     { key: "totalCharge", header: "Charges Collected", format: "money" },
@@ -364,6 +373,8 @@ export default function RevenuePage() {
   const maxRevenue = Math.max(1, ...(data?.byDay ?? []).map((d) => Math.abs(d.platformRevenue)));
   const instantMargin = (data?.posByLeg ?? []).find((r) => r.settlementType === "T0")?.margin ?? 0;
   const t1Margin = (data?.posByLeg ?? []).find((r) => r.settlementType === "T1")?.margin ?? 0;
+  const qrInstantMargin = (data?.qrByLeg ?? []).find((r) => r.settlementType === "T0")?.margin ?? 0;
+  const qrT1Margin = (data?.qrByLeg ?? []).find((r) => r.settlementType === "T1")?.margin ?? 0;
 
   // The Revenue Wallet / Company Earnings view is the platform OWNER's book —
   // master-admin only. Plain admins / finance use Commission Distributed instead.
@@ -598,6 +609,34 @@ export default function RevenuePage() {
                 <Stat label="T+1 margin" value={formatINR(t1Margin)} tone="good" />
               </div>
               <DataTable columns={legColumns} data={data.posByLeg} loading={loading} />
+            </div>
+          )}
+
+          {/* QR company margin by settlement leg (T+1 vs Instant) */}
+          {data.qrByLeg.length > 0 && (
+            <div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-ink-800">
+                  QR company margin by settlement leg
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    downloadCSV(
+                      `qr-margin-by-leg-${data.from}-to-${data.to}`,
+                      data.qrByLeg,
+                      csvLegCols
+                    )
+                  }
+                >
+                  <Download className="mr-2 h-4 w-4" /> CSV
+                </Button>
+              </div>
+              <div className="mb-3 grid grid-cols-2 gap-4">
+                <Stat label="Instant (T+0) margin" value={formatINR(qrInstantMargin)} tone="good" />
+                <Stat label="T+1 margin" value={formatINR(qrT1Margin)} tone="good" />
+              </div>
+              <DataTable columns={legColumns} data={data.qrByLeg} loading={loading} />
             </div>
           )}
 

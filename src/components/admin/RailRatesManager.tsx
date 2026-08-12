@@ -68,6 +68,8 @@ type RailRate = {
 type Provider = {
   scopeKey: string;
   name: string;
+  /** Backing acquirer/partner (e.g. "SAMEDAY", "BULKPE") for display. */
+  partner: string | null;
   rateCount: number;
   rates: RailRate[];
 };
@@ -200,13 +202,20 @@ export function RailRatesManager({ serviceKind }: { serviceKind: RailKind }) {
                 <div>
                   <p className="font-semibold text-ink-900">{p.name}</p>
                   <p className="mt-0.5 font-mono text-[11px] text-ink-400">{p.scopeKey}</p>
-                  <span
-                    className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                      p.rateCount > 0 ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
-                    }`}
-                  >
-                    <Layers className="h-3 w-3" /> {p.rateCount} rate{p.rateCount === 1 ? "" : "s"}
-                  </span>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        p.rateCount > 0 ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                      }`}
+                    >
+                      <Layers className="h-3 w-3" /> {p.rateCount} rate{p.rateCount === 1 ? "" : "s"}
+                    </span>
+                    {serviceRail && p.partner && (
+                      <span className="inline-flex items-center rounded-full bg-ink-100 px-2 py-0.5 text-[11px] font-medium text-ink-600">
+                        via {p.partner}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <ChevronRight
                   className={`h-5 w-5 shrink-0 text-ink-300 transition ${isActive ? "rotate-90 text-brand-500" : ""}`}

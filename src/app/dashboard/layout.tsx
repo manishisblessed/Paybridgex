@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Toaster } from "sonner";
 import { Sidebar } from "@/components/dashboard/Sidebar";
@@ -20,9 +20,12 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { data: session, status } = useSession({ required: true });
+  const { data: session, status, update } = useSession({ required: true });
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  // Whether we've re-validated a "2FA appears off" session against the server.
+  const [twoFAChecked, setTwoFAChecked] = useState(false);
+  const revalidatingRef = useRef(false);
 
   useEffect(() => {
     const stored = localStorage.getItem(SIDEBAR_KEY);
@@ -37,7 +40,31 @@ export default function DashboardLayout({
     });
   }, []);
 
-  const needs2FASetup = status === "authenticated" && !session?.user?.twoFactorEnabled;
+  const twoFactorEnabled = session?.user?.twoFactorEnabled === true;
+
+  // A stale JWT (e.g. minted before the user enabled 2FA, or a session cookie
+  // that hasn't picked up the current DB value yet) can report
+  // twoFactorEnabled=false even though 2FA is actually active. Before forcing
+  // the *mandatory* setup modal, refresh the session from the server once so we
+  // never nag a user who has already completed 2FA. Only after this re-check
+  // still reports it off do we treat setup as required.
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    if (twoFactorEnabled) {
+      setTwoFAChecked(true);
+      return;
+    }
+    if (!twoFAChecked && !revalidatingRef.current) {
+      revalidatingRef.current = true;
+      Promise.resolve(update()).finally(() => {
+        revalidatingRef.current = false;
+        setTwoFAChecked(true);
+      });
+    }
+  }, [status, twoFactorEnabled, twoFAChecked, update]);
+
+  const needs2FASetup =
+    status === "authenticated" && twoFAChecked && !twoFactorEnabled;
 
   if (status === "loading") {
     return <DashboardShellSkeleton />;
@@ -70,7 +97,7 @@ export default function DashboardLayout({
       </div>
 
       {needs2FASetup && <TwoFactorSetupModal />}
-      {!needs2FASetup && <ReKycGate />}
+      {twoFactorEnabled && <ReKycGate />}
     </div>
   );
 }

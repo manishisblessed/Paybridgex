@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import {
   QrCode,
@@ -93,6 +94,15 @@ const STATUS_BADGE: Record<Claim["status"], { label: string; variant: "success" 
 };
 
 export default function QrCollectionsPage() {
+  const { data: authSession, status: sessionStatus } = useSession();
+  // Only RETAILERs collect on the shop QR and file claims. DT/MD/SD (and any
+  // admin who lands here) get the network-facing Settlement Report only — scoped
+  // to their downline retailers + their own commission, the QR analogue of the
+  // POS model. The collect/claim/settlement APIs are RETAILER-guarded too, so
+  // this isn't just cosmetic.
+  const role = (authSession?.user as { role?: string } | undefined)?.role;
+  const isRetailer = role === "RETAILER";
+
   const [qr, setQr] = useState<ActiveQr | null>(null);
   const [qrReason, setQrReason] = useState<string | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
@@ -100,8 +110,10 @@ export default function QrCollectionsPage() {
   const [instantEnabled, setInstantEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // "Collect & Claim" (all roles) vs "Settlement Report" (self + downline).
+  // Retailers switch between "Collect & Claim" and "Settlement Report"; everyone
+  // else is pinned to the report (they have no QR/claim surface).
   const [tab, setTab] = useState<"collect" | "report">("collect");
+  const activeTab: "collect" | "report" = isRetailer ? tab : "report";
 
   // Claim form
   const [amount, setAmount] = useState("");
@@ -118,6 +130,12 @@ export default function QrCollectionsPage() {
   const [settling, setSettling] = useState(false);
 
   const refresh = useCallback(async () => {
+    // Collect/claim/settlement data is retailer-only; the endpoints 403 for
+    // other roles, so skip the fetch entirely for them.
+    if (!isRetailer) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [qrRes, clRes, stRes] = await Promise.all([
@@ -141,7 +159,7 @@ export default function QrCollectionsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isRetailer]);
 
   useEffect(() => {
     refresh();
@@ -374,31 +392,42 @@ export default function QrCollectionsPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="QR Collections"
-        title="Collect on the shop QR"
-        description="Take customer payments on the platform QR, then claim each payment with its UTR and screenshot — verified claims are credited to your wallet."
+        title={isRetailer ? "Collect on the shop QR" : "QR Settlement & Commission"}
+        description={
+          isRetailer
+            ? "Take customer payments on the platform QR, then claim each payment with its UTR and screenshot — verified claims are credited to your wallet."
+            : "QR collections across your retailer network — volume, MDR, settlements and the commission you earn on each claim."
+        }
       />
 
-      {/* Collect & Claim (your own QR) vs Settlement Report (self + downline) */}
-      <div className="flex gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
-        {([
-          { id: "collect", label: "Collect & Claim", icon: Store },
-          { id: "report", label: "Settlement Report", icon: Receipt },
-        ] as const).map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={
-              tab === id
-                ? "flex-1 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-ink-900 shadow-sm"
-                : "flex-1 rounded-lg px-4 py-2 text-sm font-semibold text-ink-500 transition-colors hover:text-ink-700"
-            }
-          >
-            <span className="flex items-center justify-center gap-2"><Icon className="h-4 w-4" /> {label}</span>
-          </button>
-        ))}
-      </div>
+      {/* Retailers toggle Collect & Claim vs Settlement Report; DT/MD/SD only
+          ever see the report, so the switcher is hidden for them. */}
+      {isRetailer && (
+        <div className="flex gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
+          {([
+            { id: "collect", label: "Collect & Claim", icon: Store },
+            { id: "report", label: "Settlement Report", icon: Receipt },
+          ] as const).map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={
+                tab === id
+                  ? "flex-1 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-ink-900 shadow-sm"
+                  : "flex-1 rounded-lg px-4 py-2 text-sm font-semibold text-ink-500 transition-colors hover:text-ink-700"
+              }
+            >
+              <span className="flex items-center justify-center gap-2"><Icon className="h-4 w-4" /> {label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
-      {tab === "report" ? (
+      {sessionStatus === "loading" ? (
+        <div className="rounded-2xl border border-ink-100 bg-white p-10 text-center text-sm text-ink-500">
+          Loading…
+        </div>
+      ) : activeTab === "report" ? (
         <QrSettlementReportTab />
       ) : (
       <>

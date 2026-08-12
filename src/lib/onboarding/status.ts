@@ -12,6 +12,7 @@
  * the same requirements the applicant must satisfy.
  */
 
+import type { Invite } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getRequiredDocTypes, docTypeLabel } from "./requiredDocuments";
 import { getResubmitStatus } from "./resubmission";
@@ -64,17 +65,57 @@ export async function getOnboardingProgress(
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },
   });
+  return buildProgress({
+    invite,
+    role: user.role,
+    accountStatus: user.status,
+    userId: user.id,
+    hasLivenessVideo: user.hasLivenessVideo,
+  });
+}
+
+/**
+ * Build the onboarding progress for an invite that has NOT yet registered
+ * (no linked User). The onboarding wizard persists each completed step against
+ * the invite (VerificationResult.inviteId, invite.phoneVerifiedAt, …), so the
+ * upline can watch exactly which step an invitee is stuck on in real time —
+ * before registration completes. Status-only; no documents/PII.
+ */
+export async function getOnboardingProgressForInvite(
+  invite: Invite
+): Promise<OnboardingProgress> {
+  return buildProgress({
+    invite,
+    role: invite.role,
+    accountStatus: invite.userId ? "PENDING_KYC" : "AWAITING_REGISTRATION",
+    userId: invite.userId ?? null,
+    hasLivenessVideo: false,
+  });
+}
+
+type ProgressInput = {
+  invite: Invite | null;
+  role: string;
+  accountStatus: string;
+  userId: string | null;
+  hasLivenessVideo: boolean;
+};
+
+async function buildProgress(input: ProgressInput): Promise<OnboardingProgress> {
+  const { invite, role, accountStatus, userId, hasLivenessVideo } = input;
 
   const results = await prisma.verificationResult.findMany({
-    where: invite ? { inviteId: invite.id } : { userId: user.id },
+    where: invite ? { inviteId: invite.id } : userId ? { userId } : { id: "__none__" },
     select: { type: true, status: true, createdAt: true },
     orderBy: { createdAt: "desc" },
   });
 
-  const kyc = await prisma.kyc.findUnique({
-    where: { userId: user.id },
-    select: { status: true, rejectedReason: true, updatedAt: true },
-  });
+  const kyc = userId
+    ? await prisma.kyc.findUnique({
+        where: { userId },
+        select: { status: true, rejectedReason: true, updatedAt: true },
+      })
+    : null;
 
   const resub = invite
     ? await getResubmitStatus(invite.id)
@@ -92,7 +133,7 @@ export async function getOnboardingProgress(
   );
   const hasVideo =
     results.some((r) => r.type === "ONBOARD_VIDEO" && r.status === "Uploaded") ||
-    user.hasLivenessVideo;
+    hasLivenessVideo;
 
   const now = new Date();
   const inviteStatus = invite
@@ -186,7 +227,7 @@ export async function getOnboardingProgress(
       group: "documents",
     });
   }
-  for (const t of getRequiredDocTypes(user.role)) {
+  for (const t of getRequiredDocTypes(role)) {
     steps.push({
       key: t,
       label: docTypeLabel(t),
@@ -212,7 +253,7 @@ export async function getOnboardingProgress(
       })
     : null;
   const requiresSuccessor = inviter
-    ? needsSuccessorApproval(user.role, inviter.role)
+    ? needsSuccessorApproval(role, inviter.role)
     : false;
   let successorPending = false;
   if (requiresSuccessor && invite) {
@@ -253,7 +294,7 @@ export async function getOnboardingProgress(
     group: "review",
   });
   const activated =
-    user.status === "ACTIVE" ||
+    accountStatus === "ACTIVE" ||
     inviteStatus === "APPROVED" ||
     kyc?.status === "APPROVED";
   steps.push({
@@ -307,7 +348,7 @@ export async function getOnboardingProgress(
     hasInvite: Boolean(invite),
     inviteStatus,
     kycStatus: kyc?.status ?? null,
-    accountStatus: user.status,
+    accountStatus,
     registeredAt: invite?.registeredAt?.toISOString() ?? null,
     approvedAt: invite?.approvedAt?.toISOString() ?? null,
     rejectedReason,

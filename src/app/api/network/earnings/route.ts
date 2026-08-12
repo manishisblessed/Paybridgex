@@ -61,11 +61,12 @@ export async function GET(req: Request) {
       _sum: { amount: true },
       _count: true,
     }),
-    // QR and PG settlement commissions are booked against the WALLET_TOPUP
-    // placeholder ServiceCode and identified by their synthetic Transaction refId
-    // prefix ("QR…" / "PG…"), mirroring the admin earnings report. Split them out
-    // of the WALLET_TOPUP bucket so the breakdown reads "QR/PG Settlement" rather
-    // than "Wallet Top-up".
+    // QR is now a first-class ServiceCode (like POS), but LEGACY QR settlements —
+    // and all PG settlements — are still booked against the WALLET_TOPUP
+    // placeholder and identified by their synthetic Transaction refId prefix
+    // ("QR…" / "PG…"). Carve those out of the WALLET_TOPUP bucket so the breakdown
+    // reads "QR/PG Settlement" rather than "Wallet Top-up"; new first-class QR
+    // credits are folded in with them below.
     prisma.commissionCredit.aggregate({
       where: { userId: user.id, service: "WALLET_TOPUP", transaction: { refId: { startsWith: "QR" } } },
       _sum: { amount: true },
@@ -78,17 +79,26 @@ export async function GET(req: Request) {
     }),
   ]);
 
-  const qrAmount = toNumber(qrAgg._sum.amount ?? 0);
-  const qrCount = qrAgg._count;
+  // Legacy QR + all PG commissions carved out of the WALLET_TOPUP placeholder.
+  const qrLegacyAmount = toNumber(qrAgg._sum.amount ?? 0);
+  const qrLegacyCount = qrAgg._count;
   const pgAmount = toNumber(pgAgg._sum.amount ?? 0);
   const pgCount = pgAgg._count;
 
+  // Fold the first-class "QR" service group together with legacy WALLET_TOPUP QR
+  // into a single QR line (mirrors how POS surfaces as one service).
+  let qrAmount = qrLegacyAmount;
+  let qrCount = qrLegacyCount;
+
   const byService: Array<{ service: string; amount: number; count: number }> = [];
   for (const s of serviceAgg) {
-    if (s.service === "WALLET_TOPUP") {
-      // Carve QR/PG out of the placeholder bucket; the remainder is genuine top-ups.
-      const restAmount = toNumber(s._sum.amount ?? 0) - qrAmount - pgAmount;
-      const restCount = s._count - qrCount - pgCount;
+    if (s.service === "QR") {
+      qrAmount += toNumber(s._sum.amount ?? 0);
+      qrCount += s._count;
+    } else if (s.service === "WALLET_TOPUP") {
+      // Carve legacy QR/PG out of the placeholder bucket; the remainder is genuine top-ups.
+      const restAmount = toNumber(s._sum.amount ?? 0) - qrLegacyAmount - pgAmount;
+      const restCount = s._count - qrLegacyCount - pgCount;
       if (restCount > 0) byService.push({ service: "WALLET_TOPUP", amount: restAmount, count: restCount });
     } else {
       byService.push({ service: s.service, amount: toNumber(s._sum.amount ?? 0), count: s._count });
@@ -97,8 +107,8 @@ export async function GET(req: Request) {
   if (qrCount > 0) byService.push({ service: "QR", amount: qrAmount, count: qrCount });
   if (pgCount > 0) byService.push({ service: "PG", amount: pgAmount, count: pgCount });
 
-  // A settlement-rail label for a credit: POS is first-class; QR/PG ride the
-  // WALLET_TOPUP placeholder and are distinguished by their refId prefix.
+  // A settlement-rail label for a credit: POS and QR are first-class; legacy QR
+  // and all PG ride the WALLET_TOPUP placeholder, distinguished by refId prefix.
   const railOf = (service: string, refId: string | null | undefined): string => {
     if (service === "WALLET_TOPUP" && refId) {
       if (refId.startsWith("QR")) return "QR";

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/lib/auth-server";
+import { requireRole } from "@/lib/auth-server";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { instantSettleQrClaims } from "@/lib/qr/claims";
@@ -26,7 +26,8 @@ const Body = z
 export async function POST(req: Request) {
   let user;
   try {
-    user = await requireAuth();
+    // Only retailers own claims to settle; instant-settle is a retailer action.
+    user = await requireRole("RETAILER");
     await enforceRateLimit(`qr:instant-settle:${user.id}`, RATE_LIMITS.txnCreate);
   } catch (e) {
     return toErrorResponse(e);

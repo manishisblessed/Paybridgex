@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-server";
+import { requireRole } from "@/lib/auth-server";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { listSettleableQrClaims } from "@/lib/qr/claims";
 import { isInstantButtonEnabled } from "@/lib/settlement/engine";
@@ -17,7 +17,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   let user;
   try {
-    user = await requireAuth();
+    // Settleable QR claims belong to retailers only.
+    user = await requireRole("RETAILER");
   } catch (e) {
     return toErrorResponse(e);
   }

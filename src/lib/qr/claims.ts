@@ -453,7 +453,9 @@ async function settleClaim(
   // double-distribute. Idempotent regardless via the synthetic Transaction refId
   // and the per-payee commission:<txn>:<user> ledger keys.
   if (credited !== null) {
-    await distributeCommissionForQr(claim.id, claim.userId, Number(claim.amount), settlementType, scopeKey);
+    // Company MDR margin for the revenue split = scheme MDR − live acquirer cost.
+    const marginAmount = toNumber(price.mdrAmount) - toNumber(price.vendorAmount ?? 0);
+    await distributeCommissionForQr(claim.id, claim.userId, Number(claim.amount), marginAmount, settlementType, scopeKey);
     // Mirror the GROSS into the company payin wallet (best-effort live monitor).
     await recordPayin({
       rail: "QR",
@@ -469,35 +471,51 @@ async function settleClaim(
 
 /**
  * QR commission distribution (chain model): the company MDR margin
- * (serviceCharge − vendorCharge) funds upline commissions net of 2% TDS, exactly
- * like POS. Creates a placeholder Transaction for the CommissionCredit FK (there
- * is no ServiceCode for QR settlement — reuse WALLET_TOPUP as POS does), then
+ * (scheme MDR − vendor cost) funds upline commissions net of 2% TDS, exactly
+ * like POS. Creates/updates the synthetic settlement Transaction — first-class
+ * `service: "QR"`, with the MDR `margin` on `fee`, the settlement leg on
+ * `settlementType`, and the gross chain commission on `commission` — so the
+ * revenue "by service" and per-leg breakdowns attribute QR correctly. Then
  * distributes via the MDR chain. Idempotent per claim via the unique refId.
  */
 async function distributeCommissionForQr(
   claimId: string,
   userId: string,
   grossAmount: number,
+  marginAmount: number,
   settlementType: "T0" | "T1" = "T1",
   scopeKey: string | null = null
 ) {
   const refId = `QR${claimId.slice(-10).toUpperCase()}`;
+  const marginFee = new Prisma.Decimal(marginAmount.toFixed(2));
   let txn = await prisma.transaction.findUnique({ where: { refId } });
   if (!txn) {
     txn = await prisma.transaction.create({
       data: {
         refId,
         userId,
-        service: "WALLET_TOPUP" as ServiceCode, // QR settlement has no ServiceCode; placeholder (matches POS)
+        // QR is a first-class ServiceCode so per-service earnings / revenue
+        // reports attribute the settlement to QR (mirrors POS).
+        service: "QR" as ServiceCode,
         amount: new Prisma.Decimal(grossAmount),
+        fee: marginFee, // company MDR margin (MDR − vendor) for the revenue split
         status: "SUCCESS",
         partner: "STATIC_QR",
         partnerTxnId: claimId,
+        settlementType, // T0 = instant, T1 = next-day (per-leg revenue split)
       },
+    });
+  } else {
+    // Backfill the settlement fields on a pre-existing bridge row (e.g. one made
+    // by an older build that booked QR under WALLET_TOPUP) so reporting is
+    // consistent going forward.
+    txn = await prisma.transaction.update({
+      where: { id: txn.id },
+      data: { service: "QR" as ServiceCode, fee: marginFee, settlementType },
     });
   }
 
-  await distributeMdrCommission(txn.id, userId, "QR", grossAmount, txn.service, {
+  const results = await distributeMdrCommission(txn.id, userId, "QR", grossAmount, txn.service, {
     paymentMode: "UPI",
     brandType: QR_BRAND_TYPE,
     // Match the same provider-scoped scheme slab the settlement priced against —
@@ -507,6 +525,16 @@ async function distributeCommissionForQr(
     company: scopeKey,
     settlementType,
   });
+
+  // Store the gross chain commission on the bridge txn so the revenue leg-split
+  // can show company-net per settlement leg (mirrors POS).
+  const grossComm = results.reduce((s, r) => s + r.gross, 0);
+  if (grossComm > 0) {
+    await prisma.transaction.update({
+      where: { id: txn.id },
+      data: { commission: new Prisma.Decimal(grossComm.toFixed(2)) },
+    });
+  }
 }
 
 export type QrSettleResult = {

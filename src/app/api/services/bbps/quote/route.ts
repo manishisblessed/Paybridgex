@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { toNumber, add } from "@/lib/money";
 import { getEffectiveRate, withGst } from "@/lib/scheme/resolver";
+import { isBbpsPriceScope } from "@/lib/services/priceScope";
 import { getPartner } from "@/lib/partners";
 import { requireActiveScheme, NoSchemeError } from "@/lib/scheme/gate";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -20,6 +21,9 @@ const BBPS_SERVICE = {
 const QuerySchema = z.object({
   amount: z.coerce.number().positive().max(500000),
   category: z.enum(["ELECTRICITY", "WATER", "GAS", "CREDIT_CARD", "EDUCATION", "INSURANCE", "BROADBAND"]),
+  // Product the quote is for (ServiceRoute key) so the preview matches the
+  // per-product charge. Optional; falls back to the partner family.
+  route: z.string().trim().min(1).max(60).optional(),
 });
 
 export const fetchCache = "force-no-store";
@@ -48,10 +52,11 @@ export async function GET(req: Request) {
   const parsed = QuerySchema.safeParse(Object.fromEntries(new URL(req.url).searchParams));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { amount, category } = parsed.data;
+  const { amount, category, route } = parsed.data;
   const service = BBPS_SERVICE[category];
   const bbps = getPartner("bbps");
-  const rate = await getEffectiveRate(user.id, service, amount, bbps.name);
+  const priceScope = isBbpsPriceScope(route) ? route : bbps.name;
+  const rate = await getEffectiveRate(user.id, service, amount, priceScope);
 
   const serviceCharge = toNumber(rate.charge);
   const gstBreakdown = withGst(rate.charge, 18);

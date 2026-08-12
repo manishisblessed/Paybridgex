@@ -14,6 +14,7 @@ import {
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
 import { CreditCardBillForm } from "@/components/dashboard/CreditCardBillForm";
 import { BbpsBillForm } from "@/components/dashboard/BbpsBillForm";
+import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -65,7 +66,7 @@ export default function Bbps1Page() {
       </div>
 
       {active.form === "cc" ? (
-        <CreditCardBillForm />
+        <CreditCardBillForm route={SERVICE_KEYS.BBPS_SAMEDAY} />
       ) : (
         <BbpsBillForm
           key={active.key}
@@ -73,6 +74,7 @@ export default function Bbps1Page() {
           serviceTitle={active.label}
           consumerLabel={active.consumer}
           refPrefix={active.ref}
+          route={SERVICE_KEYS.BBPS_SAMEDAY}
         />
       )}
     </div>

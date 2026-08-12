@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { SERVICE_CODES, serviceGroup } from "@/lib/scheme/constants";
+import { BBPS_PRICE_SCOPES, BBPS_PRICE_SCOPE_OPTIONS } from "@/lib/services/priceScope";
 import {
   ArrowLeft,
   Plus,
@@ -402,6 +403,17 @@ function SlabModal({
 
   const flatHint = "Flat ₹ amount per transaction";
 
+  // BBPS/CC services are priced per PRODUCT: pin the slab to a product scope
+  // (ServiceRoute key) so two products on the same partner (e.g. Bharat BillPay
+  // vs the CC-only RechargeKit rail) hold independent charges + revenue. Credit
+  // card is served by the SameDay CC rails; utilities by Bharat BillPay/Unified.
+  const isBbpsService = service.startsWith("BILL_") || service === "RECHARGE_BROADBAND";
+  const scopeKeys: string[] =
+    service === "BILL_CREDIT_CARD"
+      ? [BBPS_PRICE_SCOPES.BBPS_SAMEDAY, BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD, BBPS_PRICE_SCOPES.RECHARGEKIT_CC]
+      : [BBPS_PRICE_SCOPES.BBPS_SAMEDAY, BBPS_PRICE_SCOPES.BBPS_BULKPE];
+  const scopeOptions = BBPS_PRICE_SCOPE_OPTIONS.filter((o) => scopeKeys.includes(o.key));
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
       <div
@@ -430,15 +442,38 @@ function SlabModal({
           </div>
 
           <div>
-            <Label>Provider (optional)</Label>
-            <Input
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-              placeholder="Leave blank for all providers"
-            />
-            <p className="mt-1 text-xs text-ink-400">
-              A slab pinned to a provider (e.g. a specific BBPS partner) wins over the all-provider slab.
-            </p>
+            <Label>{isBbpsService ? "Product (optional)" : "Provider (optional)"}</Label>
+            {isBbpsService ? (
+              <>
+                <Select value={provider} onChange={(e) => setProvider(e.target.value)}>
+                  <option value="">All products</option>
+                  {scopeOptions.map((o) => (
+                    <option key={o.key} value={o.key}>
+                      {o.name}
+                      {o.partner ? ` · ${o.partner}` : ""}
+                    </option>
+                  ))}
+                  {provider && !scopeOptions.some((o) => o.key === provider) && (
+                    <option value={provider}>{provider} (current)</option>
+                  )}
+                </Select>
+                <p className="mt-1 text-xs text-ink-400">
+                  Pin the charge to a BBPS product so each product (Bharat BillPay, Credit Card, Unified, CC-2) is
+                  priced and reported separately. Leave &quot;All products&quot; to apply to any.
+                </p>
+              </>
+            ) : (
+              <>
+                <Input
+                  value={provider}
+                  onChange={(e) => setProvider(e.target.value)}
+                  placeholder="Leave blank for all providers"
+                />
+                <p className="mt-1 text-xs text-ink-400">
+                  A slab pinned to a provider (e.g. a specific BBPS partner) wins over the all-provider slab.
+                </p>
+              </>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-server";
+import { requireRole } from "@/lib/auth-server";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const user = await requireAuth();
+    // Only retailers collect on the shop QR — DT/MD/SD/admins have no collect surface.
+    const user = await requireRole("RETAILER");
     await assertServiceEnabled(SERVICE_KEYS.QR, { name: "QR Payments", userId: user.id, role: user.role });
   } catch (e) {
     return toErrorResponse(e);

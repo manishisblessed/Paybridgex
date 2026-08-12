@@ -8,9 +8,64 @@ import { toErrorResponse } from "@/lib/security/apiErrors";
 import { ONBOARD_CAPABLE_ROLES } from "@/lib/hierarchy";
 import { computeInviteExpiry } from "@/lib/onboarding/inviteExpiry";
 import { sendInviteLink, onboardingLinkFor } from "@/lib/onboarding/inviteNotifications";
+import { getOnboardingProgressForInvite } from "@/lib/onboarding/status";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
+
+/**
+ * GET — step-by-step onboarding progress for an invite the caller shared,
+ * including invites the invitee hasn't finished registering yet. The wizard
+ * saves each completed step against the invite, so this lets the upline watch
+ * exactly which step an applicant is stuck on in real time. Status-only — no
+ * documents or raw KYC PII (only the contact details the parent already entered).
+ *
+ * Guard: strictly the invite's own creator (`invitedById === caller`).
+ */
+export async function GET(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const user = await requireAuth();
+
+    if (!(ONBOARD_CAPABLE_ROLES as string[]).includes(user.role)) {
+      return NextResponse.json(
+        { error: "You cannot view onboarding invites" },
+        { status: 403 }
+      );
+    }
+
+    const invite = await prisma.invite.findUnique({ where: { id: params.id } });
+    if (!invite)
+      return NextResponse.json({ error: "Invite not found" }, { status: 404 });
+
+    if (invite.invitedById !== user.id) {
+      return NextResponse.json(
+        { error: "This invite was not shared by you" },
+        { status: 403 }
+      );
+    }
+
+    const progress = await getOnboardingProgressForInvite(invite);
+
+    return NextResponse.json({
+      user: {
+        id: invite.userId,
+        name: invite.name,
+        userCode: null,
+        phone: invite.phone,
+        role: invite.role,
+        createdAt: invite.createdAt.toISOString(),
+      },
+      ...progress,
+    });
+  } catch (e) {
+    if (e instanceof AuthError)
+      return NextResponse.json({ error: e.message }, { status: e.statusCode });
+    return toErrorResponse(e);
+  }
+}
 
 const PatchBody = z.object({
   action: z.enum(["resend", "reshare", "update", "cancel"]),

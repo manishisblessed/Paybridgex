@@ -3,9 +3,16 @@ import { prisma } from "@/lib/db";
 import { add, dec, toNumber, type Money } from "@/lib/money";
 import { istDayBounds } from "./daily";
 import { getRevenueAccountId } from "@/lib/commission/revenue";
+import { priceScopeLabel } from "@/lib/services/priceScope";
 
 export type ServiceRevenueRow = {
   service: ServiceCode;
+  /**
+   * Per-product label for BBPS/CC rails (e.g. "Credit Card Bill Payment" vs
+   * "Credit Card Bill Payment-2"), sourced from the txn's priceScope. null for
+   * services that are not per-product scoped (POS/PG/QR/…, or legacy rows).
+   */
+  product: string | null;
   txnCount: number;
   totalVolume: number;
   totalCharge: number;
@@ -83,6 +90,7 @@ export type RevenueReport = {
   byTier: TierCommissionRow[];
   byDay: DailyRevenueRow[];
   posByLeg: SettlementMarginRow[];
+  qrByLeg: SettlementMarginRow[];
   wallet: RevenueWallet;
   totals: {
     txnCount: number;
@@ -119,7 +127,7 @@ export async function getRevenueReport(
   const [serviceAgg, commissionByService, commissionByTier, dailyTxns, dailyCommissions] =
     await Promise.all([
       prisma.transaction.groupBy({
-        by: ["service"],
+        by: ["service", "priceScope"],
         where: {
           status: "SUCCESS",
           createdAt: { gte: dateStart, lte: dateEnd },
@@ -164,18 +172,26 @@ export async function getRevenueReport(
     ])
   );
 
-  const byService: ServiceRevenueRow[] = serviceAgg
+  // A service can now split into several product rows (BBPS/CC priceScope). Its
+  // commission (keyed by service, and ~0 for charge-driven rails) is attributed
+  // to only the FIRST row of that service so per-service totals never double
+  // count. Iterate in a deterministic order (service, then null scope first).
+  const aggSorted = [...serviceAgg].sort((a, b) => {
+    if (a.service !== b.service) return a.service < b.service ? -1 : 1;
+    return (a.priceScope ?? "") < (b.priceScope ?? "") ? -1 : (a.priceScope ?? "") > (b.priceScope ?? "") ? 1 : 0;
+  });
+  const commApplied = new Set<string>();
+  const byService: ServiceRevenueRow[] = aggSorted
     .map((s) => {
       const totalCharge = toNumber(dec(s._sum.fee ?? 0));
       const gstCollected = toNumber(dec(s._sum.gst ?? 0));
       const vendorCost = toNumber(dec(s._sum.vendorCharge ?? 0));
-      const comm = commByServiceMap.get(s.service) ?? {
-        gross: 0,
-        tds: 0,
-        net: 0,
-      };
+      const applyComm = !commApplied.has(s.service);
+      if (applyComm) commApplied.add(s.service);
+      const comm = (applyComm && commByServiceMap.get(s.service)) || { gross: 0, tds: 0, net: 0 };
       return {
         service: s.service,
+        product: priceScopeLabel(s.priceScope),
         txnCount: s._count._all,
         totalVolume: toNumber(dec(s._sum.amount ?? 0)),
         totalCharge,
@@ -206,6 +222,7 @@ export async function getRevenueReport(
       const vendorCost = toNumber(dec(payoutAgg._sum.vendorCharge ?? 0));
       byService.push({
         service: "PAYOUT" as ServiceCode,
+        product: null,
         txnCount: payoutAgg._count._all,
         totalVolume: toNumber(dec(payoutAgg._sum.amount ?? 0)),
         totalCharge: round2(charge + gstCollected),
@@ -345,6 +362,40 @@ export async function getRevenueReport(
     })
     .sort((a, b) => b.margin - a.margin);
 
+  // QR company-margin split by settlement leg — the exact QR analogue of
+  // posByLeg. Sourced from the synthetic QR settlement transaction (fee = MDR
+  // margin, commission = chain commission), grouped by settlementType. Skipped
+  // when a non-QR service filter is active.
+  const qrLegAgg =
+    params.service && params.service !== "QR"
+      ? []
+      : await prisma.transaction.groupBy({
+          by: ["settlementType"],
+          where: {
+            service: "QR" as ServiceCode,
+            status: "SUCCESS",
+            createdAt: { gte: dateStart, lte: dateEnd },
+          },
+          _count: { _all: true },
+          _sum: { amount: true, fee: true, commission: true },
+        });
+
+  const qrByLeg: SettlementMarginRow[] = qrLegAgg
+    .map((r) => {
+      const margin = toNumber(dec(r._sum.fee ?? 0));
+      const grossCommission = toNumber(dec(r._sum.commission ?? 0));
+      return {
+        leg: legLabel(r.settlementType),
+        settlementType: r.settlementType,
+        txnCount: r._count._all,
+        totalVolume: toNumber(dec(r._sum.amount ?? 0)),
+        margin,
+        grossCommission,
+        companyNet: round2(margin - grossCommission),
+      };
+    })
+    .sort((a, b) => b.margin - a.margin);
+
   const wallet = await getRevenueWallet(dateStart, dateEnd);
 
   return {
@@ -354,6 +405,7 @@ export async function getRevenueReport(
     byTier,
     byDay,
     posByLeg,
+    qrByLeg,
     wallet,
     totals,
   };

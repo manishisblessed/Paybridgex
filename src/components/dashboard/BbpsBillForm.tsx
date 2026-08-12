@@ -39,11 +39,14 @@ export function BbpsBillForm({
   serviceTitle,
   consumerLabel = "Consumer number",
   refPrefix = "BILL",
+  route,
 }: {
   category: "ELECTRICITY" | "WATER" | "GAS" | "EDUCATION" | "INSURANCE" | "BROADBAND";
   serviceTitle: string;
   consumerLabel?: string;
   refPrefix?: string;
+  /** Product scope (ServiceRoute key) that prices this bill payment. */
+  route?: string;
 }) {
   type ChargeQuote = {
     serviceCharge: number;
@@ -115,7 +118,9 @@ export function BbpsBillForm({
     const timer = setTimeout(async () => {
       setQuoteLoading(true);
       try {
-        const res = await fetch(`/api/services/bbps/quote?amount=${amt}&category=${category}`);
+        const res = await fetch(
+          `/api/services/bbps/quote?amount=${amt}&category=${category}${route ? `&route=${encodeURIComponent(route)}` : ""}`
+        );
         if (!cancelled && res.ok) {
           const data = await res.json();
           setQuote({
@@ -130,7 +135,7 @@ export function BbpsBillForm({
       finally { if (!cancelled) setQuoteLoading(false); }
     }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [amount, category]);
+  }, [amount, category, route]);
 
   function resetBill() {
     setBill(null);
@@ -199,6 +204,7 @@ export function BbpsBillForm({
         body: JSON.stringify({
           billerCode,
           category,
+          ...(route ? { route } : {}),
           customerParams: customerParams(
             bill.billFetchRef ? { billFetchRef: bill.billFetchRef } : undefined
           ),

@@ -8,8 +8,9 @@ import { requireTxnPin } from "@/lib/security/txnPin";
 import { clientIp } from "@/lib/security/audit";
 import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
+import { BBPS_PRICE_SCOPES } from "@/lib/services/priceScope";
 import { getEffectiveRate, withGst } from "@/lib/scheme/resolver";
-import { toNumber } from "@/lib/money";
+import { toNumber, dec, sub, round } from "@/lib/money";
 import { runTransaction } from "@/lib/services/transaction";
 import { rechargekitPay } from "@/lib/partners/sameday-rechargekit";
 import { AuthError } from "@/lib/auth-server";
@@ -76,21 +77,32 @@ export async function POST(req: Request) {
   const d = parsed.data;
 
   try {
+    // Prices under its own product scope ("rechargekit_cc") so this Same Day
+    // RechargeKit CC rail is separate from the Same Day Pay2New CC rail even
+    // though both are BILL_CREDIT_CARD on the same partner family.
     const rate = await getEffectiveRate(
       user.id,
       "BILL_CREDIT_CARD",
       d.amount,
-      "SAMEDAY_RECHARGEKIT"
+      BBPS_PRICE_SCOPES.RECHARGEKIT_CC
     );
-    const fee = rate.chargeGstInclusive
-      ? toNumber(rate.charge)
-      : toNumber(withGst(rate.charge, 18).total);
+    // Split the customer charge into base + GST so revenue excludes the GST
+    // pass-through (mirrors bbps/pay). GST-inclusive slabs back-calculate base.
+    const gstInclusive = rate.chargeGstInclusive;
+    const gross = withGst(rate.charge, 18);
+    const feeMoney = gstInclusive ? dec(rate.charge) : gross.total;
+    const baseCharge = gstInclusive ? round(dec(rate.charge).div("1.18")) : dec(rate.charge);
+    const gstMoney = gstInclusive ? round(sub(feeMoney, baseCharge)) : gross.gst;
+    const fee = toNumber(feeMoney);
 
     const result = await runTransaction({
       userId: user.id,
       service: "BILL_CREDIT_CARD",
       amount: d.amount,
       fee,
+      gst: toNumber(gstMoney),
+      vendorCharge: toNumber(rate.vendorCharge),
+      priceScope: BBPS_PRICE_SCOPES.RECHARGEKIT_CC,
       commission: toNumber(rate.commission),
       idempotencyKey: d.idempotencyKey,
       customer: d.accountNo.slice(-4),

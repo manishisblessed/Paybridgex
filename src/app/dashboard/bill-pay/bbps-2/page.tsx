@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
 import { BbpsBillForm } from "@/components/dashboard/BbpsBillForm";
+import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +68,7 @@ export default function Bbps2Page() {
         serviceTitle={active.label}
         consumerLabel={active.consumer}
         refPrefix={active.ref}
+        route={SERVICE_KEYS.BBPS_BULKPE}
       />
     </div>
   );

@@ -38,7 +38,7 @@ type ChargeQuote = {
   commission: number;
 };
 
-export function CreditCardBillForm() {
+export function CreditCardBillForm({ route }: { route?: string } = {}) {
   const [billers, setBillers] = useState<Biller[]>([]);
   const [billersSource, setBillersSource] = useState<string>("");
   const [billerCode, setBillerCode] = useState("");
@@ -86,7 +86,9 @@ export function CreditCardBillForm() {
     const timer = setTimeout(async () => {
       setQuoteLoading(true);
       try {
-        const res = await fetch(`/api/services/bbps/quote?amount=${amt}&category=CREDIT_CARD`);
+        const res = await fetch(
+          `/api/services/bbps/quote?amount=${amt}&category=CREDIT_CARD${route ? `&route=${encodeURIComponent(route)}` : ""}`
+        );
         if (!cancelled && res.ok) {
           const data = await res.json();
           setQuote({
@@ -101,7 +103,7 @@ export function CreditCardBillForm() {
       finally { if (!cancelled) setQuoteLoading(false); }
     }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [amount]);
+  }, [amount, route]);
 
   function resetBill() {
     setBill(null);
@@ -163,6 +165,7 @@ export function CreditCardBillForm() {
         body: JSON.stringify({
           billerCode,
           category: "CREDIT_CARD",
+          ...(route ? { route } : {}),
           customerParams: {
             number: cardLast4,
             customerNumber: mobile,

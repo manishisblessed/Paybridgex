@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/lib/auth-server";
+import { requireRole } from "@/lib/auth-server";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { assertKycCurrent } from "@/lib/security/kycGate";
 import { assertLivenessReady } from "@/lib/security/livenessGate";
@@ -46,7 +46,8 @@ const Body = z
 export async function GET() {
   let user;
   try {
-    user = await requireAuth();
+    // QR claims are a retailer-only surface (collect & claim).
+    user = await requireRole("RETAILER");
   } catch (e) {
     return toErrorResponse(e);
   }
@@ -82,7 +83,8 @@ export async function GET() {
 export async function POST(req: Request) {
   let user;
   try {
-    user = await requireAuth();
+    // Filing a claim is retailer-only — uplines never collect on the QR themselves.
+    user = await requireRole("RETAILER");
     // Admin kill-switch + per-user allowlist (default-disabled) for this rail.
     await assertServiceEnabled(SERVICE_KEYS.QR, { name: "QR Payments", userId: user.id, role: user.role });
     await assertLivenessReady(user);

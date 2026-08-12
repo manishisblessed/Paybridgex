@@ -52,6 +52,12 @@ export type RunTxnInput<TIn, TOut> = {
    * Wallet on success. Defaults to 0 (whole ex-GST charge is revenue).
    */
   vendorCharge?: number;
+  /**
+   * Per-product pricing scope (BBPS/CC ServiceRoute key, e.g. "bbps_credit_card"
+   * vs "rechargekit_cc"). Snapshotted on the Transaction so revenue can be
+   * reported per product even when two products share one partner. Optional.
+   */
+  priceScope?: string | null;
   /** The actual partner call. */
   call: () => Promise<PartnerResult<TOut>>;
 };
@@ -127,6 +133,7 @@ export async function runTransaction<TIn, TOut>(
           commission: new Prisma.Decimal(commissionAmount),
           gst: new Prisma.Decimal(gstAmount),
           vendorCharge: new Prisma.Decimal(vendorCharge),
+          priceScope: input.priceScope ?? null,
           status: "PROCESSING",
           customer: input.customer,
           operator: input.operator,

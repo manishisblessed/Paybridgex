@@ -1,6 +1,7 @@
 import type { Prisma, RateType, ServiceCode, SchemeSlab } from "@prisma/client";
 import { prisma } from "../db";
 import { add, dec, gt, gte, lte, mul, round, sub, type Money } from "../money";
+import { priceScopeFamily } from "../services/priceScope";
 
 /**
  * Scheme resolver — the single source of truth for "what does this user pay
@@ -181,6 +182,14 @@ async function findSlab(
   if (wanted) {
     const exact = inBand.find((s) => normalizeProviderTag(s.provider) === wanted);
     if (exact) return exact;
+    // Fallback: a per-product BBPS scope (e.g. "bbps_credit_card") inherits a
+    // slab pinned to its partner family ("SAMEDAY") when no product-specific
+    // slab exists — keeps legacy family-pinned slabs working until re-pinned.
+    const family = priceScopeFamily(provider);
+    if (family) {
+      const fam = inBand.find((s) => normalizeProviderTag(s.provider) === family);
+      if (fam) return fam;
+    }
   }
   return inBand.find((s) => s.provider == null) ?? null;
 }

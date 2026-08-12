@@ -1,6 +1,7 @@
 import type { ServiceCode } from "@prisma/client";
 import { familyOf, isChargeDrivenService } from "@/lib/scheme/constants";
 import { normalizeProviderTag } from "@/lib/scheme/resolver";
+import { isBbpsPriceScope, priceScopeFamily } from "@/lib/services/priceScope";
 import { findApprovedRailRate } from "@/lib/rail/mdr";
 
 /**
@@ -37,21 +38,41 @@ export async function resolveServiceVendorLock(input: {
   const family = familyOf(input.service).key;
   if (family !== "BBPS" && family !== "PAYOUT") return PASS_THROUGH;
 
-  // A slab must be pinned to a provider to inherit that provider's rate card.
-  const scopeKey = normalizeProviderTag(input.provider);
-  if (!scopeKey) return PASS_THROUGH;
+  // A slab must be pinned to a provider/product to inherit its rate card.
+  // Candidate scope keys in priority order: an exact per-product BBPS scope
+  // (rail rate card keyed by the ServiceRoute key, e.g. "bbps_credit_card"),
+  // then the backing partner family ("SAMEDAY"/"BULKPE") as a fallback.
+  const raw = (input.provider ?? "").trim();
+  const candidates: string[] = [];
+  if (isBbpsPriceScope(raw)) {
+    candidates.push(raw);
+    const fam = priceScopeFamily(raw);
+    if (fam) candidates.push(fam);
+  } else {
+    const norm = normalizeProviderTag(input.provider);
+    if (norm) candidates.push(norm);
+  }
+  if (candidates.length === 0) return PASS_THROUGH;
 
-  const approved = await findApprovedRailRate({
-    serviceKind: family,
-    scopeKey,
-    amount: Math.max(input.minAmount, 1),
-    // Service rails carry no card dimensions — match the provider's flat rate.
-    provider: "*",
-    paymentMode: "*",
-    cardType: null,
-    brandType: null,
-    classification: null,
-  });
+  let approved: Awaited<ReturnType<typeof findApprovedRailRate>> = null;
+  let scopeKey = candidates[0];
+  for (const candidate of candidates) {
+    approved = await findApprovedRailRate({
+      serviceKind: family,
+      scopeKey: candidate,
+      amount: Math.max(input.minAmount, 1),
+      // Service rails carry no card dimensions — match the provider's flat rate.
+      provider: "*",
+      paymentMode: "*",
+      cardType: null,
+      brandType: null,
+      classification: null,
+    });
+    if (approved) {
+      scopeKey = candidate;
+      break;
+    }
+  }
   if (!approved) return PASS_THROUGH;
 
   // Service rails price a flat ₹/txn. A percentage rate card (or slab) can't be

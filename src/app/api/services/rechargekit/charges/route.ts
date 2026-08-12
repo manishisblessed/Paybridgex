@@ -7,6 +7,7 @@ import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { requireActiveScheme } from "@/lib/scheme/gate";
 import { getEffectiveRate, withGst } from "@/lib/scheme/resolver";
+import { BBPS_PRICE_SCOPES } from "@/lib/services/priceScope";
 import { toNumber, add } from "@/lib/money";
 import { rechargekitCharges } from "@/lib/partners/sameday-rechargekit";
 import { AuthError } from "@/lib/auth-server";
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
 
   const [partnerCharges, rate] = await Promise.all([
     rechargekitCharges(amount),
-    getEffectiveRate(user.id, "BILL_CREDIT_CARD", amount, "SAMEDAY_RECHARGEKIT"),
+    getEffectiveRate(user.id, "BILL_CREDIT_CARD", amount, BBPS_PRICE_SCOPES.RECHARGEKIT_CC),
   ]);
 
   if (!partnerCharges.ok) {

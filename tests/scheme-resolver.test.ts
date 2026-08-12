@@ -148,6 +148,52 @@ describe("getEffectiveRate (flat model)", () => {
   });
 });
 
+describe("per-product BBPS price scope", () => {
+  // Two BBPS/CC products can ride the same partner (Same Day serves both
+  // Pay2New and RechargeKit CC). Pricing is keyed by the ServiceRoute key so
+  // each product resolves to its own slab, with a partner-family fallback.
+  it("prefers an exact product-scope slab over the partner-family slab", async () => {
+    state.slabs = [
+      slab({ id: "family", service: "BILL_CREDIT_CARD", provider: "SAMEDAY", chargeValue: d(9) }),
+      slab({ id: "product", service: "BILL_CREDIT_CARD", provider: "bbps_credit_card", chargeValue: d(6) }),
+    ];
+    const rate = await getEffectiveRate("u1", "BILL_CREDIT_CARD", 5000, "bbps_credit_card");
+    expect(rate.slabId).toBe("product");
+    expect(toFixedString(rate.charge)).toBe("6.00");
+  });
+
+  it("falls back to the partner-family slab when no product slab exists", async () => {
+    state.slabs = [
+      slab({ id: "family", service: "BILL_CREDIT_CARD", provider: "SAMEDAY", chargeValue: d(9) }),
+    ];
+    const rate = await getEffectiveRate("u1", "BILL_CREDIT_CARD", 5000, "rechargekit_cc");
+    expect(rate.slabId).toBe("family");
+    expect(toFixedString(rate.charge)).toBe("9.00");
+  });
+
+  it("prices two products on the same partner independently", async () => {
+    state.slabs = [
+      slab({ id: "pay2new", service: "BILL_CREDIT_CARD", provider: "bbps_credit_card", chargeValue: d(6) }),
+      slab({ id: "rechargekit", service: "BILL_CREDIT_CARD", provider: "rechargekit_cc", chargeValue: d(12) }),
+    ];
+    const a = await getEffectiveRate("u1", "BILL_CREDIT_CARD", 5000, "bbps_credit_card");
+    const b = await getEffectiveRate("u1", "BILL_CREDIT_CARD", 5000, "rechargekit_cc");
+    expect(a.slabId).toBe("pay2new");
+    expect(toFixedString(a.charge)).toBe("6.00");
+    expect(b.slabId).toBe("rechargekit");
+    expect(toFixedString(b.charge)).toBe("12.00");
+  });
+
+  it("does not cross-match a different partner family", async () => {
+    // A BulkPe-only slab must never price a Same Day product (no null slab).
+    state.slabs = [
+      slab({ id: "bulkpe", service: "BILL_ELECTRICITY", provider: "bbps_bulkpe_svc", chargeValue: d(8) }),
+    ];
+    const rate = await getEffectiveRate("u1", "BILL_ELECTRICITY", 5000, "bbps_sameday");
+    expect(rate.source).toBe("NONE");
+  });
+});
+
 describe("validateNonOverlapping", () => {
   it("rejects min > max", async () => {
     const err = await validateNonOverlapping("scheme1", "DMT_IMPS", {

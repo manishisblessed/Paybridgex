@@ -577,6 +577,7 @@ enum ServiceCode {
   PAN_CARD
   INSURANCE
   POS // POS acquirer settlement (first-class so earnings/commission attribute per-service)
+  QR  // Static QR collection settlement (first-class so revenue/commission attribute per-service, incl. per-leg split)
 }
 
 enum TxnStatus {
@@ -603,6 +604,11 @@ model Transaction {
   // 0 for acquiring rails (POS/PG/QR settle margin via MDR_MARGIN) and for any
   // service with no vendor rate card, preserving legacy behaviour.
   vendorCharge Decimal     @default(0) @db.Decimal(14, 2)
+  // Per-product pricing scope for BBPS/CC rails (the ServiceRoute key, e.g.
+  // "bbps_credit_card" vs "rechargekit_cc"). Lets two products on the same
+  // partner be priced + revenue-reported independently. null for rails that
+  // are not per-product scoped.
+  priceScope   String?
   status       TxnStatus   @default(INITIATED)
   customer     String? // mobile / consumerNo / VPA / a/c last 4
   operator     String? // SBI, Jio, BSES, etc.
