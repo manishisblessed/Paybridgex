@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import { logger } from "@/lib/logger";
 
 /**
@@ -91,6 +92,17 @@ export async function captureError(
     ...context.meta,
   });
   const severity = context.severity ?? "warning";
+
+  // Report to Sentry. Works in both runtimes: the Next.js server initializes the
+  // SDK via instrumentation.ts, and the worker initializes @sentry/node at boot —
+  // both register the same global client this call reads. `meta` is documented to
+  // hold identifiers, not PII, so it is safe to attach as extra context.
+  Sentry.captureException(err, {
+    level: severity === "critical" ? "fatal" : severity === "warning" ? "warning" : "info",
+    tags: { where: context.where },
+    extra: context.meta,
+  });
+
   if (severity !== "info") {
     await sendOpsAlert({
       title: `Error in ${context.where}`,

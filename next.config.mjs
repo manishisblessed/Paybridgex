@@ -6,6 +6,8 @@
  * lets us drop script-src 'unsafe-inline'. Defining it here too would create a
  * conflicting second policy, so the dynamic one is the single source of truth.
  */
+import { withSentryConfig } from "@sentry/nextjs";
+
 const isProd = process.env.NODE_ENV === "production";
 
 const securityHeaders = [
@@ -53,4 +55,22 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  org: "jmp-nextgenpay-private-limited",
+  project: "javascript-nextjs",
+
+  // Build-time secret used to upload source maps so production stack traces are
+  // readable. Only needed at `next build`; leave unset in dev.
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+
+  // Upload a wider set of client files for better client-side stack traces.
+  widenClientFileUpload: true,
+
+  // Route browser events through our own origin (/monitoring) so they aren't
+  // blocked by ad-blockers or the strict `connect-src` CSP set in middleware.
+  // NOTE: /monitoring is excluded from the middleware matcher.
+  tunnelRoute: "/monitoring",
+
+  // Only print SDK build output in CI.
+  silent: !process.env.CI,
+});

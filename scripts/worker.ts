@@ -20,6 +20,7 @@ try {
   /* env provided by the process manager */
 }
 
+import * as Sentry from "@sentry/node";
 import type PgBoss from "pg-boss";
 import { getBoss, QUEUES } from "@/lib/queue";
 import {
@@ -52,6 +53,26 @@ import { productionSecretIssues } from "@/lib/env";
 import { purgeExpiredRateLimits } from "@/lib/security/rateLimit";
 import { prisma } from "@/lib/db";
 import { captureError, sendOpsAlert } from "@/lib/monitoring/alerts";
+
+// The Next.js server initializes Sentry via src/instrumentation.ts, but this
+// worker is a SEPARATE PM2 process that never loads that hook. Initialize the
+// SDK here so money-moving job failures (payouts, reconciliation, settlement,
+// AML) surface in Sentry instead of vanishing into a retry loop. Runs after the
+// loadEnvFile() call above and after PM2 has injected the runtime environment,
+// so SENTRY_DSN is present. captureError() (used throughout) forwards here.
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
+    environment: process.env.NODE_ENV,
+    release: process.env.SENTRY_RELEASE,
+    // No PII: do not attach request/user data or local variables (this process
+    // handles account numbers, tokens and KYC identifiers).
+    sendDefaultPii: false,
+    includeLocalVariables: false,
+    initialScope: { tags: { process: "worker" } },
+  });
+}
 
 function log(...args: unknown[]) {
   // eslint-disable-next-line no-console
@@ -506,6 +527,8 @@ async function shutdown(signal: string) {
   } catch {
     /* already stopped */
   }
+  // Flush any buffered Sentry events before the process exits.
+  await Sentry.close(2000).catch(() => {});
   process.exit(0);
 }
 
@@ -515,10 +538,12 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 main().catch(async (e) => {
   // eslint-disable-next-line no-console
   console.error("[worker] fatal:", e);
+  Sentry.captureException(e, { tags: { where: "worker.startup" }, level: "fatal" });
   await sendOpsAlert({
     title: "Background worker crashed at startup",
     severity: "critical",
     details: { error: String(e).slice(0, 300) },
   }).catch(() => {});
+  await Sentry.close(2000).catch(() => {});
   process.exit(1);
 });

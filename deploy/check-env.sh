@@ -72,6 +72,11 @@ ALWAYS_REQUIRED=(
   DATABASE_URL
   DIRECT_URL
   APP_ENCRYPTION_KEY
+  # Sentry error monitoring. NEXT_PUBLIC_SENTRY_DSN is inlined into the client
+  # bundle at build time, so it MUST be present before `next build`; SENTRY_DSN
+  # is read at runtime by the Node + Edge server and the worker.
+  NEXT_PUBLIC_SENTRY_DSN
+  SENTRY_DSN
 )
 
 for key in "${ALWAYS_REQUIRED[@]}"; do

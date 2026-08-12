@@ -160,6 +160,6 @@ export async function middleware(req: NextRequest) {
 export const config = {
   // Run on everything except static assets so the CSP applies to all documents.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|map|woff2?)$).*)",
+    "/((?!monitoring|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|map|woff2?)$).*)",
   ],
 };
