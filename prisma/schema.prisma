@@ -619,6 +619,14 @@ model Transaction {
   // next-day. Lets revenue reporting split the company MDR margin per leg.
   // null for non-settlement services.
   settlementType String?
+  // True on the SYNTHETIC settlement-anchor rows minted for POS/PG/QR upline
+  // commission (partner SAMEDAY_POS / PG / STATIC_QR). These represent INBOUND
+  // acquirer settlement (gross card volume credited to the retailer), NOT a
+  // user-initiated OUTBOUND money movement — so the velocity/exposure risk
+  // engine and AML monitor MUST exclude them. Reporting still reads them (they
+  // carry the per-leg MDR margin + chain commission). Real transactions are
+  // always false.
+  isSettlement Boolean @default(false)
   // arbitrary partner payload for audit / reconciliation
   request      Json?
   response     Json?

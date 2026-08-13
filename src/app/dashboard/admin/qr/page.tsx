@@ -731,8 +731,8 @@ function QrManageTab() {
           <div>
             <h3 className="font-display text-base font-semibold text-ink-900">Add a QR to the collection queue</h3>
             <p className="text-xs text-ink-500">
-              Retailers collect on the lowest-priority QR with daily headroom. When it hits its daily limit it
-              auto-pauses and the next QR takes over; limits reset every day (IST).
+              Retailers see remaining rupees on the live QR and the next QR for overflow. When a QR hits its daily
+              limit it auto-pauses and the next one takes over; limits reset every day (IST).
             </p>
           </div>
         </div>
@@ -818,7 +818,7 @@ function QrManageTab() {
       <DataTable
         title="QR queue"
         loading={loading}
-        description="Ordered by priority. Retailers collect on the highest-priority QR with daily headroom; full QRs auto-resume tomorrow. Old QRs are never deleted so historical claims stay traceable."
+        description="Ordered by priority. Retailers see remaining headroom on the live QR and collect overflow on the next one; full QRs auto-resume tomorrow. Old QRs are never deleted so historical claims stay traceable."
         columns={cols}
         data={qrs}
         empty="No QR uploaded yet — retailers currently have nothing to collect on."

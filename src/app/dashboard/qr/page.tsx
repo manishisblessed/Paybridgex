@@ -27,6 +27,15 @@ import { Input, Label } from "@/components/ui/Input";
 import { formatINR } from "@/lib/utils";
 import { QrSettlementReportTab } from "./QrSettlementReportTab";
 
+type QrHeadroom = {
+  collected: number;
+  collectedCount: number;
+  dailyLimit: number | null;
+  dailyLimitCount: number | null;
+  remainingAmount: number | null;
+  remainingCount: number | null;
+};
+
 type ActiveQr = {
   id: string;
   label: string;
@@ -34,6 +43,7 @@ type ActiveQr = {
   imageUrl: string;
   activatedAt: string;
   nearFull?: boolean;
+  headroom?: QrHeadroom | null;
 };
 
 type DailyUsage = {
@@ -92,6 +102,173 @@ function claimIdentifier(row: { utr: string | null; cardLast4: string | null }):
   return "—";
 }
 
+function QrHeadroomMeter({ headroom }: { headroom: QrHeadroom }) {
+  const capped = headroom.dailyLimit != null || headroom.dailyLimitCount != null;
+  if (!capped) {
+    return <p className="mt-3 text-[11px] text-ink-500">No daily collection cap on this QR.</p>;
+  }
+  const amtPct =
+    headroom.dailyLimit != null && headroom.dailyLimit > 0
+      ? (headroom.collected / headroom.dailyLimit) * 100
+      : headroom.dailyLimitCount != null && headroom.dailyLimitCount > 0
+        ? (headroom.collectedCount / headroom.dailyLimitCount) * 100
+        : 0;
+  const remaining = headroom.remainingAmount;
+  const remainingCount = headroom.remainingCount;
+  const exhausted = (remaining != null && remaining <= 0) || (remainingCount != null && remainingCount <= 0);
+  return (
+    <div className="mx-auto mt-3 w-full max-w-xs rounded-xl bg-white/90 p-3 text-left shadow-sm">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="font-semibold text-ink-700">Today on this QR</span>
+        <span className="shrink-0 text-ink-500">
+          {headroom.dailyLimit != null ? (
+            <>
+              {formatINR(headroom.collected)} / {formatINR(headroom.dailyLimit)}
+            </>
+          ) : (
+            <>
+              {headroom.collectedCount}/{headroom.dailyLimitCount} txns
+            </>
+          )}
+        </span>
+      </div>
+      {headroom.dailyLimit != null && headroom.dailyLimitCount != null && (
+        <p className="mt-0.5 text-right text-[10px] text-ink-400">
+          {headroom.collectedCount}/{headroom.dailyLimitCount} txns
+        </p>
+      )}
+      <div className="mt-2 h-1.5 w-full rounded-full bg-ink-100">
+        <div
+          className={`h-1.5 rounded-full ${amtPct >= 100 ? "bg-rose-500" : amtPct >= 80 ? "bg-amber-500" : "bg-brand-500"}`}
+          style={{ width: `${Math.min(100, amtPct)}%` }}
+        />
+      </div>
+      <p className={`mt-1.5 text-[11px] font-medium ${exhausted ? "text-rose-700" : "text-ink-800"}`}>
+        {exhausted
+          ? "This QR is full for today — collect on the next QR."
+          : remaining != null
+            ? `You may take ${formatINR(remaining)} more on this QR today${
+                remainingCount != null ? ` (${remainingCount} txn${remainingCount === 1 ? "" : "s"} left)` : ""
+              }. Any extra amount must go on the next QR.`
+            : remainingCount != null
+              ? `${remainingCount} transaction${remainingCount === 1 ? "" : "s"} left on this QR today.`
+              : null}
+      </p>
+    </div>
+  );
+}
+
+function QrCollectCard({
+  qr,
+  title,
+  selected,
+  selectable,
+  onSelect,
+  onRefresh,
+  refreshing,
+}: {
+  qr: ActiveQr;
+  title: string;
+  selected: boolean;
+  selectable: boolean;
+  onSelect: () => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+}) {
+  const inner = (
+    <>
+      <div className="flex items-center justify-center gap-2">
+        <h3 className="font-display text-base font-semibold text-ink-900">{title}</h3>
+        {onRefresh && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRefresh();
+            }}
+            className="grid h-7 w-7 place-items-center rounded-lg text-ink-400 hover:bg-white hover:text-ink-700"
+            title="Refresh remaining amount"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+        )}
+      </div>
+      <p className="mt-1 text-xs text-ink-600">
+        {qr.label}
+        {qr.upiVpa ? (
+          <>
+            {" · "}
+            <span className="font-mono font-semibold">{qr.upiVpa}</span>
+          </>
+        ) : null}
+      </p>
+      {qr.headroom && <QrHeadroomMeter headroom={qr.headroom} />}
+      {qr.nearFull && qr.headroom?.remainingAmount != null && qr.headroom.remainingAmount > 0 && (
+        <div className="mx-auto mt-3 flex max-w-xs items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-left text-[11px] font-medium text-amber-800">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Almost full — refresh before each new collection so you see the latest remaining amount.
+        </div>
+      )}
+      <div className="mx-auto mt-4 grid max-w-xs place-items-center rounded-2xl bg-white p-4 shadow-soft">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={qr.imageUrl} alt={`${qr.label} collection QR`} className="w-full rounded-xl" />
+      </div>
+      <a
+        href={qr.imageUrl}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-brand-700 shadow-sm"
+      >
+        <UploadCloud className="h-3.5 w-3.5 rotate-180" />
+        Open full size / download
+      </a>
+      {selectable && (
+        <div className="mt-3">
+          <span
+            className={
+              selected
+                ? "inline-flex rounded-full bg-brand-600 px-3 py-1 text-[11px] font-semibold text-white"
+                : "inline-flex rounded-full border border-ink-200 bg-white px-3 py-1 text-[11px] font-semibold text-ink-600"
+            }
+          >
+            {selected ? "Selected for claims" : "Tap to claim payments on this QR"}
+          </span>
+        </div>
+      )}
+    </>
+  );
+
+  const shell =
+    "rounded-2xl border p-6 text-center " +
+    (selected
+      ? "border-brand-400 bg-gradient-to-br from-brand-50 to-accent-50 shadow-soft ring-2 ring-brand-200"
+      : selectable
+        ? "cursor-pointer border-ink-100 bg-gradient-to-br from-ink-50 to-white hover:border-brand-200"
+        : "border-ink-100 bg-gradient-to-br from-brand-50 to-accent-50");
+
+  if (selectable) {
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        aria-pressed={selected}
+        className={shell}
+        onClick={onSelect}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect();
+          }
+        }}
+      >
+        {inner}
+      </div>
+    );
+  }
+  return <div className={shell}>{inner}</div>;
+}
+
 const STATUS_BADGE: Record<Claim["status"], { label: string; variant: "success" | "warning" | "danger" | "brand" | "accent" }> = {
   PENDING: { label: "Under review", variant: "warning" },
   AWAITING_SECOND_APPROVAL: { label: "Under review", variant: "warning" },
@@ -113,6 +290,8 @@ export default function QrCollectionsPage() {
   const isRetailer = role === "RETAILER";
 
   const [qr, setQr] = useState<ActiveQr | null>(null);
+  const [overflowQr, setOverflowQr] = useState<ActiveQr | null>(null);
+  const [claimQrId, setClaimQrId] = useState<string | null>(null);
   const [qrReason, setQrReason] = useState<string | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [dailyUsage, setDailyUsage] = useState<DailyUsage | null>(null);
@@ -156,6 +335,7 @@ export default function QrCollectionsPage() {
       if (qrRes.ok) {
         const d = await qrRes.json();
         setQr(d.qr);
+        setOverflowQr(d.overflowQr ?? null);
         setQrReason(d.reason ?? null);
       }
       if (clRes.ok) {
@@ -179,6 +359,17 @@ export default function QrCollectionsPage() {
     refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    if (!qr) {
+      setClaimQrId(null);
+      return;
+    }
+    setClaimQrId((prev) => {
+      if (prev === qr.id || (overflowQr && prev === overflowQr.id)) return prev;
+      return qr.id;
+    });
+  }, [qr, overflowQr]);
+
   function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -193,9 +384,20 @@ export default function QrCollectionsPage() {
 
   async function submitClaim(e: React.FormEvent) {
     e.preventDefault();
-    if (!qr || !screenshot) return;
+    const collectQr = claimQrId === overflowQr?.id ? overflowQr : qr;
+    if (!collectQr || !screenshot) return;
     if (!/^\d{4}$/.test(cardLast4.trim())) {
       toast.error("Enter the last 4 digits of the RuPay card");
+      return;
+    }
+    const remaining = collectQr.headroom?.remainingAmount;
+    const claimAmount = Number(amount);
+    if (remaining != null && Number.isFinite(claimAmount) && claimAmount > remaining) {
+      toast.error(
+        remaining <= 0
+          ? "This QR has no remaining capacity today — collect on the next QR."
+          : `This QR only has ${formatINR(remaining)} remaining today. Collect that much here and the rest on the next QR.`
+      );
       return;
     }
     setBusy(true);
@@ -205,7 +407,7 @@ export default function QrCollectionsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          qrId: qr.id,
+          qrId: collectQr.id,
           amount: Number(amount),
           cardLast4: cardLast4.trim(),
           // UPI UTR and the paid-on time are optional (card collections omit them).
@@ -402,6 +604,14 @@ export default function QrCollectionsPage() {
     },
   ];
 
+  const collectQr = claimQrId === overflowQr?.id ? overflowQr : qr;
+  const remainingOnCollect = collectQr?.headroom?.remainingAmount ?? null;
+  const claimAmt = Number(amount);
+  const splitExtra =
+    remainingOnCollect != null && Number.isFinite(claimAmt) && claimAmt > remainingOnCollect
+      ? Math.round((claimAmt - remainingOnCollect) * 100) / 100
+      : 0;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -409,7 +619,7 @@ export default function QrCollectionsPage() {
         title={isRetailer ? "Collect on the shop QR" : "QR Settlement & Commission"}
         description={
           isRetailer
-            ? "Take customer payments on the platform QR, then claim each payment with its UTR and screenshot — verified claims are credited to your wallet."
+            ? "Take customer payments on the live QR up to its remaining daily amount. If the customer is paying more than what's left, collect the rest on the next QR."
             : "QR collections across your retailer network — volume, MDR, settlements and the commission you earn on each claim."
         }
       />
@@ -449,7 +659,20 @@ export default function QrCollectionsPage() {
         <StatCard label="Under review" value={formatINR(pendingAmount)} icon={Clock} accent="accent" />
         <StatCard label="Ready to settle" value={formatINR(settleableTotal)} icon={Banknote} accent="brand" />
         <StatCard label="Settled this month" value={formatINR(creditedThisMonth)} icon={CheckCircle2} accent="emerald" />
-        <StatCard label="Active QR" value={qr ? "Live" : qrReason === "LIMIT_REACHED" ? "Paused" : "—"} icon={QrCode} accent="violet" />
+        <StatCard
+          label={qr?.headroom?.remainingAmount != null ? "This QR remaining" : "Active QR"}
+          value={
+            qr?.headroom?.remainingAmount != null
+              ? formatINR(qr.headroom.remainingAmount)
+              : qr
+                ? "Live"
+                : qrReason === "LIMIT_REACHED"
+                  ? "Paused"
+                  : "—"
+          }
+          icon={QrCode}
+          accent="violet"
+        />
       </div>
 
       {/* Ready to settle — instant or auto T+1 */}
@@ -517,63 +740,51 @@ export default function QrCollectionsPage() {
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* The QR to collect on */}
-        <div className="rounded-2xl border border-ink-100 bg-gradient-to-br from-brand-50 to-accent-50 p-6 text-center">
-          <div className="flex items-center justify-center gap-2">
-            <h3 className="font-display text-base font-semibold text-ink-900">Shop collection QR</h3>
-            <button
-              type="button"
-              onClick={refresh}
-              className="grid h-7 w-7 place-items-center rounded-lg text-ink-400 hover:bg-white hover:text-ink-700"
-              title="Refresh"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            </button>
-          </div>
+        {/* Live QR + overflow QR for the rest of a split payment */}
+        <div className="space-y-4">
           {qr ? (
             <>
-              <p className="mt-1 text-xs text-ink-600">
-                {qr.label}
-                {qr.upiVpa ? (
-                  <>
-                    {" · "}
-                    <span className="font-mono font-semibold">{qr.upiVpa}</span>
-                  </>
-                ) : null}
-              </p>
-              {qr.nearFull && (
-                <div className="mx-auto mt-3 flex max-w-xs items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-left text-[11px] font-medium text-amber-800">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  This QR is close to today&apos;s collection limit — you may be switched to another QR shortly. Keep
-                  refreshing before each new payment.
-                </div>
+              <QrCollectCard
+                qr={qr}
+                title="Collect on this QR first"
+                selected={claimQrId === qr.id}
+                selectable={Boolean(overflowQr)}
+                onSelect={() => setClaimQrId(qr.id)}
+                onRefresh={refresh}
+                refreshing={loading}
+              />
+              {overflowQr && (
+                <>
+                  <p className="px-1 text-center text-xs text-ink-600">
+                    {qr.headroom?.remainingAmount != null
+                      ? `This QR has ${formatINR(qr.headroom.remainingAmount)} left today. Take that much here, then collect any extra on the next QR.`
+                      : "When this QR fills up, collect the rest on the next QR below."}
+                  </p>
+                  <QrCollectCard
+                    qr={overflowQr}
+                    title="Next QR — rest of the payment"
+                    selected={claimQrId === overflowQr.id}
+                    selectable
+                    onSelect={() => setClaimQrId(overflowQr.id)}
+                  />
+                </>
               )}
-              <div className="mx-auto mt-6 grid max-w-xs place-items-center rounded-2xl bg-white p-4 shadow-soft">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={qr.imageUrl} alt="Shop collection QR" className="w-full rounded-xl" />
-              </div>
-              <a
-                href={qr.imageUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-brand-700 shadow-sm"
-              >
-                <UploadCloud className="h-3.5 w-3.5 rotate-180" />
-                Open full size / download
-              </a>
-              <p className="mt-3 text-[11px] text-ink-500">
-                Works with PhonePe, Google Pay, Paytm &amp; every UPI app. After the customer pays,
-                claim the payment on the right — it is settled to your wallet after verification.
+              <p className="px-1 text-center text-[11px] text-ink-500">
+                Works with PhonePe, Google Pay, Paytm &amp; every UPI app. After the customer pays, claim the payment
+                on the right — it is settled to your wallet after verification.
               </p>
             </>
           ) : (
-            <p className="mt-6 text-sm text-ink-600">
-              {loading
-                ? "Loading…"
-                : qrReason === "LIMIT_REACHED"
-                  ? "Collections are paused right now — today's limit was reached across all QRs. Please try again shortly."
-                  : "No collection QR is configured yet — contact your admin."}
-            </p>
+            <div className="rounded-2xl border border-ink-100 bg-gradient-to-br from-brand-50 to-accent-50 p-6 text-center">
+              <h3 className="font-display text-base font-semibold text-ink-900">Shop collection QR</h3>
+              <p className="mt-6 text-sm text-ink-600">
+                {loading
+                  ? "Loading…"
+                  : qrReason === "LIMIT_REACHED"
+                    ? "Collections are paused right now — today's limit was reached across all QRs. Please try again shortly."
+                    : "No collection QR is configured yet — contact your admin."}
+              </p>
+            </div>
           )}
         </div>
 
@@ -585,7 +796,11 @@ export default function QrCollectionsPage() {
             </span>
             <div>
               <h3 className="font-display text-base font-semibold text-ink-900">Claim a payment</h3>
-              <p className="text-xs text-ink-500">One claim per UPI payment — the UTR can never be claimed twice.</p>
+              <p className="text-xs text-ink-500">
+                {collectQr
+                  ? `Claim against ${collectQr.label}${collectQr.upiVpa ? ` (${collectQr.upiVpa})` : ""}.`
+                  : "One claim per UPI payment — the UTR can never be claimed twice."}
+              </p>
             </div>
           </div>
 
@@ -602,6 +817,17 @@ export default function QrCollectionsPage() {
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="Exact amount received"
               />
+              {remainingOnCollect != null && Number.isFinite(claimAmt) && claimAmt > 0 && (
+                <p className={`mt-1 text-xs ${splitExtra > 0 ? "font-medium text-amber-800" : "text-ink-500"}`}>
+                  {splitExtra > 0
+                    ? remainingOnCollect <= 0
+                      ? "This QR has no remaining capacity — collect this payment on the next QR."
+                      : overflowQr
+                        ? `Only ${formatINR(remainingOnCollect)} fits on this QR. Collect ${formatINR(remainingOnCollect)} here, then ${formatINR(splitExtra)} on ${overflowQr.label}.`
+                        : `Only ${formatINR(remainingOnCollect)} remaining on this QR today.`
+                    : `Fits on this QR (${formatINR(remainingOnCollect)} remaining).`}
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="claim-card">Card last 4 digits</Label>
@@ -700,7 +926,7 @@ export default function QrCollectionsPage() {
             type="submit"
             size="lg"
             className="w-full"
-            disabled={busy || !qr || !screenshot || cardLast4.trim().length !== 4}
+            disabled={busy || !collectQr || !screenshot || cardLast4.trim().length !== 4}
             isLoading={busy}
           >
             Submit claim{amount ? ` for ${formatINR(Number(amount) || 0)}` : ""}

@@ -1,12 +1,13 @@
 /**
  * Static QR priority-queue rotation with per-QR daily caps.
  *
- * The platform shows retailers exactly ONE live QR at a time, but instead of an
- * admin picking it, the engine derives it: the lowest-`priority` **enabled** QR
- * that still has headroom for the current IST day. When a QR fills its daily cap
- * (gross value of non-rejected claims filed today ≥ `dailyLimit`, and/or claim
- * count ≥ `dailyLimitCount`) it is auto-paused and the next one is promoted —
- * this keeps each collecting account under a ceiling and spreads volume.
+ * Retailers collect first on the lowest-`priority` **enabled** QR that still has
+ * headroom for the current IST day. They also see that QR's remaining rupees
+ * (and the next queued QR) so a payment larger than what's left can be split:
+ * take the remainder on the live QR, the rest on the overflow QR. When a QR
+ * fills its daily cap (gross value of non-rejected claims filed today ≥
+ * `dailyLimit`, and/or claim count ≥ `dailyLimitCount`) it is auto-paused and
+ * the overflow QR is promoted to live.
  *
  * Because the QR rail has no provider webhook, "collected today" can only be
  * measured from claims retailers FILE (see `./claims`). It therefore lags the
@@ -60,9 +61,8 @@ export function isOverDailyLimit(qr: Pick<StaticQr, "dailyLimit" | "dailyLimitCo
 }
 
 /**
- * Is this QR within `ratio` of either daily cap? Used only to warn retailers a
- * switch may be imminent — deliberately coarse (no exact remaining is exposed,
- * since the claim-based counter lags and the QR is shared across retailers).
+ * Is this QR within `ratio` of either daily cap? Highlights the remaining-amount
+ * meter when a switch (or a split onto the overflow QR) is likely.
  */
 export function isNearDailyLimit(
   qr: Pick<StaticQr, "dailyLimit" | "dailyLimitCount">,
@@ -72,6 +72,89 @@ export function isNearDailyLimit(
   const nearAmount = qr.dailyLimit != null && Number(qr.dailyLimit) > 0 && used.amount >= ratio * Number(qr.dailyLimit);
   const nearCount = qr.dailyLimitCount != null && qr.dailyLimitCount > 0 && used.count >= ratio * qr.dailyLimitCount;
   return nearAmount || nearCount;
+}
+
+export type QrHeadroom = {
+  collected: number;
+  collectedCount: number;
+  dailyLimit: number | null;
+  dailyLimitCount: number | null;
+  /** Rupees still collectable today; null = no amount cap on this QR. */
+  remainingAmount: number | null;
+  /** Claims still collectable today; null = no count cap on this QR. */
+  remainingCount: number | null;
+};
+
+/** Remaining daily capacity on a QR (shared across every retailer collecting on it). */
+export function qrHeadroom(
+  qr: Pick<StaticQr, "dailyLimit" | "dailyLimitCount">,
+  used: QrUsage
+): QrHeadroom {
+  const dailyLimit = qr.dailyLimit != null ? Number(qr.dailyLimit) : null;
+  const dailyLimitCount = qr.dailyLimitCount ?? null;
+  return {
+    collected: used.amount,
+    collectedCount: used.count,
+    dailyLimit,
+    dailyLimitCount,
+    remainingAmount: dailyLimit != null ? Math.max(0, Math.round((dailyLimit - used.amount) * 100) / 100) : null,
+    remainingCount: dailyLimitCount != null ? Math.max(0, dailyLimitCount - used.count) : null,
+  };
+}
+
+export type RetailerQrPayload = {
+  id: string;
+  label: string;
+  upiVpa: string | null;
+  imageUrl: string;
+  activatedAt: string;
+  nearFull: boolean;
+  headroom: QrHeadroom;
+};
+
+export function toRetailerQrPayload(qr: StaticQr, used: QrUsage): RetailerQrPayload {
+  return {
+    id: qr.id,
+    label: qr.label,
+    upiVpa: qr.upiVpa,
+    imageUrl: qr.imageUrl,
+    activatedAt: qr.createdAt.toISOString(),
+    nearFull: isNearDailyLimit(qr, used),
+    headroom: qrHeadroom(qr, used),
+  };
+}
+
+/**
+ * Next enabled QR after the live one that still has headroom today — the QR
+ * retailers should collect the overflow (amount above the live QR's remaining)
+ * on. Does not mutate queue state; call after `resolveLiveQr`.
+ */
+export async function peekOverflowQr(liveId: string): Promise<StaticQr | null> {
+  const candidates = await prisma.staticQr.findMany({
+    where: { enabled: true, autoPausedOn: null, id: { not: liveId } },
+    orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
+  });
+  for (const qr of candidates) {
+    const used = await collectedToday(qr.id);
+    if (isOverDailyLimit(qr, used)) continue;
+    return qr;
+  }
+  return null;
+}
+
+/**
+ * True when `qrId` is the overflow QR currently shown beside the live one, so
+ * a retailer can file a claim for the rest of a split payment before rotation
+ * promotes it. Does not call `resolveLiveQr` (that has side effects).
+ */
+export async function isOverflowCollectQr(qrId: string): Promise<boolean> {
+  const live = await prisma.staticQr.findFirst({
+    where: { active: true, enabled: true },
+    select: { id: true },
+  });
+  if (!live || live.id === qrId) return false;
+  const overflow = await peekOverflowQr(live.id);
+  return overflow?.id === qrId;
 }
 
 export type QrLiveState = "LIVE" | "QUEUED" | "FULL_TODAY" | "DISABLED";

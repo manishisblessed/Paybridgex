@@ -241,6 +241,8 @@ async function distributeCommissionForPg(
         status: "SUCCESS",
         partner: "PG",
         partnerTxnId: transactionRef,
+        // Inbound acquirer settlement anchor — excluded from risk/AML (see schema).
+        isSettlement: true,
       },
     });
   }

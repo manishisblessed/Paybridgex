@@ -26,7 +26,7 @@ import { priceSchemeSettlement, startOfTodayIst, SETTLED_VIA } from "../settleme
 import { railScopeKey } from "../mdr/floor";
 import { distributeMdrCommission } from "../commission/distribute";
 import { recordPayin } from "../wallet/payin";
-import { resolveLiveQr } from "./rotation";
+import { isOverflowCollectQr, resolveLiveQr } from "./rotation";
 
 export class QrClaimError extends Error {
   public statusCode: number;
@@ -185,12 +185,17 @@ export async function precheckQrClaim(input: QrClaimPrecheckInput): Promise<{ ut
   // A switched-out QR (auto-paused on hitting its daily cap, or rotated by an
   // admin) still accepts claims for payments made BEFORE the switch, plus a
   // short grace window for anyone who was already mid-scan. Undated claims (no
-  // paidAt) are treated as "now". Anything later must target the current live QR.
+  // paidAt) are treated as "now". The next queued QR (overflow) is also
+  // claimable immediately so a retailer can split a payment: remaining rupees
+  // on the live QR, the rest on the overflow QR, without waiting for rotation.
   if (!qr.active) {
-    const cutoff = qr.disabledAt?.getTime();
-    const effectivePaidMs = paidAtMs ?? now;
-    if (!cutoff || effectivePaidMs > cutoff + switchGraceMs()) {
-      throw new QrClaimError("This QR code is disabled or full — payments after the switch must be claimed on the current live QR", 400, "QR_DISABLED");
+    const overflow = qr.enabled ? await isOverflowCollectQr(qr.id) : false;
+    if (!overflow) {
+      const cutoff = qr.disabledAt?.getTime();
+      const effectivePaidMs = paidAtMs ?? now;
+      if (!cutoff || effectivePaidMs > cutoff + switchGraceMs()) {
+        throw new QrClaimError("This QR code is disabled or full — payments after the switch must be claimed on the current live QR", 400, "QR_DISABLED");
+      }
     }
   }
 
@@ -532,6 +537,8 @@ async function distributeCommissionForQr(
         partner: "STATIC_QR",
         partnerTxnId: claimId,
         settlementType, // T0 = instant, T1 = next-day (per-leg revenue split)
+        // Inbound acquirer settlement anchor — excluded from risk/AML (see schema).
+        isSettlement: true,
       },
     });
   } else {
@@ -540,7 +547,7 @@ async function distributeCommissionForQr(
     // consistent going forward.
     txn = await prisma.transaction.update({
       where: { id: txn.id },
-      data: { service: "QR" as ServiceCode, fee: marginFee, settlementType },
+      data: { service: "QR" as ServiceCode, fee: marginFee, settlementType, isSettlement: true },
     });
   }
 

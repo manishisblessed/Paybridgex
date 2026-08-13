@@ -134,7 +134,9 @@ describe("submitQrClaim — validation", () => {
 
   it("disabled QR: accepts payments dated before the switch, refuses after", async () => {
     const disabledAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    holder.db.addStaticQr("oldqr", { active: false, disabledAt });
+    // Paused *today* so it is not treated as the overflow QR (yesterday's
+    // auto-pause is cleared by resolveLiveQr on the next claim).
+    holder.db.addStaticQr("oldqr", { active: false, disabledAt, autoPausedOn: new Date() });
 
     const before = await submitQrClaim(
       validClaim({ qrId: "oldqr", paidAt: new Date(disabledAt.getTime() - 60 * 60 * 1000) })
@@ -144,6 +146,19 @@ describe("submitQrClaim — validation", () => {
     await expect(
       submitQrClaim(validClaim({ qrId: "oldqr", paidAt: new Date(disabledAt.getTime() + 60 * 60 * 1000) }))
     ).rejects.toThrow(/disabled/);
+  });
+
+  it("accepts a claim on the next queued QR so a payment can be split across remaining + overflow", async () => {
+    holder.db.addStaticQr("qr2", { active: false, enabled: true, priority: 200, dailyLimit: 20_000 });
+    const claim = await submitQrClaim(validClaim({ qrId: "qr2", amount: 4_534 }));
+    expect(claim.status).toBe("PENDING");
+    expect(claim.qrId).toBe("qr2");
+  });
+
+  it("refuses a queued QR that is not the next overflow", async () => {
+    holder.db.addStaticQr("qr2", { active: false, enabled: true, priority: 200 });
+    holder.db.addStaticQr("qr3", { active: false, enabled: true, priority: 300 });
+    await expect(submitQrClaim(validClaim({ qrId: "qr3" }))).rejects.toThrow(/disabled or full/);
   });
 });
 

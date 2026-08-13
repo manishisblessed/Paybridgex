@@ -248,12 +248,29 @@ export class FakeDb {
   };
 
   // ── prisma.staticQr (QR collections) ──────────────────────────────────────
-  addStaticQr(id: string, opts?: { active?: boolean; disabledAt?: Date | null }) {
+  addStaticQr(
+    id: string,
+    opts?: {
+      active?: boolean;
+      disabledAt?: Date | null;
+      enabled?: boolean;
+      priority?: number;
+      dailyLimit?: number | null;
+      dailyLimitCount?: number | null;
+      autoPausedOn?: Date | null;
+    }
+  ) {
     this.staticQrs.push({
       id,
       label: `QR ${id}`,
       upiVpa: "merchant@upi",
+      imageUrl: `https://example.test/${id}.png`,
       active: opts?.active ?? true,
+      enabled: opts?.enabled ?? true,
+      priority: opts?.priority ?? 100,
+      dailyLimit: opts?.dailyLimit ?? null,
+      dailyLimitCount: opts?.dailyLimitCount ?? null,
+      autoPausedOn: opts?.autoPausedOn ?? null,
       disabledAt: opts?.disabledAt ?? null,
       createdAt: new Date(),
     });
@@ -270,9 +287,85 @@ export class FakeDb {
       const row = this.staticQrs.find((q) => q.id === where.id);
       return row ? { ...row } : null;
     },
-    findFirst: async ({ where }: { where?: { active?: boolean } } = {}) => {
-      const row = this.staticQrs.find((q) => where?.active === undefined || q.active === where.active);
+    findFirst: async ({
+      where,
+    }: { where?: { active?: boolean; enabled?: boolean; id?: string } } = {}) => {
+      const row = this.staticQrs.find(
+        (q) =>
+          (where?.active === undefined || q.active === where.active) &&
+          (where?.enabled === undefined || q.enabled === where.enabled) &&
+          (where?.id === undefined || q.id === where.id)
+      );
       return row ? { ...row } : null;
+    },
+    findMany: async ({
+      where = {},
+      orderBy,
+    }: {
+      where?: {
+        enabled?: boolean;
+        autoPausedOn?: null | { lt: Date };
+        id?: { not?: string };
+        active?: boolean;
+      };
+      orderBy?: Array<{ priority?: "asc" | "desc"; createdAt?: "asc" | "desc" }>;
+    } = {}) => {
+      let rows = this.staticQrs.filter((q) => {
+        if (where.enabled !== undefined && q.enabled !== where.enabled) return false;
+        if (where.active !== undefined && q.active !== where.active) return false;
+        if (where.id?.not !== undefined && q.id === where.id.not) return false;
+        if (where.autoPausedOn === null && q.autoPausedOn != null) return false;
+        if (where.autoPausedOn && "lt" in where.autoPausedOn) {
+          const at = q.autoPausedOn as Date | null;
+          if (!at || !(at < where.autoPausedOn.lt)) return false;
+        }
+        return true;
+      });
+      if (orderBy?.length) {
+        rows = [...rows].sort((a, b) => {
+          for (const key of orderBy) {
+            if (key.priority) {
+              const av = Number(a.priority ?? 0);
+              const bv = Number(b.priority ?? 0);
+              if (av !== bv) return key.priority === "asc" ? av - bv : bv - av;
+            }
+            if (key.createdAt) {
+              const av = (a.createdAt as Date).getTime();
+              const bv = (b.createdAt as Date).getTime();
+              if (av !== bv) return key.createdAt === "asc" ? av - bv : bv - av;
+            }
+          }
+          return 0;
+        });
+      }
+      return rows.map((q) => ({ ...q }));
+    },
+    updateMany: async ({ where, data }: { where: Row; data: Row }) => {
+      const rows = this.staticQrs.filter((q) => {
+        if (where.id !== undefined) {
+          if (typeof where.id === "string") {
+            if (q.id !== where.id) return false;
+          } else if (where.id && typeof where.id === "object" && "not" in (where.id as object)) {
+            if (q.id === (where.id as { not: string }).not) return false;
+          }
+        }
+        if (where.active !== undefined && q.active !== where.active) return false;
+        if (where.autoPausedOn !== undefined) {
+          if (where.autoPausedOn === null) {
+            if (q.autoPausedOn != null) return false;
+          } else if (
+            where.autoPausedOn &&
+            typeof where.autoPausedOn === "object" &&
+            "lt" in (where.autoPausedOn as object)
+          ) {
+            const at = q.autoPausedOn as Date | null;
+            if (!at || !(at < (where.autoPausedOn as { lt: Date }).lt)) return false;
+          }
+        }
+        return true;
+      });
+      for (const row of rows) Object.assign(row, data);
+      return { count: rows.length };
     },
   };
 
@@ -374,17 +467,28 @@ export class FakeDb {
     }: {
       _sum?: unknown;
       _count?: unknown;
-      where?: { userId?: string; createdAt?: { gte: Date }; status?: string; reconciledAt?: null };
+      where?: {
+        userId?: string;
+        qrId?: string;
+        createdAt?: { gte: Date };
+        status?: string | { not: string };
+        reconciledAt?: null;
+      };
     } = {}) => {
-      const rows = this.qrClaims.filter(
-        (c) =>
-          (where?.userId === undefined || c.userId === where.userId) &&
-          (where?.createdAt === undefined || (c.createdAt as Date) >= where.createdAt.gte) &&
-          (where?.status === undefined || c.status === where.status) &&
-          (where?.reconciledAt === undefined || (c.reconciledAt ?? null) === where.reconciledAt)
-      );
+      const rows = this.qrClaims.filter((c) => {
+        if (where?.userId !== undefined && c.userId !== where.userId) return false;
+        if (where?.qrId !== undefined && c.qrId !== where.qrId) return false;
+        if (where?.createdAt !== undefined && !((c.createdAt as Date) >= where.createdAt.gte)) return false;
+        if (where?.status !== undefined) {
+          if (typeof where.status === "string") {
+            if (c.status !== where.status) return false;
+          } else if (c.status === where.status.not) return false;
+        }
+        if (where?.reconciledAt !== undefined && (c.reconciledAt ?? null) !== where.reconciledAt) return false;
+        return true;
+      });
       const sum = rows.reduce((acc, c) => acc.plus(decOf(c.amount)), new Prisma.Decimal(0));
-      return { _sum: { amount: rows.length ? sum : null }, _count: rows.length };
+      return { _sum: { amount: rows.length ? sum : null }, _count: { _all: rows.length } };
     },
   };
 

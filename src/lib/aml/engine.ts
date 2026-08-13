@@ -175,7 +175,12 @@ export async function runAmlSweep(now = new Date()): Promise<{ scannedUsers: num
 
   const [txns, payouts] = await Promise.all([
     prisma.transaction.findMany({
-      where: { createdAt: { gte: dayStart }, status: { in: [...MONITORED_TXN_STATUSES] } },
+      // Exclude synthetic acquirer-settlement anchors (POS/PG/QR): those are
+      // INBOUND settlement volume, not the retailer moving their own money, so
+      // they must not inflate structuring / CTR / dormant-burst aggregates. The
+      // dormancy prior-activity check below stays inclusive (settlement activity
+      // correctly marks an account as non-dormant).
+      where: { createdAt: { gte: dayStart }, status: { in: [...MONITORED_TXN_STATUSES] }, isSettlement: false },
       select: { userId: true, amount: true, fee: true, refId: true },
     }),
     prisma.payoutRequest.findMany({

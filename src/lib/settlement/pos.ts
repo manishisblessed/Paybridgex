@@ -432,7 +432,7 @@ async function distributeCommissionForPos(
     // per-service earnings / revenue reports attribute the settlement to POS.
     txn = await prisma.transaction.update({
       where: { id: txn.id },
-      data: { service: "POS" as ServiceCode, fee: marginFee, settlementType },
+      data: { service: "POS" as ServiceCode, fee: marginFee, settlementType, isSettlement: true },
     });
   }
   if (!txn) {
@@ -448,6 +448,8 @@ async function distributeCommissionForPos(
           partner: "SAMEDAY_POS",
           partnerTxnId: transactionRef,
           settlementType, // T0 = instant, T1 = next-day (for per-leg revenue split)
+          // Inbound acquirer settlement anchor — excluded from risk/AML (see schema).
+          isSettlement: true,
         },
       });
     } catch (e) {

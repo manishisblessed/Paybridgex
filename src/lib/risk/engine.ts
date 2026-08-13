@@ -202,11 +202,14 @@ export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<vo
           userId: opts.userId,
           createdAt: { gte: since24h },
           status: { in: ["INITIATED", "PROCESSING", "SUCCESS"] },
+          // Exclude synthetic acquirer-settlement anchors (POS/PG/QR): those are
+          // INBOUND settlement volume, not user-initiated outbound movement.
+          isSettlement: false,
         },
         _sum: { amount: true, fee: true },
       }),
       prisma.transaction.count({
-        where: { userId: opts.userId, createdAt: { gte: since1h } },
+        where: { userId: opts.userId, createdAt: { gte: since1h }, isSettlement: false },
       }),
       prisma.payoutRequest.aggregate({
         where: {
@@ -224,7 +227,7 @@ export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<vo
         select: { dailyTxnAmountCap: true, dailyTxnCountCap: true },
       }),
       prisma.transaction.count({
-        where: { userId: opts.userId, createdAt: { gte: since24h } },
+        where: { userId: opts.userId, createdAt: { gte: since24h }, isSettlement: false },
       }),
       prisma.payoutRequest.count({
         where: { userId: opts.userId, createdAt: { gte: since24h } },

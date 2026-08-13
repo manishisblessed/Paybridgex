@@ -4,13 +4,17 @@ import { toErrorResponse } from "@/lib/security/apiErrors";
 import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { prisma } from "@/lib/db";
-import { resolveLiveQr, collectedToday, isNearDailyLimit } from "@/lib/qr/rotation";
+import {
+  resolveLiveQr,
+  collectedToday,
+  peekOverflowQr,
+  toRetailerQrPayload,
+} from "@/lib/qr/rotation";
 
 /**
- * The one live static QR every retailer collects payments on. The rotation
- * engine derives it from the priority queue and per-QR daily caps, auto-pausing
- * a QR once it fills up and promoting the next one.
- *   { qr: {...} }                             → collect on this QR
+ * The live static QR every retailer collects payments on, plus remaining
+ * headroom and the next QR for overflow (split payments).
+ *   { qr, overflowQr }                        → collect remaining on `qr`, rest on `overflowQr`
  *   { qr: null, reason: "LIMIT_REACHED" }     → every QR hit its daily cap; paused
  *   { qr: null, reason: "NOT_CONFIGURED" }    → admin hasn't set one up yet
  */
@@ -31,22 +35,22 @@ export async function GET() {
   if (!qr) {
     // Is the pool merely exhausted for today, or has nothing ever been set up?
     const anyEnabled = await prisma.staticQr.count({ where: { enabled: true } });
-    return NextResponse.json({ qr: null, reason: anyEnabled > 0 ? "LIMIT_REACHED" : "NOT_CONFIGURED" });
+    return NextResponse.json({ qr: null, overflowQr: null, reason: anyEnabled > 0 ? "LIMIT_REACHED" : "NOT_CONFIGURED" });
   }
 
-  // Coarse "may switch soon" hint (no exact remaining — the counter is
-  // claim-based/lagging and the QR is shared across retailers).
   const used = await collectedToday(qr.id);
-  const nearFull = isNearDailyLimit(qr, used);
+  const payload = toRetailerQrPayload(qr, used);
 
-  return NextResponse.json({
-    qr: {
-      id: qr.id,
-      label: qr.label,
-      upiVpa: qr.upiVpa,
-      imageUrl: qr.imageUrl,
-      activatedAt: qr.createdAt.toISOString(),
-      nearFull,
-    },
-  });
+  // Only surface an overflow QR when the live one actually has a daily cap —
+  // otherwise there is nothing to "split" onto the next code.
+  const hasCap = payload.headroom.dailyLimit != null || payload.headroom.dailyLimitCount != null;
+  let overflowQr = null;
+  if (hasCap) {
+    const next = await peekOverflowQr(qr.id);
+    if (next) {
+      overflowQr = toRetailerQrPayload(next, await collectedToday(next.id));
+    }
+  }
+
+  return NextResponse.json({ qr: payload, overflowQr });
 }
