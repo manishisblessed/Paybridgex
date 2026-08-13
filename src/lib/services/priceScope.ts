@@ -1,4 +1,5 @@
 import { SERVICE_KEYS, KNOWN_SERVICE_ROUTES } from "./catalog";
+import { SERVICE_FAMILIES } from "@/lib/scheme/constants";
 
 /**
  * Per-product BBPS "price scope".
@@ -66,3 +67,64 @@ export const BBPS_PRICE_SCOPE_OPTIONS: Array<{ key: string; name: string; partne
     name: SCOPE_LABEL[key] ?? key,
     partner: SCOPE_FAMILY[key] ?? "",
   }));
+
+/** Every bill-category ServiceCode the BBPS scheme-family modal can price. */
+const BBPS_BILL_SERVICES: readonly string[] = SERVICE_FAMILIES.find((f) => f.key === "BBPS")!.services;
+
+const CREDIT_CARD_SERVICE = "BILL_CREDIT_CARD";
+
+/**
+ * Credit Card Bill Payment / Credit Card Bill Payment-2 are dedicated CC rails.
+ * They must never fan out onto electricity / water / gas / education / insurance.
+ * The Unified Bill Payment Platform is the inverse: utilities only, no CC.
+ * Bharat BillPay covers the full BBPS family (including credit card).
+ */
+const CC_ONLY_SCOPES = new Set<string>([
+  BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD,
+  BBPS_PRICE_SCOPES.RECHARGEKIT_CC,
+]);
+const UTILITY_ONLY_SCOPES = new Set<string>([
+  BBPS_PRICE_SCOPES.BBPS_BULKPE,
+  "bbps_bulkpe", // legacy pricing key retained in the catalog
+]);
+
+/**
+ * Bill categories a BBPS product is allowed to price. Used by the scheme-slab
+ * modal ("All Services" expands to this list) and the create/update APIs.
+ */
+export function bbpsServicesForProvider(provider: string | null | undefined): readonly string[] {
+  const key = (provider ?? "").trim();
+  if (!key) return BBPS_BILL_SERVICES;
+  if (CC_ONLY_SCOPES.has(key)) return [CREDIT_CARD_SERVICE];
+  if (UTILITY_ONLY_SCOPES.has(key)) return BBPS_BILL_SERVICES.filter((s) => s !== CREDIT_CARD_SERVICE);
+  return BBPS_BILL_SERVICES;
+}
+
+/** Inverse of {@link bbpsServicesForProvider} — product scopes that may price `service`. */
+export function bbpsProvidersForService(service: string): string[] {
+  return SCOPE_KEYS.filter((key) => bbpsServicesForProvider(key).includes(service));
+}
+
+/** True when this (service, provider) pair is a valid BBPS slab pin. Non-BBPS always passes. */
+export function isBbpsServiceProviderCompatible(
+  service: string,
+  provider: string | null | undefined
+): boolean {
+  if (!service.startsWith("BILL_") && service !== "RECHARGE_BROADBAND") return true;
+  const key = (provider ?? "").trim();
+  if (!key) return true;
+  return bbpsServicesForProvider(key).includes(service);
+}
+
+/** User-facing error when a BBPS product is pinned to the wrong bill category, or null. */
+export function bbpsServiceProviderMismatch(
+  service: string,
+  provider: string | null | undefined
+): string | null {
+  if (isBbpsServiceProviderCompatible(service, provider)) return null;
+  const product = priceScopeLabel(provider) ?? provider;
+  const allowed = bbpsServicesForProvider(provider)
+    .map((s) => s.replace(/_/g, " "))
+    .join(", ");
+  return `${product} only prices ${allowed}. It cannot be added to ${service.replace(/_/g, " ")}.`;
+}

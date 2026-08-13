@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { serializeSlab } from "@/lib/scheme/serialize";
 import { validateNonOverlapping } from "@/lib/scheme/resolver";
 import { resolveServiceVendorLock } from "@/lib/scheme/serviceVendor";
+import { bbpsServiceProviderMismatch } from "@/lib/services/priceScope";
 
 export const fetchCache = "force-no-store";
 
@@ -56,6 +57,9 @@ export async function PATCH(
   const nextMin = body.minAmount ?? Number(existing.minAmount);
   const nextMax = body.maxAmount ?? Number(existing.maxAmount);
   const nextProvider = body.provider !== undefined ? body.provider : existing.provider;
+
+  const pinErr = bbpsServiceProviderMismatch(existing.service, nextProvider ?? null);
+  if (pinErr) return NextResponse.json({ error: pinErr }, { status: 400 });
 
   // Re-validate non-overlap if range/provider changed or slab is re-activated.
   if (

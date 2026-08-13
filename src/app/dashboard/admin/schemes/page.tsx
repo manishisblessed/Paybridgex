@@ -19,6 +19,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { AssignUserPicker, type PickerUser } from "@/components/ui/AssignUserPicker";
 import { SERVICE_FAMILIES, familyOf, type ServiceFamily } from "@/lib/scheme/constants";
+import { bbpsServicesForProvider } from "@/lib/services/priceScope";
 import {
   RefreshCw,
   Plus,
@@ -934,10 +935,39 @@ function SlabModal({
   const cfg = FAMILY_ICONS[family.key];
   const Icon = cfg.icon;
 
+  // Credit Card Bill Payment / CC-2 only price BILL_CREDIT_CARD. Bharat BillPay
+  // covers the full BBPS family. "All Services" expands to this filtered list
+  // so a CC product can never fan out onto electricity / water / gas / etc.
+  const allowedServices = useMemo(
+    () =>
+      family.key === "BBPS"
+        ? [...bbpsServicesForProvider(provider || null)]
+        : [...family.services],
+    [family, provider]
+  );
+
+  // Snap the service picker when the provider's allowed set no longer includes
+  // the current choice (e.g. switching from Bharat BillPay → Credit Card).
+  useEffect(() => {
+    if (isEdit || family.key !== "BBPS") return;
+    setService((prev) => {
+      if (prev !== "ALL" && !allowedServices.includes(prev)) {
+        return allowedServices.length === 1 ? allowedServices[0] : "ALL";
+      }
+      if (prev === "ALL" && allowedServices.length === 1) return allowedServices[0];
+      return prev;
+    });
+  }, [allowedServices, family.key, isEdit]);
+
   // The representative ServiceCode for the rate-card lookup: Payout is always
   // "PAYOUT"; BBPS cards are keyed by provider scope (not service), so any
   // family service resolves the same card when "All Services" is selected.
-  const previewService = family.key === "PAYOUT" ? "PAYOUT" : service === "ALL" ? family.services[0] : service;
+  const previewService =
+    family.key === "PAYOUT"
+      ? "PAYOUT"
+      : service === "ALL"
+        ? (allowedServices[0] ?? family.services[0])
+        : service;
 
   useEffect(() => {
     if (!provider) {
@@ -1028,7 +1058,15 @@ function SlabModal({
         if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "Save failed");
         onSaved("Slab updated.");
       } else {
-        const services = service === "ALL" ? [...family.services] : [service];
+        const services =
+          service === "ALL"
+            ? allowedServices
+            : allowedServices.includes(service)
+              ? [service]
+              : [];
+        if (services.length === 0) {
+          throw new Error("This provider cannot be used for the selected service.");
+        }
         let created = 0;
         for (const svc of services) {
           const res = await fetch(`/api/admin/schemes/${schemeId}/slabs`, {
@@ -1076,14 +1114,25 @@ function SlabModal({
                   <input type="hidden" value="ALL" />
                 </>
               ) : (
-                <Select value={service} onChange={(e) => setService(e.target.value)} disabled={isEdit}>
-                  <option value="ALL">All Services</option>
-                  {family.services.map((c) => (
-                    <option key={c} value={c}>
-                      {c.replace(/_/g, " ")}
-                    </option>
-                  ))}
-                </Select>
+                <>
+                  <Select
+                    value={service}
+                    onChange={(e) => setService(e.target.value)}
+                    disabled={isEdit || allowedServices.length === 1}
+                  >
+                    {allowedServices.length > 1 && <option value="ALL">All Services</option>}
+                    {allowedServices.map((c) => (
+                      <option key={c} value={c}>
+                        {c.replace(/_/g, " ")}
+                      </option>
+                    ))}
+                  </Select>
+                  {family.key === "BBPS" && allowedServices.length === 1 && (
+                    <p className="mt-1 text-xs text-ink-400">
+                      This product only prices {allowedServices[0].replace(/_/g, " ")}.
+                    </p>
+                  )}
+                </>
               )}
             </div>
             <div>

@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { SERVICE_CODES, serviceGroup } from "@/lib/scheme/constants";
-import { BBPS_PRICE_SCOPES, BBPS_PRICE_SCOPE_OPTIONS } from "@/lib/services/priceScope";
+import { BBPS_PRICE_SCOPE_OPTIONS, bbpsProvidersForService } from "@/lib/services/priceScope";
 import {
   ArrowLeft,
   Plus,
@@ -526,10 +526,7 @@ function SlabModal({
   // vs the CC-only RechargeKit rail) hold independent charges + revenue. Credit
   // card is served by the SameDay CC rails; utilities by Bharat BillPay/Unified.
   const isBbpsService = service.startsWith("BILL_") || service === "RECHARGE_BROADBAND";
-  const scopeKeys: string[] =
-    service === "BILL_CREDIT_CARD"
-      ? [BBPS_PRICE_SCOPES.BBPS_SAMEDAY, BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD, BBPS_PRICE_SCOPES.RECHARGEKIT_CC]
-      : [BBPS_PRICE_SCOPES.BBPS_SAMEDAY, BBPS_PRICE_SCOPES.BBPS_BULKPE];
+  const scopeKeys: string[] = bbpsProvidersForService(service);
   const scopeOptionsAll = BBPS_PRICE_SCOPE_OPTIONS.filter((o) => scopeKeys.includes(o.key));
   // Only offer products that have an active rate card (so a slab always locks a
   // vendor cost); always keep the currently-pinned value when editing. Falls

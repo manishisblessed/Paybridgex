@@ -8,6 +8,7 @@ import { serializeSlab } from "@/lib/scheme/serialize";
 import { validateNonOverlapping } from "@/lib/scheme/resolver";
 import { resolveServiceVendorLock } from "@/lib/scheme/serviceVendor";
 import { SERVICE_CODES } from "@/lib/scheme/constants";
+import { bbpsServiceProviderMismatch } from "@/lib/services/priceScope";
 
 export const fetchCache = "force-no-store";
 
@@ -63,6 +64,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!parsed.success)
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const body = parsed.data;
+
+  const pinErr = bbpsServiceProviderMismatch(body.service, body.provider ?? null);
+  if (pinErr) return NextResponse.json({ error: pinErr }, { status: 400 });
 
   const overlap = await validateNonOverlapping(
     scheme.id,
