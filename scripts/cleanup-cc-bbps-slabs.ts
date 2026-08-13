@@ -1,12 +1,7 @@
 /**
- * Remove BBPS scheme slabs that pin a credit-card-only product
- * (Credit Card Bill Payment / Credit Card Bill Payment-2) onto a non-CC
- * bill category (electricity, water, gas, education, insurance). Those rows
- * were created by the old "All Services" fan-out in Scheme Manager.
- *
- * BILL_CREDIT_CARD slabs on those products are kept. Bharat BillPay
- * (bbps_sameday) slabs on utilities are kept — that product really does
- * cover every bill category.
+ * Remove BBPS scheme slabs pinned to the wrong product:
+ *   - Credit Card Bill Payment / CC-2 on a non-CC bill category
+ *   - Bharat BillPay / Unified on BILL_CREDIT_CARD
  *
  * Usage:
  *   npx tsx scripts/cleanup-cc-bbps-slabs.ts            # dry-run
@@ -36,26 +31,29 @@ const COMMIT = process.argv.includes("--commit");
 
 async function main() {
   const { prisma } = await import("../src/lib/db");
-  const { BBPS_PRICE_SCOPES, isBbpsServiceProviderCompatible } = await import(
-    "../src/lib/services/priceScope"
-  );
+  const { isBbpsServiceProviderCompatible } = await import("../src/lib/services/priceScope");
 
-  const ccProviders = [BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD, BBPS_PRICE_SCOPES.RECHARGEKIT_CC];
+  console.log(`\n=== Cleanup mismatched BBPS slabs (${COMMIT ? "COMMIT" : "DRY-RUN"}) ===\n`);
 
-  console.log(`\n=== Cleanup CC-only BBPS slabs on non-CC categories (${COMMIT ? "COMMIT" : "DRY-RUN"}) ===\n`);
+  const billServices = [
+    "BILL_ELECTRICITY",
+    "BILL_WATER",
+    "BILL_GAS",
+    "BILL_CREDIT_CARD",
+    "BILL_EDUCATION",
+    "BILL_INSURANCE",
+  ] as const;
 
   const slabs = await prisma.schemeSlab.findMany({
-    where: { provider: { in: ccProviders } },
+    where: { service: { in: [...billServices] }, provider: { not: null } },
     include: { scheme: { select: { name: true } } },
     orderBy: [{ schemeId: "asc" }, { service: "asc" }],
   });
 
   const stale = slabs.filter((s) => !isBbpsServiceProviderCompatible(s.service, s.provider));
-  const keep = slabs.filter((s) => isBbpsServiceProviderCompatible(s.service, s.provider));
 
-  console.log(`CC-product slabs found : ${slabs.length}`);
-  console.log(`  keep (BILL_CREDIT_CARD) : ${keep.length}`);
-  console.log(`  remove (wrong category) : ${stale.length}\n`);
+  console.log(`BBPS bill slabs with a provider : ${slabs.length}`);
+  console.log(`  mismatched (will remove)      : ${stale.length}\n`);
 
   for (const s of stale) {
     console.log(

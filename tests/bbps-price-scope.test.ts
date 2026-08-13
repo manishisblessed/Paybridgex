@@ -24,9 +24,9 @@ describe("bbpsServicesForProvider", () => {
     expect(bbpsServicesForProvider(BBPS_PRICE_SCOPES.RECHARGEKIT_CC)).toEqual(["BILL_CREDIT_CARD"]);
   });
 
-  it("Bharat BillPay covers the full BBPS family including credit card", () => {
+  it("Bharat BillPay covers utilities but not credit card", () => {
     const services = bbpsServicesForProvider(BBPS_PRICE_SCOPES.BBPS_SAMEDAY);
-    expect(services).toContain("BILL_CREDIT_CARD");
+    expect(services).not.toContain("BILL_CREDIT_CARD");
     for (const s of UTILITY) expect(services).toContain(s);
   });
 
@@ -56,6 +56,10 @@ describe("isBbpsServiceProviderCompatible", () => {
     expect(bbpsServiceProviderMismatch("BILL_CREDIT_CARD", BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD)).toBeNull();
   });
 
+  it("rejects credit card + Bharat BillPay", () => {
+    expect(isBbpsServiceProviderCompatible("BILL_CREDIT_CARD", BBPS_PRICE_SCOPES.BBPS_SAMEDAY)).toBe(false);
+  });
+
   it("rejects credit card + Unified Bill Payment Platform", () => {
     expect(isBbpsServiceProviderCompatible("BILL_CREDIT_CARD", BBPS_PRICE_SCOPES.BBPS_BULKPE)).toBe(false);
   });
@@ -66,15 +70,12 @@ describe("isBbpsServiceProviderCompatible", () => {
 });
 
 describe("bbpsProvidersForService", () => {
-  it("credit card is served by Bharat BillPay and both CC products, not Unified", () => {
+  it("credit card is served only by the dedicated CC products", () => {
     const keys = bbpsProvidersForService("BILL_CREDIT_CARD");
     expect(keys).toEqual(
-      expect.arrayContaining([
-        BBPS_PRICE_SCOPES.BBPS_SAMEDAY,
-        BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD,
-        BBPS_PRICE_SCOPES.RECHARGEKIT_CC,
-      ])
+      expect.arrayContaining([BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD, BBPS_PRICE_SCOPES.RECHARGEKIT_CC])
     );
+    expect(keys).not.toContain(BBPS_PRICE_SCOPES.BBPS_SAMEDAY);
     expect(keys).not.toContain(BBPS_PRICE_SCOPES.BBPS_BULKPE);
   });
 

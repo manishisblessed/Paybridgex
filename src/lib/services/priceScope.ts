@@ -74,16 +74,17 @@ const BBPS_BILL_SERVICES: readonly string[] = SERVICE_FAMILIES.find((f) => f.key
 const CREDIT_CARD_SERVICE = "BILL_CREDIT_CARD";
 
 /**
- * Credit Card Bill Payment / Credit Card Bill Payment-2 are dedicated CC rails.
- * They must never fan out onto electricity / water / gas / education / insurance.
- * The Unified Bill Payment Platform is the inverse: utilities only, no CC.
- * Bharat BillPay covers the full BBPS family (including credit card).
+ * Credit Card Bill Payment / Credit Card Bill Payment-2 are the only products
+ * that may price BILL_CREDIT_CARD. Bharat BillPay and Unified Bill Payment
+ * price utility categories only (electricity, water, gas, education, insurance)
+ * — they must never fan out a credit-card slab.
  */
 const CC_ONLY_SCOPES = new Set<string>([
   BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD,
   BBPS_PRICE_SCOPES.RECHARGEKIT_CC,
 ]);
 const UTILITY_ONLY_SCOPES = new Set<string>([
+  BBPS_PRICE_SCOPES.BBPS_SAMEDAY,
   BBPS_PRICE_SCOPES.BBPS_BULKPE,
   "bbps_bulkpe", // legacy pricing key retained in the catalog
 ]);

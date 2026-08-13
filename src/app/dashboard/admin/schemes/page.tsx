@@ -935,9 +935,8 @@ function SlabModal({
   const cfg = FAMILY_ICONS[family.key];
   const Icon = cfg.icon;
 
-  // Credit Card Bill Payment / CC-2 only price BILL_CREDIT_CARD. Bharat BillPay
-  // covers the full BBPS family. "All Services" expands to this filtered list
-  // so a CC product can never fan out onto electricity / water / gas / etc.
+  // Credit Card products only price BILL_CREDIT_CARD. Bharat BillPay / Unified
+  // only price utility bills. "All Services" expands to this filtered list.
   const allowedServices = useMemo(
     () =>
       family.key === "BBPS"
