@@ -141,9 +141,10 @@ export function Topbar({ onOpenSidebar, collapsed, onToggleCollapse }: { onOpenS
 
       <div className="flex items-center gap-3">
         {isMaster && (
-          <div
-            className="hidden items-center gap-2 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-2 md:flex"
-            title="Live company payin today (all rails) — resets to ₹0 at midnight"
+          <Link
+            href="/dashboard/admin/wallet-ops?tab=payin"
+            className="hidden items-center gap-2 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-2 transition-colors hover:border-emerald-300 md:flex"
+            title="Live company payin today (all rails) — resets to ₹0 at midnight. Opens Wallet Operations → Live payin."
           >
             <Activity className="h-4 w-4 text-emerald-700" />
             <div className="flex flex-col leading-tight">
@@ -154,7 +155,7 @@ export function Topbar({ onOpenSidebar, collapsed, onToggleCollapse }: { onOpenS
                 {formatINR(payinToday ?? 0)}
               </span>
             </div>
-          </div>
+          </Link>
         )}
 
         {isMaster ? (

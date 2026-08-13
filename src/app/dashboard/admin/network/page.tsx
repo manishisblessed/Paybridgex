@@ -781,7 +781,12 @@ function UserDrawer({
                         }),
                       });
                       const data = await res.json();
-                      if (!res.ok) throw new Error(data?.error ?? "Operation failed");
+                      if (!res.ok)
+                        throw new Error(
+                          typeof data?.error === "string"
+                            ? data.error
+                            : "Operation failed — please check the amount and details."
+                        );
 
                       // Optimistic balance update + pulse animation.
                       const key = walletOpWalletType === "PRIMARY" ? "primary" : "aeps";

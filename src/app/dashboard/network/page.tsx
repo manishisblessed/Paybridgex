@@ -461,7 +461,11 @@ function WalletTransferModal({ child, onClose, onDone }: { child: NetworkUser; o
         body: JSON.stringify({ childId: child.id, direction, amount: amt, note: note.trim() || undefined }),
       });
       const d = await res.json();
-      if (!res.ok) { setErr(d.error ?? "Transfer failed"); setBusy(false); return; }
+      if (!res.ok) {
+        setErr(typeof d?.error === "string" ? d.error : "Transfer failed — please check the amount and details.");
+        setBusy(false);
+        return;
+      }
       onDone();
     } catch { setErr("Request failed"); setBusy(false); }
   };

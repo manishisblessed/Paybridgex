@@ -125,6 +125,15 @@ const inputCls =
 
 export default function WalletOpsPage() {
   const [tab, setTab] = useState<"balances" | "payin" | "topups" | "operate" | "liens" | "history">("balances");
+  // Deep-link support: `?tab=payin` (e.g. from the top-bar "Payin · Today" card)
+  // opens straight onto that tab. Read from the URL on mount so we don't need a
+  // Suspense boundary around useSearchParams.
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t && ["balances", "payin", "topups", "operate", "liens", "history"].includes(t)) {
+      setTab(t as typeof tab);
+    }
+  }, []);
   const [masked, setMasked] = useState(false);
   const [cumulative, setCumulative] = useState<Cumulative | null>(null);
   const notify = useCallback((text: string, ok: boolean) => {
@@ -842,7 +851,12 @@ function OperateTab({ onDone }: { onDone: (msg: string, ok: boolean) => void }) 
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "Operation failed");
+      if (!res.ok)
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : "Operation failed — please check the amount and details."
+        );
       onDone(
         `${type === "PUSH" ? "Credited" : "Debited"} ${formatINR(amt)} ${type === "PUSH" ? "to" : "from"} ${selected.name} — ledger entry written.`,
         true
@@ -1334,7 +1348,12 @@ function LiensTab({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "Failed to place lien");
+      if (!res.ok)
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : "Failed to place lien — please check the amount and details."
+        );
       const lien = data.lien;
       const recovered = lien?.recoveredAmount ?? 0;
       onDone(

@@ -8,6 +8,8 @@ import { enforceRateLimit, RATE_LIMITS, RateLimitError } from "@/lib/security/ra
 import { assertLivenessReady, LivenessRequiredError } from "@/lib/security/livenessGate";
 import { assertKycCurrent, ReKycRequiredError } from "@/lib/security/kycGate";
 import { clientIp } from "@/lib/security/audit";
+import { formatNumber } from "@/lib/utils";
+import { walletOpMaxAmount, WALLET_OP_ABSOLUTE_MAX } from "@/lib/settings";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -17,7 +19,10 @@ const PARENT_ROLES = ["DISTRIBUTOR", "MASTER_DISTRIBUTOR", "SUPER_DISTRIBUTOR"];
 const Body = z.object({
   childId: z.string().min(1),
   direction: z.enum(["PUSH", "PULL"]),
-  amount: z.number().positive().max(10_000_000),
+  amount: z
+    .number()
+    .positive("Enter an amount greater than zero")
+    .max(WALLET_OP_ABSOLUTE_MAX, "Amount is too large"),
   note: z.string().max(500).optional(),
 }).strict();
 
@@ -51,8 +56,21 @@ export async function POST(req: Request) {
 
   const parsed = Body.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: parsed.error.issues[0]?.message ?? "Please check the amount and details and try again.",
+        details: parsed.error.flatten(),
+      },
+      { status: 400 }
+    );
   const { childId, direction, amount, note } = parsed.data;
+
+  const maxOp = await walletOpMaxAmount();
+  if (amount > maxOp)
+    return NextResponse.json(
+      { error: `Amount cannot exceed ₹${formatNumber(maxOp)} per transfer` },
+      { status: 400 }
+    );
 
   if (childId === user.id)
     return NextResponse.json({ error: "Cannot transfer to yourself" }, { status: 400 });

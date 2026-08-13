@@ -19,6 +19,11 @@ const LABELS: Record<string, { title: string; description: string }> = {
     title: "Wallet cap",
     description: "Maximum primary-wallet balance any network user may hold.",
   },
+  "wallet.op_max_amount": {
+    title: "Wallet operation limit",
+    description:
+      "Maximum amount for a single admin push/pull, network parent→child transfer, or lien. Applies instantly; hard-capped at ₹100 crore.",
+  },
   "onboarding.invite_expiry": {
     title: "Onboarding link validity",
     description:

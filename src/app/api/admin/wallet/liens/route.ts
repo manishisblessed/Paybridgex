@@ -12,15 +12,20 @@ import {
   LIEN_REASON_CODES,
 } from "@/lib/wallet/lien";
 import { toNumber, dec } from "@/lib/money";
+import { formatNumber } from "@/lib/utils";
+import { walletOpMaxAmount, WALLET_OP_ABSOLUTE_MAX } from "@/lib/settings";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
 
 const CreateBody = z.object({
   targetUserId: z.string().min(1),
-  amount: z.number().positive().max(10_000_000),
+  amount: z
+    .number()
+    .positive("Enter an amount greater than zero")
+    .max(WALLET_OP_ABSOLUTE_MAX, "Amount is too large"),
   reasonCode: z.enum(LIEN_REASON_CODES),
-  remarks: z.string().min(3).max(500),
+  remarks: z.string().min(3, "Remarks are mandatory (min 3 characters)").max(500),
   refType: z.string().max(64).optional(),
   refId: z.string().max(191).optional(),
 });
@@ -40,7 +45,20 @@ export async function POST(req: Request) {
 
   const parsed = CreateBody.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: parsed.error.issues[0]?.message ?? "Please check the amount and details and try again.",
+        details: parsed.error.flatten(),
+      },
+      { status: 400 }
+    );
+
+  const maxOp = await walletOpMaxAmount();
+  if (parsed.data.amount > maxOp)
+    return NextResponse.json(
+      { error: `Amount cannot exceed ₹${formatNumber(maxOp)} per lien` },
+      { status: 400 }
+    );
 
   try {
     const lien = await placeWalletLien({

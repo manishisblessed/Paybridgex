@@ -19,6 +19,17 @@ const SETTING_SCHEMAS = {
   }),
 
   /**
+   * Max amount for a SINGLE admin wallet operation (PUSH/PULL), network
+   * parent→child transfer, or lien. Enforced by the wallet-ops / network /
+   * lien APIs so the ceiling can be raised for large enterprise movements
+   * without a deploy. Hard-bounded to ₹100 crore to guard against fat-finger
+   * / overflow inputs. Default ₹10 crore.
+   */
+  "wallet.op_max_amount": z.object({
+    amount: z.number().positive().max(1_000_000_000).default(100_000_000),
+  }),
+
+  /**
    * Onboarding invite link validity. `days` is how long a freshly shared
    * onboarding link (and a targeted document re-upload link) stays usable
    * before it expires. Applied at creation/reshare time, so changing it only
@@ -199,6 +210,18 @@ export type SettingValue<K extends SettingKey> = z.infer<(typeof SETTING_SCHEMAS
 /** The validated default for a key (schema defaults applied to {}). */
 export function settingDefault<K extends SettingKey>(key: K): SettingValue<K> {
   return SETTING_SCHEMAS[key].parse({}) as SettingValue<K>;
+}
+
+/** Absolute hard ceiling (₹) any wallet-op cap is bounded to (fat-finger guard). */
+export const WALLET_OP_ABSOLUTE_MAX = 1_000_000_000;
+
+/**
+ * Effective max (₹) for a single admin wallet operation, network transfer, or
+ * lien. Admin-configurable via the `wallet.op_max_amount` platform setting;
+ * falls back to the ₹10 crore default when unset.
+ */
+export async function walletOpMaxAmount(): Promise<number> {
+  return (await getSetting("wallet.op_max_amount")).amount;
 }
 
 /** Read a setting, falling back to defaults when missing/invalid. */
