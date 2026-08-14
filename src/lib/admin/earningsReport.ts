@@ -216,14 +216,16 @@ type SettlementInfo = { mdr: number; net: number; status: string };
 /**
  * Merchant-facing MDR / net settled / status per transaction, keyed by the
  * partner txn ref (= Transaction.partnerTxnId). Sourced from the POS and PG
- * settlement-entry tables (both carry mdrAmount/netAmount/status). QR/UPI have
- * no equivalent per-txn MDR record, so those rails resolve to null (UI shows —).
+ * settlement-entry tables (both carry mdrAmount/netAmount/status), plus the
+ * QrClaim row for QR (whose id == the bridge Transaction.partnerTxnId — QR has
+ * no separate settlement-entry table). UPI Collect still has no per-txn MDR
+ * record, so it resolves to null (UI shows —).
  */
 async function loadSettlements(partnerRefs: string[]): Promise<Map<string, SettlementInfo>> {
   const map = new Map<string, SettlementInfo>();
   const refs = Array.from(new Set(partnerRefs.filter((r): r is string => Boolean(r))));
   for (const ids of chunk(refs, 1000)) {
-    const [pos, pg] = await Promise.all([
+    const [pos, pg, qr] = await Promise.all([
       prisma.posSettlementEntry.findMany({
         where: { transactionRef: { in: ids } },
         select: { transactionRef: true, mdrAmount: true, netAmount: true, status: true },
@@ -232,12 +234,29 @@ async function loadSettlements(partnerRefs: string[]): Promise<Map<string, Settl
         where: { transactionRef: { in: ids } },
         select: { transactionRef: true, mdrAmount: true, netAmount: true, status: true },
       }),
+      // QR settlement data lives on the QrClaim itself; the bridge Transaction's
+      // partnerTxnId is the claim id. Only SETTLED/CLAWED_BACK claims ever get a
+      // bridge txn (it's minted at settlement), so mdr/net are populated.
+      prisma.qrClaim.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, mdrAmount: true, netAmount: true, status: true },
+      }),
     ]);
     for (const e of pos) {
       map.set(e.transactionRef, { mdr: toNumber(e.mdrAmount), net: toNumber(e.netAmount), status: e.status });
     }
     for (const e of pg) {
       map.set(e.transactionRef, { mdr: toNumber(e.mdrAmount), net: toNumber(e.netAmount), status: e.status });
+    }
+    for (const c of qr) {
+      // Map the QR claim lifecycle onto the settlement-status vocabulary the UI
+      // badge understands: SETTLED → "Settled", CLAWED_BACK → "Failed", else pending.
+      const status = c.status === "SETTLED" ? "SETTLED" : c.status === "CLAWED_BACK" ? "FAILED" : "PENDING";
+      map.set(c.id, {
+        mdr: c.mdrAmount != null ? toNumber(c.mdrAmount) : 0,
+        net: c.netAmount != null ? toNumber(c.netAmount) : 0,
+        status,
+      });
     }
   }
   return map;

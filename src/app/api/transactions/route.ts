@@ -71,6 +71,13 @@ export async function GET(req: Request) {
     take: limit,
   });
 
+  // Retailers do not see commission on the transaction feed: on settlement rails
+  // (POS/QR/PG) the `commission` on their bridge txn is the UPLINE's distributed
+  // commission, not the retailer's income, so surfacing it here is misleading.
+  // The retailer's genuine earnings live on the dedicated "My Earnings" page
+  // (sourced from CommissionCredit). Zero it out so it isn't even sent client-side.
+  const hideCommission = user.role === "RETAILER";
+
   const data = rows.map((t) => ({
     id: t.refId,
     service: formatService(t.service, t.operator),
@@ -84,7 +91,7 @@ export async function GET(req: Request) {
       minute: "2-digit",
     }),
     customer: t.customer ?? "—",
-    commission: toNumber(t.commission),
+    commission: hideCommission ? 0 : toNumber(t.commission),
   }));
 
   return NextResponse.json({ ok: true, data });

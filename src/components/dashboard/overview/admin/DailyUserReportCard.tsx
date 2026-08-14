@@ -94,6 +94,8 @@ type DailyRow = {
   commissionByService: ServiceCommissionRow[];
   totalDebits: number;
   totalCommission: number;
+  push: number;
+  pull: number;
   closing: number;
   reconDelta: number;
 };
@@ -110,6 +112,8 @@ type ApiResp = {
     opening: number;
     creditsTotal: number;
     debitsTotal: number;
+    push: number;
+    pull: number;
     commissionNet: number;
     closing: number;
   };
@@ -227,8 +231,8 @@ export function DailyUserReportCard() {
       if (!res.ok) throw new Error("Export failed");
       const json = await res.json();
       const rows: Record<string, unknown>[] = json.rows ?? [];
-      const cols = ["code", "name", "role", "opening", "creditsTotal", "topup", "commissionEarned", "debitsTotal", "servicesUsed", "closing"];
-      const header = ["User ID", "Name", "Role", "Opening", "Credits", "Top-up", "Commission", "Debits", "Services used", "Closing"];
+      const cols = ["code", "name", "role", "opening", "creditsTotal", "push", "topup", "commissionEarned", "debitsTotal", "pull", "servicesUsed", "closing"];
+      const header = ["User ID", "Name", "Role", "Opening", "Credits", "Push", "Top-up", "Commission", "Debits", "Pull", "Services used", "Closing"];
       const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
       const lines = [header.map(esc).join(",")];
       for (const r of rows) lines.push(cols.map((c) => esc(r[c])).join(","));
@@ -306,10 +310,14 @@ export function DailyUserReportCard() {
       </header>
 
       {/* ── KPI row ─────────────────────────────────────────────── */}
-      <div className="relative mt-4 grid gap-3 grid-cols-2 lg:grid-cols-5">
+      {/* Credits/Debits are shown NET of push/pull so the tiles read as a
+          clean closing formula: Opening + Credits + Push − Debits − Pull. */}
+      <div className="relative mt-4 grid gap-3 grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
         <KpiTile label="Opening" value={data?.totals.opening ?? 0} loading={loading} tint="brand" />
-        <KpiTile label="Credits" value={data?.totals.creditsTotal ?? 0} loading={loading} tint="emerald" up />
-        <KpiTile label="Debits" value={data?.totals.debitsTotal ?? 0} loading={loading} tint="rose" down />
+        <KpiTile label="Credits" value={(data?.totals.creditsTotal ?? 0) - (data?.totals.push ?? 0)} loading={loading} tint="emerald" up />
+        <KpiTile label="Push in" value={data?.totals.push ?? 0} loading={loading} tint="sky" up />
+        <KpiTile label="Debits" value={(data?.totals.debitsTotal ?? 0) - (data?.totals.pull ?? 0)} loading={loading} tint="rose" down />
+        <KpiTile label="Pull out" value={data?.totals.pull ?? 0} loading={loading} tint="pink" down />
         <KpiTile label="Commission" value={data?.totals.commissionNet ?? 0} loading={loading} tint="amber" />
         <KpiTile label="Closing" value={data?.totals.closing ?? 0} loading={loading} tint="violet" />
       </div>
@@ -358,7 +366,9 @@ export function DailyUserReportCard() {
                 <th className="px-3 py-3">User</th>
                 <th className="px-3 py-3 text-right">Opening</th>
                 <th className="px-3 py-3 text-right">Credits</th>
+                <th className="px-3 py-3 text-right">Push</th>
                 <th className="px-3 py-3 text-right">Debits</th>
+                <th className="px-3 py-3 text-right">Pull</th>
                 <th className="px-3 py-3 text-right">Commission</th>
                 <th className="px-3 py-3 text-right">Closing</th>
                 <th className="px-3 py-3 text-right">Δ</th>
@@ -368,7 +378,7 @@ export function DailyUserReportCard() {
               {loading &&
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={`sk-${i}`} className="animate-pulse">
-                    {Array.from({ length: 8 }).map((__, j) => (
+                    {Array.from({ length: 10 }).map((__, j) => (
                       <td key={j} className="px-3 py-3.5">
                         <div className="h-3 rounded bg-white/10" />
                       </td>
@@ -378,7 +388,7 @@ export function DailyUserReportCard() {
 
               {!loading && data && data.rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-14 text-center text-xs text-slate-500">
+                  <td colSpan={10} className="px-4 py-14 text-center text-xs text-slate-500">
                     No user activity for this filter on {prettyDate(data.date)}.
                   </td>
                 </tr>
@@ -404,10 +414,16 @@ export function DailyUserReportCard() {
                     {formatINRFull(data.totals.opening)}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-emerald-300">
-                    {formatINRFull(data.totals.creditsTotal)}
+                    {formatINRFull(data.totals.creditsTotal - data.totals.push)}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums text-sky-300">
+                    {data.totals.push > 0 ? formatINRFull(data.totals.push) : "—"}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-rose-300">
-                    {formatINRFull(data.totals.debitsTotal)}
+                    {formatINRFull(data.totals.debitsTotal - data.totals.pull)}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums text-pink-300">
+                    {data.totals.pull > 0 ? formatINRFull(data.totals.pull) : "—"}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-amber-300">
                     {formatINRFull(data.totals.commissionNet)}
@@ -573,7 +589,7 @@ function KpiTile({
   label: string;
   value: number;
   loading: boolean;
-  tint: "brand" | "emerald" | "rose" | "amber" | "violet";
+  tint: "brand" | "emerald" | "rose" | "amber" | "violet" | "sky" | "pink";
   up?: boolean;
   down?: boolean;
 }) {
@@ -583,6 +599,8 @@ function KpiTile({
     rose: "from-rose-400 to-rose-600 shadow-rose-900/30",
     amber: "from-amber-400 to-orange-500 shadow-orange-900/30",
     violet: "from-violet-400 to-fuchsia-600 shadow-violet-900/30",
+    sky: "from-sky-400 to-cyan-600 shadow-sky-900/30",
+    pink: "from-pink-400 to-rose-600 shadow-pink-900/30",
   };
   const valueText: Record<typeof tint, string> = {
     brand: "text-white",
@@ -590,6 +608,8 @@ function KpiTile({
     rose: "text-rose-200",
     amber: "text-amber-200",
     violet: "text-violet-100",
+    sky: "text-sky-200",
+    pink: "text-pink-200",
   };
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3">
@@ -643,6 +663,11 @@ function RowGroup({
 }) {
   const delta = row.reconDelta;
   const deltaOk = Math.abs(delta) < 0.01;
+  // Push is a subset of credits and pull a subset of debits — show the generic
+  // Credits/Debits columns net of them so push/pull stand alone (no double
+  // count) and closing reads as opening + credits + push − debits − pull.
+  const creditsExPush = Math.max(0, row.credits.total - row.push);
+  const debitsExPull = Math.max(0, row.totalDebits - row.pull);
   return (
     <>
       <tr
@@ -676,10 +701,16 @@ function RowGroup({
           {formatINRFull(row.opening)}
         </td>
         <td className="px-3 py-3 text-right align-top tabular-nums text-emerald-300">
-          {row.credits.total > 0 ? formatINRFull(row.credits.total) : "—"}
+          {creditsExPush > 0 ? formatINRFull(creditsExPush) : "—"}
+        </td>
+        <td className="px-3 py-3 text-right align-top tabular-nums text-sky-300">
+          {row.push > 0 ? `+${formatINRFull(row.push)}` : "—"}
         </td>
         <td className="px-3 py-3 text-right align-top tabular-nums text-rose-300">
-          {row.totalDebits > 0 ? formatINRFull(row.totalDebits) : "—"}
+          {debitsExPull > 0 ? formatINRFull(debitsExPull) : "—"}
+        </td>
+        <td className="px-3 py-3 text-right align-top tabular-nums text-pink-300">
+          {row.pull > 0 ? `−${formatINRFull(row.pull)}` : "—"}
         </td>
         <td className="px-3 py-3 text-right align-top tabular-nums text-amber-300">
           {row.totalCommission > 0 ? formatINRFull(row.totalCommission) : "—"}
@@ -707,16 +738,40 @@ function RowGroup({
 }
 
 function ExpandedDrawer({ row }: { row: DailyRow }) {
+  // Split push/pull into its parent-network and admin-op legs. push and pull
+  // are subsets of credits/debits, so the reason breakdowns below net them out
+  // (parent lines dropped, admin adjustment reduced) to avoid double counting —
+  // push/pull get their own dedicated block instead.
+  const adminPush = Math.max(0, row.push - row.credits.parentPush);
+  const adminPull = Math.max(0, row.pull - row.otherDebits.parentPull);
+  const creditsExPush = Math.max(0, row.credits.total - row.push);
+  const debitsExPull = Math.max(0, row.totalDebits - row.pull);
+
+  const pushPullRows: { label: string; value: number; sub?: string }[] = [];
+  if (adminPush > 0) pushPullRows.push({ label: "Admin push in", value: adminPush, sub: "Wallet operation · added to closing" });
+  if (row.credits.parentPush > 0) pushPullRows.push({ label: "Parent push in", value: row.credits.parentPush, sub: "Added to closing" });
+  if (adminPull > 0) pushPullRows.push({ label: "Admin pull out", value: adminPull, sub: "Wallet operation · subtracted from closing" });
+  if (row.otherDebits.parentPull > 0) pushPullRows.push({ label: "Parent pull out", value: row.otherDebits.parentPull, sub: "Subtracted from closing" });
+
   return (
     <tr className="bg-black/30">
-      <td colSpan={8} className="p-4">
-        <div className="grid gap-3 md:grid-cols-3">
+      <td colSpan={10} className="p-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <BreakdownBlock
             title="Credits (by reason)"
             tint="emerald"
-            rows={creditBreakdownRows(row.credits)}
-            totalLabel="Total credits"
-            total={row.credits.total}
+            rows={creditBreakdownRows(row.credits, adminPush)}
+            emptyText="No credits today"
+            totalLabel="Credits (excl. push)"
+            total={creditsExPush}
+          />
+          <BreakdownBlock
+            title="Push in / Pull out"
+            tint="sky"
+            rows={pushPullRows}
+            emptyText="No admin/parent transfers"
+            totalLabel="Net transfer"
+            total={row.push - row.pull}
           />
           <BreakdownBlock
             title="Balance used (by service)"
@@ -729,11 +784,11 @@ function ExpandedDrawer({ row }: { row: DailyRow }) {
                 value: d.amount + d.fee,
                 sub: `${d.txns} txn${d.txns === 1 ? "" : "s"}${d.fee > 0 ? ` · incl. fee ${formatINRFull(d.fee)}` : ""}`,
               })),
-              ...otherDebitRows(row.otherDebits),
+              ...otherDebitRows(row.otherDebits, adminPull),
             ]}
             emptyText="No spend today"
-            totalLabel="Total debits"
-            total={row.totalDebits}
+            totalLabel="Debits (excl. pull)"
+            total={debitsExPull}
           />
           <BreakdownBlock
             title="Commission earned (by service)"
@@ -752,15 +807,19 @@ function ExpandedDrawer({ row }: { row: DailyRow }) {
           />
         </div>
 
-        {/* Reconciliation strip */}
+        {/* Reconciliation strip — closing spelled out with push/pull explicit. */}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[11px] text-slate-300">
-          <span>
+          <span className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
             <b className="text-white">{formatINRFull(row.opening)}</b> opening
-            <span className="mx-1 text-slate-500">+</span>
-            <b className="text-emerald-300">{formatINRFull(row.credits.total)}</b> credits
-            <span className="mx-1 text-slate-500">−</span>
-            <b className="text-rose-300">{formatINRFull(row.totalDebits)}</b> debits
-            <span className="mx-1 text-slate-500">=</span>
+            <span className="text-slate-500">+</span>
+            <b className="text-emerald-300">{formatINRFull(creditsExPush)}</b> credits
+            <span className="text-slate-500">+</span>
+            <b className="text-sky-300">{formatINRFull(row.push)}</b> push
+            <span className="text-slate-500">−</span>
+            <b className="text-rose-300">{formatINRFull(debitsExPull)}</b> debits
+            <span className="text-slate-500">−</span>
+            <b className="text-pink-300">{formatINRFull(row.pull)}</b> pull
+            <span className="text-slate-500">=</span>
             <b className="text-white">{formatINRFull(row.closing)}</b> closing
           </span>
           <Link
@@ -775,28 +834,35 @@ function ExpandedDrawer({ row }: { row: DailyRow }) {
   );
 }
 
-function creditBreakdownRows(c: CreditsBreakdown) {
+// `adminPush` (admin wallet-op credits) is shown in the dedicated Push/Pull
+// block, so it is netted out of the "Admin adjustment" line here and the
+// parent-push line is dropped entirely — keeping this block's total equal to
+// credits excluding push.
+function creditBreakdownRows(c: CreditsBreakdown, adminPush: number) {
   const rows: { label: string; value: number; sub?: string }[] = [];
+  const adjustExPush = Math.max(0, c.adjustment - adminPush);
   if (c.topup > 0) rows.push({ label: "Wallet top-up", value: c.topup });
   if (c.commission > 0) rows.push({ label: "Commission credit", value: c.commission });
   if (c.reversal > 0) rows.push({ label: "Reversals / refunds", value: c.reversal });
-  if (c.parentPush > 0) rows.push({ label: "Push from parent", value: c.parentPush });
   if (c.posSettle > 0) rows.push({ label: "POS settlement", value: c.posSettle });
   if (c.fundTransferIn > 0) rows.push({ label: "Fund transfer in", value: c.fundTransferIn });
-  if (c.adjustment > 0) rows.push({ label: "Admin adjustment", value: c.adjustment });
+  if (adjustExPush > 0) rows.push({ label: "Admin adjustment", value: adjustExPush });
   if (c.other > 0) rows.push({ label: "Other", value: c.other });
   return rows;
 }
 
-function otherDebitRows(d: OtherDebitsBreakdown) {
+// Same treatment for debits: admin pull-out and parent pull are surfaced in the
+// Push/Pull block, so they're excluded here to keep this block equal to debits
+// excluding pull.
+function otherDebitRows(d: OtherDebitsBreakdown, adminPull: number) {
   const rows: { label: string; value: number; sub?: string }[] = [];
+  const adjustExPull = Math.max(0, d.adjustment - adminPull);
   if (d.payout > 0) rows.push({ label: "Payout / bank transfer", value: d.payout });
-  if (d.parentPull > 0) rows.push({ label: "Pull by parent", value: d.parentPull });
   if (d.withdraw > 0) rows.push({ label: "Wallet withdraw", value: d.withdraw });
   if (d.fundTransferOut > 0) rows.push({ label: "Fund transfer out", value: d.fundTransferOut });
   if (d.penalty > 0) rows.push({ label: "Penalty", value: d.penalty });
   if (d.fee > 0) rows.push({ label: "Fees", value: d.fee });
-  if (d.adjustment > 0) rows.push({ label: "Admin adjustment", value: d.adjustment });
+  if (adjustExPull > 0) rows.push({ label: "Admin adjustment", value: adjustExPull });
   if (d.other > 0) rows.push({ label: "Other", value: d.other });
   return rows;
 }
@@ -810,7 +876,7 @@ function BreakdownBlock({
   total,
 }: {
   title: string;
-  tint: "emerald" | "rose" | "amber";
+  tint: "emerald" | "rose" | "amber" | "sky";
   rows: { label: string; value: number; sub?: string }[];
   emptyText?: string;
   totalLabel: string;
@@ -820,6 +886,7 @@ function BreakdownBlock({
     emerald: "text-emerald-300",
     rose: "text-rose-300",
     amber: "text-amber-300",
+    sky: "text-sky-300",
   }[tint];
 
   return (

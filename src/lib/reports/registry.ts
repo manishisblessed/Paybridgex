@@ -104,7 +104,7 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
     title: "Daily User Report",
     short: "Daily User Report",
     description:
-      "Per-user daily activity on the Primary wallet: opening, credits by reason, service-wise debits & commission, closing. Reconciles against the ledger.",
+      "Per-user daily activity on the Primary wallet: opening, credits by reason, admin/parent push & pull, service-wise debits & commission, closing. Reconciles against the ledger.",
     icon: CalendarClock,
     accent: "brand",
     columns: [
@@ -113,9 +113,11 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       { key: "role", header: "Role", format: "badge" },
       { key: "opening", header: "Opening", format: "money", align: "right" },
       { key: "creditsTotal", header: "Credits", format: "money", align: "right" },
+      { key: "push", header: "Push", format: "money", align: "right" },
       { key: "topup", header: "Top-up", format: "money", align: "right" },
       { key: "commissionEarned", header: "Commission", format: "money", align: "right" },
       { key: "debitsTotal", header: "Debits", format: "money", align: "right" },
+      { key: "pull", header: "Pull", format: "money", align: "right" },
       { key: "servicesUsed", header: "Services used", format: "text" },
       { key: "closing", header: "Closing", format: "money", align: "right" },
     ],

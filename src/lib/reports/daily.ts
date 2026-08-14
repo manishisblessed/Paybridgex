@@ -8,11 +8,20 @@
  *                      (DISPLAY ONLY — this omits fee/GST, so it must not drive
  *                      the recon math)
  *   other debits     → PAYOUT / PARENT_PULL / PENALTY / FEE from WalletTxn
+ *   push             → admin/parent money moved INTO the wallet today
+ *                      (PARENT_PUSH credits + admin WalletOperation PUSH). A
+ *                      subset of Σcredits, surfaced as its own column.
+ *   pull             → admin/parent money moved OUT of the wallet today
+ *                      (PARENT_PULL debits + admin WalletOperation PULL). A
+ *                      subset of Σdebits, surfaced as its own column.
  *   commission       → grouped from CommissionCredit by service (gross / TDS / net)
  *   closing balance  → last WalletTxn.balanceAfter (PRIMARY) at or before dayEnd
  *
  * Reconciliation invariant per row:
  *   opening + Σcredits − Σdebits ≡ closing
+ * Because push ⊆ Σcredits and pull ⊆ Σdebits, this is equivalent to the
+ * push/pull-explicit form the UI renders:
+ *   opening + (credits − push) + push − (debits − pull) − pull ≡ closing
  * Both Σcredits and Σdebits are taken from the WalletTxn LEDGER (the same source
  * as opening/closing), so the delta is a TRUE integrity canary: it stays ~0
  * unless a balanceAfter chain genuinely drifts, and never trips merely because
@@ -118,6 +127,10 @@ export type DailyUserRow = {
   commissionByService: ServiceCommissionRow[];
   totalDebits: number;
   totalCommission: number;   // net commission (already inside credits.commission)
+  /** Admin/parent money pushed INTO the wallet today (⊆ credits.total). */
+  push: number;
+  /** Admin/parent money pulled OUT of the wallet today (⊆ totalDebits). */
+  pull: number;
   closing: number;
   reconDelta: number;        // closing − (opening + credits.total − totalDebits)
 };
@@ -146,6 +159,8 @@ export type DailyReport = {
     opening: number;
     creditsTotal: number;
     debitsTotal: number;
+    push: number;
+    pull: number;
     commissionNet: number;
     closing: number;
   };
@@ -237,6 +252,8 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
         opening: 0,
         creditsTotal: 0,
         debitsTotal: 0,
+        push: 0,
+        pull: 0,
         commissionNet: 0,
         closing: 0,
       },
@@ -254,6 +271,7 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
     commissionGrouped,
     otherDebitsGrouped,
     serviceLedgerDebitGrouped,
+    walletOpGrouped,
   ] =
     await Promise.all([
       lastBalancesBefore(userIds, dayStart),
@@ -320,6 +338,22 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
         },
         _sum: { amount: true },
       }),
+      // Admin wallet operations ("admin push/pull to wallet") land in the ledger
+      // as reason=ADJUSTMENT with refType=WalletOperation — a PUSH is a CREDIT,
+      // a PULL is a DEBIT. Group by direction so we can surface push (in) and
+      // pull (out) as their own columns, extracted from the generic
+      // credits/debits buckets. Parent-network transfers (PARENT_PUSH /
+      // PARENT_PULL) are folded in separately below.
+      prisma.walletTxn.groupBy({
+        by: ["userId", "direction"],
+        where: {
+          userId: { in: userIds },
+          walletType: "PRIMARY",
+          refType: "WalletOperation",
+          createdAt: { gte: dayStart, lte: dayEnd },
+        },
+        _sum: { amount: true },
+      }),
     ]);
 
   // Build index maps for O(users) stitching.
@@ -332,6 +366,16 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
   const serviceLedgerDebitByUser = new Map(
     serviceLedgerDebitGrouped.map((r) => [r.userId, toNumber(dec(r._sum.amount ?? 0))])
   );
+
+  // Admin wallet-op push (CREDIT) / pull (DEBIT) per user, keyed off refType.
+  const adminPushByUser = new Map<string, number>();
+  const adminPullByUser = new Map<string, number>();
+  for (const g of walletOpGrouped) {
+    const amt = toNumber(dec(g._sum.amount ?? 0));
+    if (g.direction === "CREDIT")
+      adminPushByUser.set(g.userId, (adminPushByUser.get(g.userId) ?? 0) + amt);
+    else adminPullByUser.set(g.userId, (adminPullByUser.get(g.userId) ?? 0) + amt);
+  }
 
   const creditsByUser = new Map<string, CreditsBreakdown>();
   for (const g of creditsGrouped) {
@@ -414,6 +458,13 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
     const serviceLedgerDebit = serviceLedgerDebitByUser.get(u.id) ?? 0;
     const totalDebits = toNumber(add(dec(serviceLedgerDebit), dec(otherDebits.total)));
 
+    // Push (money moved IN by admin/parent) = parent-network push + admin
+    // wallet-op push; Pull (money moved OUT) = parent-network pull + admin
+    // wallet-op pull. Both are subsets of the ledger credits/debits above, so
+    // the closing recon is unchanged — we're only re-bucketing for display.
+    const push = toNumber(add(dec(credits.parentPush), dec(adminPushByUser.get(u.id) ?? 0)));
+    const pull = toNumber(add(dec(otherDebits.parentPull), dec(adminPullByUser.get(u.id) ?? 0)));
+
     // Closing preference: authoritative ledger value if we saw activity,
     // else opening (user was quiet today).
     const closingD: Money = dec(closingByUser.get(u.id) ?? openingD);
@@ -436,6 +487,8 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
       commissionByService: commissionRows,
       totalDebits,
       totalCommission,
+      push,
+      pull,
       closing: toNumber(closingD),
       reconDelta,
     };
@@ -453,6 +506,8 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
     opening: sumRound(filtered.map((r) => r.opening)),
     creditsTotal: sumRound(filtered.map((r) => r.credits.total)),
     debitsTotal: sumRound(filtered.map((r) => r.totalDebits)),
+    push: sumRound(filtered.map((r) => r.push)),
+    pull: sumRound(filtered.map((r) => r.pull)),
     commissionNet: sumRound(filtered.map((r) => r.totalCommission)),
     closing: sumRound(filtered.map((r) => r.closing)),
   };

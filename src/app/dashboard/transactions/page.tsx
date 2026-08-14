@@ -1,15 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 import { History, Search, Filter } from "lucide-react";
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { TransactionsTable } from "@/components/dashboard/TransactionsTable";
 import { ReportActions } from "@/components/dashboard/ReportActions";
+import { toDisplayRole } from "@/lib/auth";
 import type { Transaction } from "@/lib/data";
 
 export default function TransactionsPage() {
+  const { data: session } = useSession();
+  // Retailers don't see commission here: on settlement rails the per-txn
+  // commission is the upline's, not theirs. Their earnings live on My Earnings.
+  const showCommission = toDisplayRole(session?.user?.role as any) !== "retailer";
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("All");
   const [rows, setRows] = useState<Transaction[]>([]);
@@ -51,7 +57,7 @@ export default function TransactionsPage() {
         description="Search, filter and export every transaction processed through your account."
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className={`mb-6 grid gap-4 ${showCommission ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
         <div className="rounded-2xl border border-ink-100 bg-white p-5">
           <p className="text-xs font-semibold uppercase tracking-widest text-ink-500">
             Total transactions
@@ -68,14 +74,16 @@ export default function TransactionsPage() {
             ₹ {totals.total.toLocaleString("en-IN")}
           </p>
         </div>
-        <div className="rounded-2xl border border-ink-100 bg-white p-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-ink-500">
-            Total commission
-          </p>
-          <p className="mt-1 font-display text-2xl font-bold text-emerald-700">
-            ₹ {totals.commission.toLocaleString("en-IN")}
-          </p>
-        </div>
+        {showCommission && (
+          <div className="rounded-2xl border border-ink-100 bg-white p-5">
+            <p className="text-xs font-semibold uppercase tracking-widest text-ink-500">
+              Total commission
+            </p>
+            <p className="mt-1 font-display text-2xl font-bold text-emerald-700">
+              ₹ {totals.commission.toLocaleString("en-IN")}
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-ink-100 bg-white p-3">
@@ -110,7 +118,9 @@ export default function TransactionsPage() {
             { key: "service", header: "Service" },
             { key: "customer", header: "Customer" },
             { key: "amount", header: "Amount (INR)" },
-            { key: "commission", header: "Commission (INR)" },
+            ...(showCommission
+              ? [{ key: "commission" as const, header: "Commission (INR)" }]
+              : []),
             { key: "status", header: "Status" },
             { key: "date", header: "Date" },
           ]}
@@ -118,7 +128,7 @@ export default function TransactionsPage() {
         />
       </div>
 
-      <TransactionsTable data={rows} showHeader={false} loading={loading} />
+      <TransactionsTable data={rows} showHeader={false} loading={loading} showCommission={showCommission} />
     </div>
   );
 }

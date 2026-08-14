@@ -19,10 +19,14 @@ export function TransactionsTable({
   data = [],
   showHeader = true,
   loading = false,
+  showCommission = true,
 }: {
   data?: Transaction[];
   showHeader?: boolean;
   loading?: boolean;
+  /** Hide the Commission column (e.g. for retailers, where the settlement-rail
+   *  commission on a txn belongs to the upline, not the retailer). */
+  showCommission?: boolean;
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
@@ -65,7 +69,9 @@ export function TransactionsTable({
                 <th className="px-5 py-3 font-semibold">Service</th>
                 <th className="px-5 py-3 font-semibold">Customer</th>
                 <th className="px-5 py-3 font-semibold text-right">Amount</th>
-                <th className="px-5 py-3 font-semibold text-right">Commission</th>
+                {showCommission && (
+                  <th className="px-5 py-3 font-semibold text-right">Commission</th>
+                )}
                 <th className="px-5 py-3 font-semibold">Status</th>
                 <th className="px-5 py-3 font-semibold">Date</th>
               </tr>
@@ -79,9 +85,11 @@ export function TransactionsTable({
                   <td className="px-5 py-3 text-right font-semibold">
                     {formatINR(t.amount)}
                   </td>
-                  <td className="px-5 py-3 text-right text-emerald-700">
-                    +{formatINR(t.commission)}
-                  </td>
+                  {showCommission && (
+                    <td className="px-5 py-3 text-right text-emerald-700">
+                      +{formatINR(t.commission)}
+                    </td>
+                  )}
                   <td className="px-5 py-3">
                     <Badge variant={statusVariant[t.status]}>{t.status}</Badge>
                   </td>

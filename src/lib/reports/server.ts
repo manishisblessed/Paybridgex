@@ -1262,10 +1262,15 @@ async function reportDailyUser(user: SessionUser, params: ReportParams): Promise
       name: r.name,
       role: r.role,
       opening: r.opening,
-      creditsTotal: r.credits.total,
+      // Credits / Debits are surfaced NET of push/pull so those admin/parent
+      // wallet movements read as their own columns and the closing spells out
+      // as opening + credits + push − debits − pull.
+      creditsTotal: Math.max(0, r.credits.total - r.push),
+      push: r.push,
       topup: r.credits.topup,
       commissionEarned: r.totalCommission,
-      debitsTotal: r.totalDebits,
+      debitsTotal: Math.max(0, r.totalDebits - r.pull),
+      pull: r.pull,
       servicesUsed,
       closing: r.closing,
     };
@@ -1279,17 +1284,21 @@ async function reportDailyUser(user: SessionUser, params: ReportParams): Promise
     totals: {
       code: "Total",
       opening: report.totals.opening,
-      creditsTotal: report.totals.creditsTotal,
+      creditsTotal: Math.max(0, report.totals.creditsTotal - report.totals.push),
+      push: report.totals.push,
       topup: 0,
       commissionEarned: report.totals.commissionNet,
-      debitsTotal: report.totals.debitsTotal,
+      debitsTotal: Math.max(0, report.totals.debitsTotal - report.totals.pull),
+      pull: report.totals.pull,
       servicesUsed: "",
       closing: report.totals.closing,
     },
     summary: [
       money("Opening (day)", report.totals.opening, "brand"),
-      money("Credits (day)", report.totals.creditsTotal, "emerald"),
-      money("Debits (day)", report.totals.debitsTotal, "accent"),
+      money("Credits (day)", Math.max(0, report.totals.creditsTotal - report.totals.push), "emerald"),
+      money("Push in (day)", report.totals.push, "emerald"),
+      money("Debits (day)", Math.max(0, report.totals.debitsTotal - report.totals.pull), "accent"),
+      money("Pull out (day)", report.totals.pull, "accent"),
       money("Closing (day)", report.totals.closing, "violet"),
     ],
     trend: null,

@@ -58,11 +58,14 @@ export function RetailerOverview({ session }: { session: Session }) {
     // date is locale string; prefer counting SUCCESS from loaded set as proxy when timestamps unavailable
     return t.status === "Success";
   });
-  const todayEarnings = todays.reduce((s, t) => s + t.commission, 0);
+  // Retailers see their own processed VOLUME (sum of txn amounts), not commission:
+  // on settlement rails the per-txn commission is the upline's, not theirs, so it
+  // would be misleading here. Their genuine earnings live on the My Earnings page.
+  const todayVolume = todays.reduce((s, t) => s + t.amount, 0);
   const todayCount = todays.length;
-  const earnings14d = txns
+  const volume14d = txns
     .filter((t) => t.status === "Success")
-    .reduce((s, t) => s + t.commission, 0);
+    .reduce((s, t) => s + t.amount, 0);
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -111,8 +114,8 @@ export function RetailerOverview({ session }: { session: Session }) {
           <>
             <WalletCard balance={session.walletBalance} />
             <StatCard
-              label="Today's Earnings"
-              value={formatINR(todayEarnings)}
+              label="Today's Volume"
+              value={formatINR(todayVolume)}
               icon={IndianRupee}
               accent="emerald"
             />
@@ -137,10 +140,10 @@ export function RetailerOverview({ session }: { session: Session }) {
           <div className="flex items-end justify-between">
             <div>
               <p className="text-xs font-bold uppercase tracking-widest text-ink-500">
-                Earnings · recent
+                Volume · recent
               </p>
               <p className="mt-1 font-display text-2xl font-bold text-ink-900">
-                {formatINR(earnings14d)}
+                {formatINR(volume14d)}
               </p>
             </div>
           </div>
@@ -151,9 +154,9 @@ export function RetailerOverview({ session }: { session: Session }) {
               height={80}
             />
           </div>
-          {!loadingTxns && earnings14d === 0 && (
+          {!loadingTxns && volume14d === 0 && (
             <p className="mt-2 text-xs text-ink-500">
-              No earnings yet — commissions appear after successful live transactions.
+              No transactions yet — your processed volume appears after successful live transactions.
             </p>
           )}
         </div>
@@ -225,7 +228,7 @@ export function RetailerOverview({ session }: { session: Session }) {
         </div>
       </div>
 
-      <TransactionsTable data={txns} loading={loadingTxns} />
+      <TransactionsTable data={txns} loading={loadingTxns} showCommission={false} />
     </div>
   );
 }
