@@ -88,14 +88,14 @@ export async function POST(
       to: target,
       // Code in the subject: visible in the inbox preview and prevents Gmail
       // from collapsing repeated OTP mails into one stale-looking thread.
-      subject: `${otp} is your NextGenPay verification code`,
-      text: `Your NextGenPay verification code is ${otp}. It expires in 5 minutes. Do not share it with anyone.`,
+      subject: `${otp} is your Paybridgex verification code`,
+      text: `Your Paybridgex verification code is ${otp}. It expires in 5 minutes. Do not share it with anyone.`,
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto;">
           <h2 style="color:#1e293b;">Verify Your Email</h2>
-          <p>Your verification code for NextGenPay onboarding is:</p>
+          <p>Your verification code for Paybridgex onboarding is:</p>
           <div style="background:#f1f5f9;border-radius:8px;padding:16px;text-align:center;margin:16px 0;">
-            <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#4f46e5;">${otp}</span>
+            <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#1b45ea;">${otp}</span>
           </div>
           <p style="color:#64748b;font-size:14px;">This code expires in 5 minutes. Do not share it with anyone.</p>
         </div>

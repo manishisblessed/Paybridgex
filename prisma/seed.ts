@@ -5,7 +5,7 @@ import { seedServiceRoutes } from "../src/lib/services/catalog";
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("→ Seeding NextGenPay database…");
+  console.log("→ Seeding Paybridgex database…");
 
   // ── Master Admin (primary platform owner) ──
   const masterAdminHash = await bcrypt.hash("9090702707", 12);

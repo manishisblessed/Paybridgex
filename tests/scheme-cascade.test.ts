@@ -22,7 +22,7 @@ vi.mock("@/lib/db", () => ({
     user: {
       findUnique: async ({ where }: { where: { id?: string; email?: string } }) => {
         // getTdsAccountId resolves the system TDS Payable account by email.
-        if (where.email === "tds-payable@system.nextgen") return { id: "tdsacct" };
+        if (where.email === "tds-payable@system.paybridgex") return { id: "tdsacct" };
         if (where.id) return state.users.get(where.id) ?? null;
         return null;
       },

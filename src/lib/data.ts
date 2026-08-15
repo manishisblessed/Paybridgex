@@ -23,43 +23,45 @@ import {
 } from "lucide-react";
 
 export const company = {
-  legalName: "JMP NEXTGENPAY PRIVATE LIMITED",
-  brand: "NextGenPay",
-  tradeName: "jmpnextgenpay",
-  domain: "nxtgpay.com",
-  email: "Info@nxtgpay.com",
-  supportEmail: "support@nxtgpay.com",
-  legalEmail: "legal@nxtgpay.com",
-  grievanceEmail: "grievance@nxtgpay.com",
-  nodalEmail: "nodal@nxtgpay.com",
-  phone: "8780224955",
-  cin: "U66190GJ2025PTC170905",
-  gstin: "24AAHCJ1843N1ZC",
-  incorporated: "2025",
-  jurisdiction: "Surat, Gujarat",
+  legalName: "K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED",
+  brand: "Paybridgex",
+  tradeName: "kapaybridgex",
+  tagline: "Smart Payments. Trusted Solutions.",
+  domain: "paybridgex.in",
+  email: "info@paybridgex.in",
+  supportEmail: "support@paybridgex.in",
+  legalEmail: "legal@paybridgex.in",
+  grievanceEmail: "grievance@paybridgex.in",
+  nodalEmail: "nodal@paybridgex.in",
+  // TODO(paybridgex): replace placeholder phone with the official contact number.
+  phone: "XXXXXXXXXX",
+  cin: "U82910GJ2026OPC181144",
+  incorporated: "2026",
+  jurisdiction: "Ahmedabad, Gujarat",
   address:
-    "2nd Floor, 201, Devi Arcade, Ashwini Kumar Road, Modi Maholla, Surat, Gujarat - 395008",
-  shortAddress: "Devi Arcade, Ashwini Kumar Road, Surat"
+    "E-340, SAFAL 11, Opp. Namaskar Circle, Shahibag, Ahmedabad City, Ahmedabad, Gujarat - 380004",
+  shortAddress: "SAFAL 11, Shahibag, Ahmedabad"
 };
 
 // Mandatory under IT Rules 2021 (Intermediary Guidelines) & RBI Master Direction
 // on Customer Service in Banks, 2024.
+// TODO(paybridgex): replace placeholder officer names once formally appointed.
 export const grievanceOfficer = {
-  name: "Mr. Rakesh Patel",
+  name: "[Grievance Officer — to be notified]",
   designation: "Grievance Redressal Officer",
-  email: "grievance@nxtgpay.com",
-  phone: "+91 8780224955",
+  email: "grievance@paybridgex.in",
+  phone: "+91 XXXXXXXXXX",
   hours: "Monday to Saturday, 10:00 AM – 6:00 PM IST",
   address:
-    "2nd Floor, 201, Devi Arcade, Ashwini Kumar Road, Modi Maholla, Surat, Gujarat – 395008",
+    "E-340, SAFAL 11, Opp. Namaskar Circle, Shahibag, Ahmedabad City, Ahmedabad, Gujarat – 380004",
   responseSla: "Acknowledgement within 24 hours · Resolution within 15 working days"
 };
 
 export const nodalOfficer = {
-  name: "Ms. Priya Sharma",
+  name: "[Nodal Officer — to be notified]",
   designation: "Principal Nodal Officer",
-  email: "nodal@nxtgpay.com",
-  phone: "+91 8780224955"
+  email: "nodal@paybridgex.in",
+  phone: "+91 XXXXXXXXXX"
 };
 
 export type ServiceItem = {
@@ -131,7 +133,7 @@ export const services: ServiceItem[] = [
   {
     slug: "wallet",
     title: "Wallet Pay",
-    description: "Top-up your NextGenPay wallet and pay anywhere instantly.",
+    description: "Top-up your Paybridgex wallet and pay anywhere instantly.",
     icon: Wallet,
     href: "/dashboard/wallet",
     category: "banking"
@@ -255,28 +257,28 @@ export type FaqItem = { q: string; a: string };
 
 export const faqs: FaqItem[] = [
   {
-    q: "What is NextGenPay?",
-    a: "NextGenPay (operated by JMP NEXTGENPAY PRIVATE LIMITED) is a digital banking & utility fintech platform that helps retailers and consumers access 60+ services — money transfer, AePS, recharges, bill payments, travel bookings — all from a single dashboard, with zero hidden fees."
+    q: "What is Paybridgex?",
+    a: "Paybridgex (operated by K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED, Ahmedabad) is a payments and digital-services platform built around one promise — Smart Payments. Trusted Solutions. Retailers, distributors and merchants get money transfer, AePS, QR collections, recharges, bill payments and travel bookings from one secure dashboard."
   },
   {
-    q: "Is it safe to use the platform?",
-    a: "Yes. We use bank-grade 256-bit TLS encryption, RBI-licensed payment partners, and 2-factor authentication on every login & high-value transaction. Your data is never sold or shared."
+    q: "Is my money and data safe on Paybridgex?",
+    a: "Absolutely. Every session runs over bank-grade 256-bit TLS encryption, all money movement is settled through RBI-licensed partner banks, and two-factor authentication protects every login and high-value transaction. We never sell or rent your data."
   },
   {
-    q: "Which utility services can I pay for?",
-    a: "Electricity, water, piped gas & LPG, broadband, DTH, postpaid mobile, landline, credit-card bills, education fees, insurance premiums, FASTag, municipal taxes and more — across 1,200+ billers."
+    q: "Which bills and utilities can I pay?",
+    a: "Electricity, water, piped gas & LPG, broadband, DTH, postpaid mobile, landline, credit-card bills, education fees, insurance premiums, FASTag and municipal taxes — routed across 1,200+ live BBPS billers."
   },
   {
-    q: "How do I become a NextGenPay agent?",
-    a: "Sign up with your PAN, Aadhaar and shop details, complete KYC in under 5 minutes, and start earning commissions on every transaction. There is no joining fee."
+    q: "How do I join Paybridgex as a retail partner?",
+    a: "Register with your PAN, Aadhaar and shop details, finish paperless KYC in a few minutes, and start earning on every transaction from day one. There is no joining fee."
   },
   {
-    q: "How are commissions paid?",
-    a: "Commissions are credited to your NextGenPay wallet in real-time on every successful transaction. You can withdraw to your bank account 24x7 with instant IMPS settlement."
+    q: "When do I receive my commissions?",
+    a: "Commissions land in your Paybridgex wallet the moment a transaction succeeds. Withdraw to your bank account any time, 24x7, with instant IMPS settlement."
   },
   {
-    q: "Do you charge any hidden fees?",
-    a: "No. Our pricing is fully transparent — every service shows the exact convenience fee (if any) before you confirm. There are zero hidden charges, ever."
+    q: "Are there any hidden charges?",
+    a: "None. Every service displays its exact convenience fee (if any) before you confirm, and the full schedule of charges is published on our Charges & Fees page."
   }
 ];
 
@@ -289,31 +291,31 @@ export type Testimonial = {
 
 export const testimonials: Testimonial[] = [
   {
-    name: "Kasendar Prasad",
-    role: "Owner, Rishabh Telecom & Money Transfer",
+    name: "Nilesh Chauhan",
+    role: "Owner, Chauhan Digital Seva",
     quote:
-      "Working with NextGenPay has transformed my business. The platform is fast, the commissions are great, and the support team is always there when I need them.",
+      "Paybridgex settles faster than any platform I have worked with. Payments clear instantly, rates are fair, and their support actually picks up the phone.",
     rating: 5
   },
   {
-    name: "Mukesh Kumar",
-    role: "Founder, Satkartar Telecom",
+    name: "Salim Memon",
+    role: "Founder, Memon Communication",
     quote:
-      "Every service works flawlessly — AePS settlement is instant and the dashboard is the cleanest I've used. Highly recommended for any retail outlet.",
+      "From AePS to bill payments, everything just works. The dashboard is simple enough that my staff learned it in a day.",
     rating: 5
   },
   {
-    name: "Priya Sharma",
-    role: "Owner, Sharma Mobile World",
+    name: "Hetal Trivedi",
+    role: "Owner, Trivedi Enterprise",
     quote:
-      "I doubled my monthly income within 3 months of joining NextGenPay. The training and onboarding is top-notch.",
+      "My counter earnings grew steadily within the first quarter on Paybridgex. Onboarding was completely paperless and painless.",
     rating: 5
   },
   {
-    name: "Rohit Verma",
-    role: "Distributor, Verma Enterprises",
+    name: "Arvind Solanki",
+    role: "Distributor, Solanki Associates",
     quote:
-      "The wallet top-up is instant and the commission structure is the best in the industry. A genuine partner for retailers.",
+      "Wallet top-ups reflect in seconds and the commission chain is transparent down to the rupee. A dependable partner for my retail network.",
     rating: 5
   }
 ];
@@ -476,7 +478,7 @@ export const footerLinks = {
     { label: "Pricing", href: "/#pricing" },
     { label: "Become an Agent", href: "/register" },
     { label: "Developer APIs", href: "/dashboard/api" },
-    { label: "Blog & Insights", href: "/#blog" },
+    { label: "FAQs", href: "/#faq" },
     { label: "Press & Media", href: "/contact" }
   ]
 };
@@ -538,7 +540,7 @@ export const indiaMissions: IndiaMission[] = [
     code: "04",
     title: "Aatmanirbhar Bharat",
     body:
-      "100% Made-in-India fintech stack. Data resident on Indian soil, engineered in Surat, processed in India only.",
+      "100% Made-in-India fintech stack. Data resident on Indian soil, engineered in Ahmedabad, processed in India only.",
     stat: "🇮🇳",
     statLabel: "Proudly Made in India"
   }
@@ -696,8 +698,8 @@ export const legalDocuments: Record<string, LegalDocument> = {
     title: "Privacy Policy",
     eyebrow: "Legal · Privacy",
     description:
-      "How JMP NEXTGENPAY PRIVATE LIMITED collects, uses, stores and protects your personal data — drafted as per the Digital Personal Data Protection Act, 2023, the Information Technology Act, 2000 and the SPDI Rules, 2011.",
-    lastUpdated: "01 April 2026",
+      "How K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED collects, uses, stores and protects your personal data — drafted as per the Digital Personal Data Protection Act, 2023, the Information Technology Act, 2000 and the SPDI Rules, 2011.",
+    lastUpdated: "01 August 2026",
     governedBy: [
       "Digital Personal Data Protection Act, 2023",
       "Information Technology Act, 2000",
@@ -709,7 +711,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
         id: "introduction",
         heading: "1. Introduction",
         body: [
-          "This Privacy Policy (\"Policy\") governs the processing of personal data by JMP NEXTGENPAY PRIVATE LIMITED (CIN: U66190GJ2025PTC170905), a company incorporated under the Companies Act, 2013 and having its registered office at 2nd Floor, 201, Devi Arcade, Ashwini Kumar Road, Modi Maholla, Surat, Gujarat – 395008 (\"NextGenPay\", \"Company\", \"We\", \"Us\"), through its website www.nxtgpay.com, mobile applications and APIs (collectively, the \"Platform\").",
+          "This Privacy Policy (\"Policy\") governs the processing of personal data by K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED (CIN: U82910GJ2026OPC181144), a company incorporated under the Companies Act, 2013 and having its registered office at E-340, SAFAL 11, Opp. Namaskar Circle, Shahibag, Ahmedabad City, Ahmedabad, Gujarat – 380004 (\"Paybridgex\", \"Company\", \"We\", \"Us\"), through its website www.paybridgex.in, mobile applications and APIs (collectively, the \"Platform\").",
           "By accessing or using the Platform, you (the \"Data Principal\") consent to the practices described in this Policy. If you do not agree, please do not use the Platform."
         ]
       },
@@ -787,7 +789,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
               "Lodge a complaint with the Data Protection Board of India."
             ]
           },
-          "To exercise any of the above rights, please write to our Grievance Officer at grievance@nxtgpay.com. We will respond within fifteen (15) working days."
+          "To exercise any of the above rights, please write to our Grievance Officer at grievance@paybridgex.in. We will respond within fifteen (15) working days."
         ]
       },
       {
@@ -832,8 +834,8 @@ export const legalDocuments: Record<string, LegalDocument> = {
     title: "Terms & Conditions",
     eyebrow: "Legal · Terms of Use",
     description:
-      "The contract between you and JMP NEXTGENPAY PRIVATE LIMITED for use of the NextGenPay Platform, drawn up under the Indian Contract Act, 1872 and the Information Technology Act, 2000.",
-    lastUpdated: "01 April 2026",
+      "The contract between you and K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED for use of the Paybridgex Platform, drawn up under the Indian Contract Act, 1872 and the Information Technology Act, 2000.",
+    lastUpdated: "01 August 2026",
     governedBy: [
       "Indian Contract Act, 1872",
       "Information Technology Act, 2000",
@@ -845,7 +847,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
         id: "acceptance",
         heading: "1. Acceptance of Terms",
         body: [
-          "These Terms & Conditions (\"Terms\") form a binding electronic record under Section 10A of the Information Technology Act, 2000 between you (\"User\", \"Retailer\", \"Distributor\", \"Customer\") and JMP NEXTGENPAY PRIVATE LIMITED (\"NextGenPay\", \"Company\"). By registering, accessing or using the Platform you accept these Terms in full."
+          "These Terms & Conditions (\"Terms\") form a binding electronic record under Section 10A of the Information Technology Act, 2000 between you (\"User\", \"Retailer\", \"Distributor\", \"Customer\") and K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED (\"Paybridgex\", \"Company\"). By registering, accessing or using the Platform you accept these Terms in full."
         ]
       },
       {
@@ -859,7 +861,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
         id: "services",
         heading: "3. Description of services",
         body: [
-          "NextGenPay is a technology aggregator that facilitates digital financial services including, but not limited to, AePS, DMT, BBPS, UPI, recharges, travel bookings and PAN application. The underlying banking / settlement services are provided by RBI-licensed sponsor banks and NPCI rails. NextGenPay does not itself accept deposits or extend credit."
+          "Paybridgex is a technology aggregator that facilitates digital financial services including, but not limited to, AePS, DMT, BBPS, UPI, recharges, travel bookings and PAN application. The underlying banking / settlement services are provided by RBI-licensed sponsor banks and NPCI rails. Paybridgex does not itself accept deposits or extend credit."
         ]
       },
       {
@@ -869,7 +871,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
           {
             list: [
               "You shall complete KYC as required under the RBI Master Direction on KYC, 2016 prior to availing transactional services.",
-              "You are responsible for maintaining confidentiality of your login credentials, MPIN, biometric authentication and OTPs. NextGenPay will never ask for these over phone, SMS or e-mail.",
+              "You are responsible for maintaining confidentiality of your login credentials, MPIN, biometric authentication and OTPs. Paybridgex will never ask for these over phone, SMS or e-mail.",
               "Any transaction performed using your credentials shall be deemed to be performed by you.",
               "You shall not share, sublicense or commercially exploit your access in violation of these Terms."
             ]
@@ -903,35 +905,35 @@ export const legalDocuments: Record<string, LegalDocument> = {
         id: "intellectual",
         heading: "7. Intellectual property",
         body: [
-          "All trademarks, logos, software, designs, content and brand elements on the Platform are the exclusive property of JMP NEXTGENPAY PRIVATE LIMITED or its licensors, and are protected under the Copyright Act, 1957 and the Trade Marks Act, 1999. No part of the Platform may be reproduced without prior written consent."
+          "All trademarks, logos, software, designs, content and brand elements on the Platform are the exclusive property of K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED or its licensors, and are protected under the Copyright Act, 1957 and the Trade Marks Act, 1999. No part of the Platform may be reproduced without prior written consent."
         ]
       },
       {
         id: "liability",
         heading: "8. Limitation of liability",
         body: [
-          "To the maximum extent permitted by law, the aggregate liability of NextGenPay arising out of or relating to the use of the Platform shall not exceed the aggregate commission earned by, or fees paid by, the User in the three (3) months preceding the event giving rise to the claim. NextGenPay shall not be liable for indirect, incidental, consequential, punitive or special damages."
+          "To the maximum extent permitted by law, the aggregate liability of Paybridgex arising out of or relating to the use of the Platform shall not exceed the aggregate commission earned by, or fees paid by, the User in the three (3) months preceding the event giving rise to the claim. Paybridgex shall not be liable for indirect, incidental, consequential, punitive or special damages."
         ]
       },
       {
         id: "force",
         heading: "9. Force majeure",
         body: [
-          "NextGenPay shall not be liable for any failure or delay arising out of events beyond its reasonable control, including acts of God, war, pandemics, regulatory action, internet outages, sponsor-bank downtime or NPCI / UIDAI service disruptions."
+          "Paybridgex shall not be liable for any failure or delay arising out of events beyond its reasonable control, including acts of God, war, pandemics, regulatory action, internet outages, sponsor-bank downtime or NPCI / UIDAI service disruptions."
         ]
       },
       {
         id: "termination",
         heading: "10. Suspension & termination",
         body: [
-          "NextGenPay reserves the right to suspend or terminate your account, with or without notice, where it has reasonable grounds to believe that you are in breach of these Terms, applicable law, or any RBI / NPCI / UIDAI direction."
+          "Paybridgex reserves the right to suspend or terminate your account, with or without notice, where it has reasonable grounds to believe that you are in breach of these Terms, applicable law, or any RBI / NPCI / UIDAI direction."
         ]
       },
       {
         id: "law",
         heading: "11. Governing law & dispute resolution",
         body: [
-          "These Terms shall be governed by and construed in accordance with the laws of India. Any dispute, controversy or claim arising out of or in connection with these Terms shall first be attempted to be resolved through good-faith negotiation, failing which through arbitration by a sole arbitrator appointed under the Arbitration & Conciliation Act, 1996. The seat and venue of arbitration shall be Surat, Gujarat. The courts at Surat shall have exclusive jurisdiction subject to the arbitration clause."
+          "These Terms shall be governed by and construed in accordance with the laws of India. Any dispute, controversy or claim arising out of or in connection with these Terms shall first be attempted to be resolved through good-faith negotiation, failing which through arbitration by a sole arbitrator appointed under the Arbitration & Conciliation Act, 1996. The seat and venue of arbitration shall be Ahmedabad, Gujarat. The courts at Ahmedabad shall have exclusive jurisdiction subject to the arbitration clause."
         ]
       },
       {
@@ -949,7 +951,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
     eyebrow: "Legal · Refunds",
     description:
       "Timelines and process for chargebacks, failed transactions and cancellations, drafted in accordance with the RBI Harmonisation of TAT circular dated 20 September 2019 and the Consumer Protection Act, 2019.",
-    lastUpdated: "01 April 2026",
+    lastUpdated: "01 August 2026",
     governedBy: [
       "RBI Circular on Harmonisation of TAT, 20 Sept 2019",
       "Consumer Protection Act, 2019",
@@ -960,7 +962,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
         id: "scope",
         heading: "1. Scope",
         body: [
-          "This Refund Policy applies to all transactions initiated through the NextGenPay Platform — AePS, DMT, BBPS, UPI, recharges, travel bookings and any value-added services. Refunds for products / services delivered by third-party billers (electricity boards, telecom operators, airlines, IRCTC, hotel chains) are governed by the policies of the respective billers, but NextGenPay will assist you with end-to-end follow-up."
+          "This Refund Policy applies to all transactions initiated through the Paybridgex Platform — AePS, DMT, BBPS, UPI, recharges, travel bookings and any value-added services. Refunds for products / services delivered by third-party billers (electricity boards, telecom operators, airlines, IRCTC, hotel chains) are governed by the policies of the respective billers, but Paybridgex will assist you with end-to-end follow-up."
         ]
       },
       {
@@ -989,8 +991,8 @@ export const legalDocuments: Record<string, LegalDocument> = {
         body: [
           {
             list: [
-              "Log in to your NextGenPay dashboard → Transactions → Raise Dispute.",
-              "Or e-mail support@nxtgpay.com with the transaction reference number (RRN), date, amount and a short description.",
+              "Log in to your Paybridgex dashboard → Transactions → Raise Dispute.",
+              "Or e-mail support@paybridgex.in with the transaction reference number (RRN), date, amount and a short description.",
               "For UPI disputes you may also raise a request directly with the issuer bank, the NPCI UDIR portal or the RBI Digital Ombudsman."
             ]
           }
@@ -1023,8 +1025,8 @@ export const legalDocuments: Record<string, LegalDocument> = {
           "If you are not satisfied with the resolution provided at L1 support within 7 days, escalate to:",
           {
             list: [
-              "L2 — Grievance Officer, grievance@nxtgpay.com (response within 15 working days)",
-              "L3 — Principal Nodal Officer, nodal@nxtgpay.com",
+              "L2 — Grievance Officer, grievance@paybridgex.in (response within 15 working days)",
+              "L3 — Principal Nodal Officer, nodal@paybridgex.in",
               "L4 — RBI Integrated Ombudsman Scheme, 2021 at cms.rbi.org.in or NPCI Digital Ombudsman"
             ]
           }
@@ -1037,8 +1039,8 @@ export const legalDocuments: Record<string, LegalDocument> = {
     title: "Charges & Fees",
     eyebrow: "Legal · Pricing transparency",
     description:
-      "All convenience fees, commissions and GST that may apply to transactions on the NextGenPay Platform — published in line with RBI's directions on display of charges.",
-    lastUpdated: "01 April 2026",
+      "All convenience fees, commissions and GST that may apply to transactions on the Paybridgex Platform — published in line with RBI's directions on display of charges.",
+    lastUpdated: "01 August 2026",
     governedBy: [
       "RBI Master Direction on Issuance & Operation of PPIs, 2021",
       "Consumer Protection (E-Commerce) Rules, 2020",
@@ -1097,7 +1099,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
     eyebrow: "Legal · Customer Service",
     description:
       "Our customer-grievance redressal framework drafted as per the RBI Master Direction on Customer Service, the IT Rules 2021 and the Consumer Protection Act, 2019.",
-    lastUpdated: "01 April 2026",
+    lastUpdated: "01 August 2026",
     governedBy: [
       "RBI Master Direction on Customer Service in Banks",
       "IT (Intermediary Guidelines) Rules, 2021",
@@ -1119,9 +1121,9 @@ export const legalDocuments: Record<string, LegalDocument> = {
           {
             list: [
               "In-app — Help → Raise a Ticket",
-              "E-mail — support@nxtgpay.com",
-              "WhatsApp / Phone — +91 8780224955 (10 AM – 6 PM IST, Mon–Sat)",
-              "Letter — Customer Care, JMP NEXTGENPAY PRIVATE LIMITED, 2nd Floor, 201, Devi Arcade, Ashwini Kumar Road, Modi Maholla, Surat – 395008"
+              "E-mail — support@paybridgex.in",
+              "WhatsApp / Phone — +91 XXXXXXXXXX (10 AM – 6 PM IST, Mon–Sat)",
+              "Letter — Customer Care, K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED, E-340, SAFAL 11, Opp. Namaskar Circle, Shahibag, Ahmedabad – 380004"
             ]
           }
         ]
@@ -1134,9 +1136,9 @@ export const legalDocuments: Record<string, LegalDocument> = {
             table: {
               headers: ["Level", "Officer", "Channel", "TAT"],
               rows: [
-                ["Level 1", "Customer Care Executive", "support@nxtgpay.com", "7 working days"],
-                ["Level 2", "Grievance Officer", "grievance@nxtgpay.com · +91 8780224955", "15 working days"],
-                ["Level 3", "Principal Nodal Officer", "nodal@nxtgpay.com · +91 8780224955", "30 days"],
+                ["Level 1", "Customer Care Executive", "support@paybridgex.in", "7 working days"],
+                ["Level 2", "Grievance Officer", "grievance@paybridgex.in · +91 XXXXXXXXXX", "15 working days"],
+                ["Level 3", "Principal Nodal Officer", "nodal@paybridgex.in · +91 XXXXXXXXXX", "30 days"],
                 ["Level 4", "RBI Integrated Ombudsman", "cms.rbi.org.in · 14448 (toll-free)", "As per scheme"]
               ]
             }
@@ -1318,11 +1320,11 @@ export type AuditEvent = {
 };
 
 export const auditEvents: AuditEvent[] = [
-  { id: "AU-94221", actor: "admin@nxtgpay.com", action: "Approved KYC", target: "Vivek Joshi (KYC-004)", ip: "10.18.4.21", ts: "Apr 19, 10:22 AM", severity: "info" },
-  { id: "AU-94220", actor: "neha.k@nxtgpay.com", action: "Override commission", target: "DMT IMPS · JNPD2017", ip: "49.207.211.4", ts: "Apr 19, 09:51 AM", severity: "warn" },
-  { id: "AU-94219", actor: "admin@nxtgpay.com", action: "Suspended retailer", target: "JNPR3217 (Patil Enterprises)", ip: "10.18.4.21", ts: "Apr 19, 09:14 AM", severity: "danger" },
+  { id: "AU-94221", actor: "admin@paybridgex.in", action: "Approved KYC", target: "Vivek Joshi (KYC-004)", ip: "10.18.4.21", ts: "Apr 19, 10:22 AM", severity: "info" },
+  { id: "AU-94220", actor: "neha.k@paybridgex.in", action: "Override commission", target: "DMT IMPS · PBXD2017", ip: "49.207.211.4", ts: "Apr 19, 09:51 AM", severity: "warn" },
+  { id: "AU-94219", actor: "admin@paybridgex.in", action: "Suspended retailer", target: "PBXR3217 (Patil Enterprises)", ip: "10.18.4.21", ts: "Apr 19, 09:14 AM", severity: "danger" },
   { id: "AU-94218", actor: "system", action: "Biller routing failover", target: "DTH · Tata Play → fallback", ip: "n/a", ts: "Apr 19, 08:42 AM", severity: "warn" },
-  { id: "AU-94217", actor: "rohit.v@nxtgpay.com", action: "Approved fund request", target: "FR-9003 · ₹15,000", ip: "182.65.21.99", ts: "Apr 18, 06:30 PM", severity: "info" },
+  { id: "AU-94217", actor: "rohit.v@paybridgex.in", action: "Approved fund request", target: "FR-9003 · ₹15,000", ip: "182.65.21.99", ts: "Apr 18, 06:30 PM", severity: "info" },
   { id: "AU-94216", actor: "system", action: "Settlement run", target: "T+1 · ₹8.42 Cr · 12,481 txns", ip: "n/a", ts: "Apr 18, 11:05 PM", severity: "info" }
 ];
 
@@ -1404,7 +1406,7 @@ export const pgMerchants: PgMerchant[] = [
     name: "Hiren Desai",
     business: "Desai Textiles",
     city: "Surat",
-    mid: "NGPM84211",
+    mid: "PBXM84211",
     modes: ["UPI", "Cards", "Net Banking"],
     mdr: "UPI 0% · Cards 1.20%",
     status: "Live",
@@ -1416,7 +1418,7 @@ export const pgMerchants: PgMerchant[] = [
     name: "Farhan Shaikh",
     business: "FS Electronics",
     city: "Ahmedabad",
-    mid: "NGPM84230",
+    mid: "PBXM84230",
     modes: ["UPI", "Cards", "Wallets"],
     mdr: "UPI 0% · Cards 1.10%",
     status: "Live",
@@ -1428,7 +1430,7 @@ export const pgMerchants: PgMerchant[] = [
     name: "Bhavna Patel",
     business: "Patel Jewellers",
     city: "Surat",
-    mid: "NGPM84274",
+    mid: "PBXM84274",
     modes: ["UPI", "Cards", "Net Banking", "EMI"],
     mdr: "UPI 0% · Cards 0.95%",
     status: "Live",
@@ -1440,7 +1442,7 @@ export const pgMerchants: PgMerchant[] = [
     name: "Ravi Iyer",
     business: "Iyer Pharma Mart",
     city: "Vadodara",
-    mid: "NGPM84301",
+    mid: "PBXM84301",
     modes: ["UPI", "Cards"],
     mdr: "UPI 0% · Cards 1.40%",
     status: "Pending KYC",
@@ -1452,7 +1454,7 @@ export const pgMerchants: PgMerchant[] = [
     name: "Deepak Rana",
     business: "Rana Mobile Hub",
     city: "Rajkot",
-    mid: "NGPM84318",
+    mid: "PBXM84318",
     modes: ["UPI"],
     mdr: "UPI 0%",
     status: "Suspended",
@@ -1498,13 +1500,13 @@ export type PosMachine = {
 };
 
 export const posMachines: PosMachine[] = [
-  { serial: "NGP-POS-30121", model: "PAX A920 Pro", assignedTo: "Desai Textiles", city: "Surat", status: "Active", plan: "Rental · Standard", monthlyRent: 499, txns30d: 1284, volume30d: 2418000 },
-  { serial: "NGP-POS-30122", model: "PAX A920 Pro", assignedTo: "Patel Jewellers", city: "Surat", status: "Active", plan: "Rental · Premium", monthlyRent: 799, txns30d: 842, volume30d: 6120000 },
-  { serial: "NGP-POS-30126", model: "Verifone X990", assignedTo: "FS Electronics", city: "Ahmedabad", status: "Active", plan: "Rental · Standard", monthlyRent: 499, txns30d: 611, volume30d: 1422000 },
-  { serial: "NGP-POS-30131", model: "PAX A77", assignedTo: "—", city: "Warehouse · Surat", status: "In Stock", plan: "—", monthlyRent: 0, txns30d: 0, volume30d: 0 },
-  { serial: "NGP-POS-30132", model: "PAX A77", assignedTo: "—", city: "Warehouse · Surat", status: "In Stock", plan: "—", monthlyRent: 0, txns30d: 0, volume30d: 0 },
-  { serial: "NGP-POS-30118", model: "Verifone X990", assignedTo: "Rana Mobile Hub", city: "Rajkot", status: "Faulty", plan: "Rental · Standard", monthlyRent: 499, txns30d: 12, volume30d: 31000 },
-  { serial: "NGP-POS-30102", model: "PAX A920", assignedTo: "—", city: "Returned · Surat", status: "Returned", plan: "—", monthlyRent: 0, txns30d: 0, volume30d: 0 }
+  { serial: "PBX-POS-30121", model: "PAX A920 Pro", assignedTo: "Desai Textiles", city: "Surat", status: "Active", plan: "Rental · Standard", monthlyRent: 499, txns30d: 1284, volume30d: 2418000 },
+  { serial: "PBX-POS-30122", model: "PAX A920 Pro", assignedTo: "Patel Jewellers", city: "Surat", status: "Active", plan: "Rental · Premium", monthlyRent: 799, txns30d: 842, volume30d: 6120000 },
+  { serial: "PBX-POS-30126", model: "Verifone X990", assignedTo: "FS Electronics", city: "Ahmedabad", status: "Active", plan: "Rental · Standard", monthlyRent: 499, txns30d: 611, volume30d: 1422000 },
+  { serial: "PBX-POS-30131", model: "PAX A77", assignedTo: "—", city: "Warehouse · Ahmedabad", status: "In Stock", plan: "—", monthlyRent: 0, txns30d: 0, volume30d: 0 },
+  { serial: "PBX-POS-30132", model: "PAX A77", assignedTo: "—", city: "Warehouse · Ahmedabad", status: "In Stock", plan: "—", monthlyRent: 0, txns30d: 0, volume30d: 0 },
+  { serial: "PBX-POS-30118", model: "Verifone X990", assignedTo: "Rana Mobile Hub", city: "Rajkot", status: "Faulty", plan: "Rental · Standard", monthlyRent: 499, txns30d: 12, volume30d: 31000 },
+  { serial: "PBX-POS-30102", model: "PAX A920", assignedTo: "—", city: "Returned · Ahmedabad", status: "Returned", plan: "—", monthlyRent: 0, txns30d: 0, volume30d: 0 }
 ];
 
 export type PosTransaction = {
@@ -1519,12 +1521,12 @@ export type PosTransaction = {
 };
 
 export const posTransactions: PosTransaction[] = [
-  { id: "POS-77231", terminal: "NGP-POS-30122", merchant: "Patel Jewellers", mode: "Card", amount: 58000, status: "Approved", settlement: "T+1 Queue", date: "Jun 12, 2026 · 12:04 PM" },
-  { id: "POS-77226", terminal: "NGP-POS-30121", merchant: "Desai Textiles", mode: "UPI", amount: 3450, status: "Approved", settlement: "T+1 Queue", date: "Jun 12, 2026 · 11:48 AM" },
-  { id: "POS-77219", terminal: "NGP-POS-30126", merchant: "FS Electronics", mode: "Tap & Pay", amount: 12999, status: "Approved", settlement: "T+1 Queue", date: "Jun 12, 2026 · 11:21 AM" },
-  { id: "POS-77204", terminal: "NGP-POS-30121", merchant: "Desai Textiles", mode: "BharatQR", amount: 1860, status: "Approved", settlement: "Settled", date: "Jun 11, 2026 · 07:42 PM" },
-  { id: "POS-77198", terminal: "NGP-POS-30122", merchant: "Patel Jewellers", mode: "Card", amount: 24500, status: "Voided", settlement: "—", date: "Jun 11, 2026 · 05:16 PM" },
-  { id: "POS-77185", terminal: "NGP-POS-30118", merchant: "Rana Mobile Hub", mode: "Card", amount: 7200, status: "Declined", settlement: "—", date: "Jun 11, 2026 · 02:39 PM" }
+  { id: "POS-77231", terminal: "PBX-POS-30122", merchant: "Patel Jewellers", mode: "Card", amount: 58000, status: "Approved", settlement: "T+1 Queue", date: "Jun 12, 2026 · 12:04 PM" },
+  { id: "POS-77226", terminal: "PBX-POS-30121", merchant: "Desai Textiles", mode: "UPI", amount: 3450, status: "Approved", settlement: "T+1 Queue", date: "Jun 12, 2026 · 11:48 AM" },
+  { id: "POS-77219", terminal: "PBX-POS-30126", merchant: "FS Electronics", mode: "Tap & Pay", amount: 12999, status: "Approved", settlement: "T+1 Queue", date: "Jun 12, 2026 · 11:21 AM" },
+  { id: "POS-77204", terminal: "PBX-POS-30121", merchant: "Desai Textiles", mode: "BharatQR", amount: 1860, status: "Approved", settlement: "Settled", date: "Jun 11, 2026 · 07:42 PM" },
+  { id: "POS-77198", terminal: "PBX-POS-30122", merchant: "Patel Jewellers", mode: "Card", amount: 24500, status: "Voided", settlement: "—", date: "Jun 11, 2026 · 05:16 PM" },
+  { id: "POS-77185", terminal: "PBX-POS-30118", merchant: "Rana Mobile Hub", mode: "Card", amount: 7200, status: "Declined", settlement: "—", date: "Jun 11, 2026 · 02:39 PM" }
 ];
 
 export type PosRental = {
@@ -1538,10 +1540,10 @@ export type PosRental = {
 };
 
 export const posRentals: PosRental[] = [
-  { invoice: "RNT-2026-06-011", terminal: "NGP-POS-30121", merchant: "Desai Textiles", plan: "Standard", amount: 499, dueDate: "Jun 05, 2026", status: "Paid" },
-  { invoice: "RNT-2026-06-012", terminal: "NGP-POS-30122", merchant: "Patel Jewellers", plan: "Premium", amount: 799, dueDate: "Jun 05, 2026", status: "Paid" },
-  { invoice: "RNT-2026-06-013", terminal: "NGP-POS-30126", merchant: "FS Electronics", plan: "Standard", amount: 499, dueDate: "Jun 05, 2026", status: "Due" },
-  { invoice: "RNT-2026-06-014", terminal: "NGP-POS-30118", merchant: "Rana Mobile Hub", plan: "Standard", amount: 499, dueDate: "May 05, 2026", status: "Overdue" }
+  { invoice: "RNT-2026-06-011", terminal: "PBX-POS-30121", merchant: "Desai Textiles", plan: "Standard", amount: 499, dueDate: "Jun 05, 2026", status: "Paid" },
+  { invoice: "RNT-2026-06-012", terminal: "PBX-POS-30122", merchant: "Patel Jewellers", plan: "Premium", amount: 799, dueDate: "Jun 05, 2026", status: "Paid" },
+  { invoice: "RNT-2026-06-013", terminal: "PBX-POS-30126", merchant: "FS Electronics", plan: "Standard", amount: 499, dueDate: "Jun 05, 2026", status: "Due" },
+  { invoice: "RNT-2026-06-014", terminal: "PBX-POS-30118", merchant: "Rana Mobile Hub", plan: "Standard", amount: 499, dueDate: "May 05, 2026", status: "Overdue" }
 ];
 
 /* ── QR Code Payments ───────────────────────────────────────────────── */
@@ -1559,11 +1561,11 @@ export type QrCodeItem = {
 };
 
 export const qrCodes: QrCodeItem[] = [
-  { id: "QR-5001", type: "Static", label: "Shop Counter 1", vpa: "nextgenpay.desai@icici", created: "May 02, 2026", payments: 1841, collected: 1284500, status: "Active" },
-  { id: "QR-5002", type: "Static", label: "Shop Counter 2", vpa: "nextgenpay.desai2@icici", created: "May 02, 2026", payments: 644, collected: 412800, status: "Active" },
-  { id: "QR-5014", type: "Dynamic", label: "Invoice #4421", vpa: "nextgenpay.desai@icici", amount: 12400, created: "Jun 12, 2026", payments: 1, collected: 12400, status: "Expired" },
-  { id: "QR-5015", type: "Dynamic", label: "Invoice #4427", vpa: "nextgenpay.desai@icici", amount: 8600, created: "Jun 12, 2026", payments: 0, collected: 0, status: "Active" },
-  { id: "QR-5009", type: "Static", label: "Delivery Van", vpa: "nextgenpay.desai3@icici", created: "May 22, 2026", payments: 102, collected: 89200, status: "Disabled" }
+  { id: "QR-5001", type: "Static", label: "Shop Counter 1", vpa: "paybridgex.desai@icici", created: "May 02, 2026", payments: 1841, collected: 1284500, status: "Active" },
+  { id: "QR-5002", type: "Static", label: "Shop Counter 2", vpa: "paybridgex.desai2@icici", created: "May 02, 2026", payments: 644, collected: 412800, status: "Active" },
+  { id: "QR-5014", type: "Dynamic", label: "Invoice #4421", vpa: "paybridgex.desai@icici", amount: 12400, created: "Jun 12, 2026", payments: 1, collected: 12400, status: "Expired" },
+  { id: "QR-5015", type: "Dynamic", label: "Invoice #4427", vpa: "paybridgex.desai@icici", amount: 8600, created: "Jun 12, 2026", payments: 0, collected: 0, status: "Active" },
+  { id: "QR-5009", type: "Static", label: "Delivery Van", vpa: "paybridgex.desai3@icici", created: "May 22, 2026", payments: 102, collected: 89200, status: "Disabled" }
 ];
 
 export type QrPayment = {

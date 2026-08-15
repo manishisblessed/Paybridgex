@@ -120,14 +120,14 @@ export default function WhitelabelPage() {
   const canGoLive = canSave && Boolean(profile.subdomain?.trim() || profile.customDomain?.trim());
   const previewHost =
     profile.customDomain?.trim() ||
-    (profile.subdomain?.trim() ? `${profile.subdomain.trim()}.nextgenpay.in` : "your-brand.nextgenpay.in");
+    (profile.subdomain?.trim() ? `${profile.subdomain.trim()}.paybridgex.in` : "your-brand.paybridgex.in");
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Platform"
         title="White-label portal"
-        description="Run NextGenPay under your own brand, domain and colors."
+        description="Run Paybridgex under your own brand, domain and colors."
         actions={
           <div className="flex items-center gap-2">
             {profile.status === "LIVE" ? (
@@ -213,7 +213,7 @@ export default function WhitelabelPage() {
                 <Label>Subdomain</Label>
                 <div className="flex items-center gap-2">
                   <Input value={profile.subdomain ?? ""} onChange={(e) => set("subdomain", e.target.value)} placeholder="kapoorpay" />
-                  <span className="whitespace-nowrap text-sm text-ink-500">.nextgenpay.in</span>
+                  <span className="whitespace-nowrap text-sm text-ink-500">.paybridgex.in</span>
                 </div>
               </div>
               <div>
@@ -250,7 +250,7 @@ export default function WhitelabelPage() {
             >
               <p className="text-xs font-bold uppercase tracking-widest opacity-80">{profile.brandName || "Your brand"}</p>
               <p className="mt-3 font-display text-2xl font-bold">{profile.tagline || "Your tagline here"}</p>
-              <p className="mt-1 text-sm text-white/85">60+ services · Pan-India · Built on NextGenPay</p>
+              <p className="mt-1 text-sm text-white/85">60+ services · Pan-India · Built on Paybridgex</p>
               <button className="mt-4 rounded-full bg-white px-4 py-1.5 text-sm font-semibold" style={{ color: profile.primaryColor }}>
                 Login
               </button>
@@ -258,7 +258,7 @@ export default function WhitelabelPage() {
           </div>
 
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-            <strong>Powered by NextGenPay.</strong> Footer attribution required on all white-labels.
+            <strong>Powered by Paybridgex.</strong> Footer attribution required on all white-labels.
           </div>
         </div>
       </div>

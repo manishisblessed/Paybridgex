@@ -1,4 +1,4 @@
-# NextGenPay — Security Controls
+# Paybridgex — Security Controls
 
 This document maps each of the six security goals to the concrete controls
 implemented in this codebase, lists the primitives, and provides the API route
@@ -62,7 +62,7 @@ guard checklist. It is the single reference for "how is X protected and where".
 ### 6. Protect data in transit + detect anomalies
 | Control | Where |
 | --- | --- |
-| TLS everywhere; `HSTS` + `upgrade-insecure-requests` | `next.config.mjs`, Nginx (`deploy/nginx-nextgenpay.conf`) |
+| TLS everywhere; `HSTS` + `upgrade-insecure-requests` | `next.config.mjs`, Nginx (`deploy/nginx-paybridgex.conf`) |
 | Secure session cookies (NextAuth `__Secure-`/`httpOnly`/`sameSite` in prod over HTTPS) | NextAuth defaults under HTTPS; JWT session strategy |
 | **Structured security logging** (pino JSON → stdout → CloudWatch/SIEM) | `src/lib/logger.ts`, `src/lib/security/audit.ts` |
 | **Anomaly flags surfaced to admins** (impossible-travel / new-device / repeated-failures) | `src/app/api/admin/audit/route.ts`, `src/app/dashboard/admin/audit/page.tsx` |

@@ -16,7 +16,7 @@ import { prisma } from "@/lib/db";
  * Resolved lazily and cached for the process lifetime.
  */
 
-const SUSPENSE_EMAIL = "suspense@system.nextgen";
+const SUSPENSE_EMAIL = "suspense@system.paybridgex";
 const SUSPENSE_PHONE = "+910000000001";
 
 let cachedSuspenseAccountId: string | null = null;

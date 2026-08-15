@@ -1278,7 +1278,7 @@ function OnboardContent() {
         {/* Header */}
         <div className="mb-4 text-center sm:mb-6">
           <h1 className="font-display text-xl font-bold text-ink-900 sm:text-2xl">
-            NextGenPay Registration
+            Paybridgex Registration
           </h1>
           <p className="mt-1 text-sm text-ink-600 sm:text-base">
             Complete your onboarding as{" "}
@@ -1331,7 +1331,7 @@ function OnboardContent() {
               <h2 className="text-lg font-bold text-ink-900">Welcome!</h2>
               <p className="text-ink-600">
                 You&apos;ve been invited to register as a{" "}
-                <strong>{invite?.role.replace(/_/g, " ")}</strong> on NextGenPay.
+                <strong>{invite?.role.replace(/_/g, " ")}</strong> on Paybridgex.
               </p>
               <div className="rounded-xl bg-ink-50 p-4 text-left text-sm">
                 <p>

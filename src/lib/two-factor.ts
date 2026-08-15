@@ -3,7 +3,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { encrypt, decrypt } from "./crypto";
 
-const APP_NAME = "NextGenPay";
+const APP_NAME = "Paybridgex";
 const TOTP_DIGITS = 6;
 const TOTP_PERIOD = 30;
 const TOTP_WINDOW = 1; // allow 1 period drift (±30s)

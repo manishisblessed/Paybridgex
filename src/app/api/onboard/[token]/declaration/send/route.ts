@@ -89,7 +89,7 @@ export async function POST(
     const emailProvider = getPartner("email");
     await emailProvider.send({
       to: inviter.email,
-      subject: `NextGenPay — Declaration Approval Required for ${invite.name ?? invite.phone}`,
+      subject: `Paybridgex — Declaration Approval Required for ${invite.name ?? invite.phone}`,
       html: `
         <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;">
           <h1 style="color:#1e293b;font-size:22px;margin:0 0 16px;">Declaration Approval Required</h1>
@@ -100,11 +100,11 @@ export async function POST(
             <p style="margin:0;font-weight:600;color:#92400e;">By approving, you accept responsibility for all activities performed by this ${invite.role.replace(/_/g, " ")}.</p>
           </div>
           <div style="text-align:center;margin:24px 0;">
-            <a href="${approvalUrl}" style="display:inline-block;padding:14px 32px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;font-size:16px;">Review & Approve</a>
+            <a href="${approvalUrl}" style="display:inline-block;padding:14px 32px;background:#1b45ea;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;font-size:16px;">Review & Approve</a>
           </div>
           <p style="color:#64748b;font-size:13px;">Please review within 24 hours. The applicant cannot complete registration until this is approved.</p>
           <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;" />
-          <p style="color:#94a3b8;font-size:12px;text-align:center;">NextGenPay — JMP NEXTGENPAY PRIVATE LIMITED</p>
+          <p style="color:#94a3b8;font-size:12px;text-align:center;">Paybridgex — K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED</p>
         </div>
       `,
     });

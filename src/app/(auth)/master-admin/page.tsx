@@ -124,7 +124,7 @@ function MasterAdminLoginForm({ location }: { location: LocationData }) {
               <Crown className="h-3.5 w-3.5" /> Master Admin · Platform Owner
             </span>
             <h2 className="mt-6 font-display text-3xl font-bold leading-tight">
-              NextGenPay Master <br /> Control Centre.
+              Paybridgex Master <br /> Control Centre.
             </h2>
             <p className="mt-3 text-white/80">
               Two-factor authentication protects your platform from
@@ -171,7 +171,7 @@ function MasterAdminLoginForm({ location }: { location: LocationData }) {
             <Crown className="h-3.5 w-3.5" /> Master Admin · Platform Owner
           </span>
           <h2 className="mt-6 font-display text-3xl font-bold leading-tight">
-            NextGenPay Master <br /> Control Centre.
+            Paybridgex Master <br /> Control Centre.
           </h2>
           <p className="mt-3 text-white/80">
             Full platform authority — manage admins, assign permissions,

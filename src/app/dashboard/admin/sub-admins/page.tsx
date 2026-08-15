@@ -272,7 +272,7 @@ export default function AdminSubAdminsPage() {
           <>
             <ReportActions
               filename="sub-admins"
-              title="JMP NextGenPay · Sub-Admins"
+              title="Paybridgex · Sub-Admins"
               columns={[
                 { key: "id", header: "ID" },
                 { key: "name", header: "Name" },

@@ -108,7 +108,7 @@ export async function deliverWebhook(deliveryId: string): Promise<void> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": "NextGenPay-Webhooks/1.0",
+        "User-Agent": "Paybridgex-Webhooks/1.0",
         "X-NGP-Event": delivery.event,
         "X-NGP-Delivery": delivery.id,
         "X-NGP-Signature": signWebhookBody(secret, body),

@@ -1,60 +1,36 @@
 import Link from "next/link";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
+import { company } from "@/lib/data";
 
 /**
- * Client-provided brand mark. Monochrome, uses `currentColor` so it
- * adapts to the parent text color (accent on light, white on dark, etc).
- * Native aspect ratio is 32:22.
+ * Official K.A. Paybridgex emblem — the circular blue-green mark with the
+ * "K.A." monogram, shield-check and suspension bridge.
+ *
+ * `variant="dark"` (default) is the artwork for light backgrounds;
+ * `variant="light"` is the brighter version drawn for dark backgrounds.
  */
 export function LogoMark({
   className,
-  size = 32
+  size = 32,
+  variant = "dark"
 }: {
   className?: string;
   size?: number;
+  variant?: "dark" | "light";
 }) {
-  const height = Math.round((size * 22) / 32);
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 32 22"
+    <Image
+      src={variant === "light" ? "/brand-mark-dark.png" : "/brand-mark.png"}
+      alt="Paybridgex logo"
       width={size}
-      height={height}
-      fill="none"
+      height={size}
+      priority
       className={cn(
-        "shrink-0 transition-transform group-hover:scale-105",
+        "shrink-0 object-contain transition-transform group-hover:scale-105",
         className
       )}
-      role="img"
-      aria-label="NextGenPay logo"
-    >
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M0.00172773 0V6.85398C0.00172773 6.85398 -0.133178 9.01207 1.98092 10.8388L13.6912 21.9964L19.7809 21.9181L18.8042 9.88248L16.4951 7.17289L9.23799 0H0.00172773Z"
-        fill="currentColor"
-      />
-      <path
-        opacity="0.06"
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M7.69824 16.4364L12.5199 3.23696L16.5541 7.25596L7.69824 16.4364Z"
-        fill="#161616"
-      />
-      <path
-        opacity="0.06"
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M8.07751 15.9175L13.9419 4.63989L16.5849 7.28475L8.07751 15.9175Z"
-        fill="#161616"
-      />
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M7.77295 16.3566L23.6563 0H32V6.88383C32 6.88383 31.8262 9.17836 30.6591 10.4057L19.7824 22H13.6938L7.77295 16.3566Z"
-        fill="currentColor"
-      />
-    </svg>
+    />
   );
 }
 
@@ -62,26 +38,40 @@ export function Logo({
   className,
   variant = "dark",
   iconOnly = false,
+  withTagline = false
 }: {
   className?: string;
   variant?: "dark" | "light";
   iconOnly?: boolean;
+  withTagline?: boolean;
 }) {
   return (
     <Link
       href="/"
       className={cn("group inline-flex items-center gap-2.5", className)}
-      aria-label="NextGenPay home"
+      aria-label="Paybridgex home"
     >
-      <LogoMark size={iconOnly ? 28 : 34} className="text-[#7367F0]" />
+      <LogoMark size={iconOnly ? 32 : 40} variant={variant} />
       {!iconOnly && (
-        <span
-          className={cn(
-            "font-display text-[20px] font-extrabold tracking-tight leading-none",
-            variant === "light" ? "text-white" : "text-ink-900"
+        <span className="flex flex-col leading-none">
+          <span className="font-display text-[20px] font-extrabold tracking-tight">
+            <span className={variant === "light" ? "text-white" : "text-brand-700"}>
+              Pay
+            </span>
+            <span className={variant === "light" ? "text-accent-400" : "text-accent-600"}>
+              bridgex
+            </span>
+          </span>
+          {withTagline && (
+            <span
+              className={cn(
+                "mt-1 text-[9px] font-semibold uppercase tracking-[0.14em]",
+                variant === "light" ? "text-white/60" : "text-ink-500"
+              )}
+            >
+              {company.tagline}
+            </span>
           )}
-        >
-          NextGenPay
         </span>
       )}
     </Link>

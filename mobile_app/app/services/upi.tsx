@@ -11,7 +11,7 @@ import { ResultModal } from "@/components/Result";
 import { colors, radii } from "@/lib/theme";
 import { api, ApiError } from "@/lib/api";
 
-const VPA = "nextgenpay@axisbank";
+const VPA = "paybridgex@axisbank";
 
 function makeQrCells(seed: number, size = 21) {
   const cells: boolean[][] = [];
@@ -44,7 +44,7 @@ export default function UPIScreen() {
   const [resultStatus, setResultStatus] = useState<"Success" | "Pending" | "Failed">("Success");
   const [resultMsg, setResultMsg] = useState("");
 
-  const link = `upi://pay?pa=${VPA}&pn=NextGenPay${amount ? `&am=${amount}` : ""}${note ? `&tn=${encodeURIComponent(note)}` : ""}&cu=INR`;
+  const link = `upi://pay?pa=${VPA}&pn=Paybridgex${amount ? `&am=${amount}` : ""}${note ? `&tn=${encodeURIComponent(note)}` : ""}&cu=INR`;
   const cells = makeQrCells(amount.length + note.length + 7);
 
   async function generateRequest() {
@@ -92,7 +92,7 @@ export default function UPIScreen() {
           <View style={styles.shareRow}>
             <Pressable
               style={styles.shareBtn}
-              onPress={() => Share.share({ message: `Pay to NextGenPay: ${link}` })}
+              onPress={() => Share.share({ message: `Pay to Paybridgex: ${link}` })}
             >
               <Ionicons name="share-social-outline" size={18} color={colors.brand[700]} />
               <Text style={styles.shareText}>Share link</Text>

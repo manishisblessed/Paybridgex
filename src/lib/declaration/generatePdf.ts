@@ -5,7 +5,7 @@ import type { DeclarationData, ApprovalEvidence } from "./types";
 import { getCreatorRoleLabel, getOnboardeeRoleLabel } from "./types";
 
 // ── Palette / geometry ──────────────────────────────────────────────────────
-const BRAND = "#4f46e5";
+const BRAND = "#1b45ea";
 const INK = "#0f172a";
 const MUTED = "#475569";
 const LINE = "#cbd5e1";
@@ -36,7 +36,7 @@ function createBuilder(fontBytes: Buffer, meta: { title: string }) {
     size: "A4",
     margins: { top: PAGE_MARGIN, bottom: PAGE_MARGIN, left: PAGE_MARGIN, right: PAGE_MARGIN },
     bufferPages: true,
-    info: { Title: meta.title, Author: "JMP NEXTGENPAY PRIVATE LIMITED" },
+    info: { Title: meta.title, Author: "K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED" },
   });
   doc.registerFont("Hindi", fontBytes);
 
@@ -59,7 +59,7 @@ function createBuilder(fontBytes: Buffer, meta: { title: string }) {
 
   function header(title: string, subtitle: string, date: string) {
     doc.font("Helvetica-Bold").fontSize(18).fillColor(BRAND).text(
-      "JMP NEXTGENPAY PRIVATE LIMITED",
+      "K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED",
       left,
       PAGE_MARGIN,
       { align: "center", width: contentWidth }
@@ -229,7 +229,7 @@ function createBuilder(fontBytes: Buffer, meta: { title: string }) {
     field("Approval Date", "");
     doc.y += 6;
     doc.font("Helvetica-Bold").fontSize(10).fillColor(INK).text("Authorized Signatory", left, doc.y);
-    doc.font("Helvetica").fontSize(9).fillColor(MUTED).text("JMP NEXTGENPAY PRIVATE LIMITED", left, doc.y + 2);
+    doc.font("Helvetica").fontSize(9).fillColor(MUTED).text("K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED", left, doc.y + 2);
   }
 
   function footer(disclaimer: string) {
@@ -277,7 +277,7 @@ function createBuilder(fontBytes: Buffer, meta: { title: string }) {
 }
 
 const DISCLAIMER =
-  "This is a system-generated declaration. JMP NEXTGENPAY PRIVATE LIMITED.";
+  "This is a system-generated declaration. K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED.";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SELF DECLARATION — first person, signed & uploaded by the onboardee.
@@ -304,7 +304,7 @@ export async function generateSelfDeclarationPdf(data: DeclarationData): Promise
 
   const name = data.onboardeeName || "_______________";
   b.paragraph(
-    `मैं, ${name}, ${onboardeeLabel}, यह घोषित करता/करती हूँ कि NextGenPay (JMP NEXTGENPAY PRIVATE LIMITED) पर पंजीकरण हेतु मेरे द्वारा दी गई समस्त जानकारी एवं दस्तावेज़ (KYC, PAN, Aadhaar, बैंक, GST आदि) सत्य, सही एवं मेरे स्वयं के हैं। मैं निम्नलिखित शर्तों से पूर्णतः सहमत हूँ—`
+    `मैं, ${name}, ${onboardeeLabel}, यह घोषित करता/करती हूँ कि Paybridgex (K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED) पर पंजीकरण हेतु मेरे द्वारा दी गई समस्त जानकारी एवं दस्तावेज़ (KYC, PAN, Aadhaar, बैंक, GST आदि) सत्य, सही एवं मेरे स्वयं के हैं। मैं निम्नलिखित शर्तों से पूर्णतः सहमत हूँ—`
   );
 
   const clauses = [
@@ -371,7 +371,7 @@ export async function generateSuccessorDeclarationPdf(
 
   const clauses = [
     `1. यदि उक्त ${onboardeeLabel} द्वारा किसी भी प्रकार का Chargeback, Fraud Transaction, Dispute, Unauthorized Transaction, Money Laundering, Gaming Transaction, Betting Transaction, Crypto Related Transaction, Unaccounted/Unsourced Fund, Foreign Remittance Misuse, Third Party Fund Misuse अथवा किसी भी प्रकार की अवैध या संदिग्ध वित्तीय गतिविधि की जाती है, तो उसकी जिम्मेदारी ${onboardeeLabel} के साथ-साथ मेरी भी होगी।`,
-    `2. यदि ${onboardeeLabel} किसी भी कारण से कंपनी का बकाया, चार्जबैक, पेनल्टी, नुकसान या देय राशि जमा करने में असमर्थ रहता है, तो मैं (${creatorLabel}) उक्त राशि 15 (पंद्रह) दिनों के भीतर JMP NEXTGENPAY PRIVATE LIMITED को बिना किसी आपत्ति के जमा कराऊँगा/कराऊँगी।`,
+    `2. यदि ${onboardeeLabel} किसी भी कारण से कंपनी का बकाया, चार्जबैक, पेनल्टी, नुकसान या देय राशि जमा करने में असमर्थ रहता है, तो मैं (${creatorLabel}) उक्त राशि 15 (पंद्रह) दिनों के भीतर K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED को बिना किसी आपत्ति के जमा कराऊँगा/कराऊँगी।`,
     "3. कंपनी द्वारा मांगे जाने पर मैं आवश्यक दस्तावेज़, जानकारी एवं जांच में पूर्ण सहयोग दूँगा/दूँगी।",
     `4. यदि मैं निर्धारित समय में राशि जमा नहीं करता/करती हूँ, तो कंपनी को मेरा ${creatorLabel} ID, Wallet Balance, Security Deposit, Commission अथवा अन्य देय राशि समायोजित (Adjust) करने तथा आवश्यक कानूनी कार्यवाही करने का पूर्ण अधिकार होगा।`,
     `5. मैं यह भी स्वीकार करता/करती हूँ कि कंपनी केवल सेवा प्रदाता (Service Provider) है तथा ${onboardeeLabel} की गतिविधियों के लिए अंतिम जिम्मेदारी ${creatorLabel} एवं ${onboardeeLabel} की होगी।`,
@@ -382,7 +382,7 @@ export async function generateSuccessorDeclarationPdf(
 
   b.heading("Indemnity");
   b.paragraph(
-    `मैं, ${creatorLabel}, यह वचन देता/देती हूँ कि ${onboardeeLabel} की किसी भी गतिविधि से JMP NEXTGENPAY PRIVATE LIMITED को होने वाले वित्तीय नुकसान, चार्जबैक, पेनल्टी, कानूनी खर्च अथवा अन्य किसी भी प्रकार की हानि की भरपाई करने के लिए उत्तरदायी रहूँगा/रहूँगी।`
+    `मैं, ${creatorLabel}, यह वचन देता/देती हूँ कि ${onboardeeLabel} की किसी भी गतिविधि से K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED को होने वाले वित्तीय नुकसान, चार्जबैक, पेनल्टी, कानूनी खर्च अथवा अन्य किसी भी प्रकार की हानि की भरपाई करने के लिए उत्तरदायी रहूँगा/रहूँगी।`
   );
   b.doc.y += 6;
 

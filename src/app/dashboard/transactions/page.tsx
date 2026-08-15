@@ -111,7 +111,7 @@ export default function TransactionsPage() {
         </Button>
         <ReportActions
           filename="transactions"
-          title="NextGenPay · Transactions"
+          title="Paybridgex · Transactions"
           subtitle={`Live view · ${rows.length} records`}
           columns={[
             { key: "id", header: "Txn ID" },

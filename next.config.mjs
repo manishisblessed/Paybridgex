@@ -56,7 +56,8 @@ const nextConfig = {
 };
 
 export default withSentryConfig(nextConfig, {
-  org: "jmp-nextgenpay-private-limited",
+  // TODO(paybridgex): create a Sentry org for K.A. Paybridgex Solution and update this slug.
+  org: "ka-paybridgex-solution",
   project: "javascript-nextjs",
 
   // Build-time secret used to upload source maps so production stack traces are

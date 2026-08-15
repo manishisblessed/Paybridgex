@@ -100,7 +100,7 @@ export default function AdminCommissionsPage() {
           <>
             <ReportActions
               filename="commission-master"
-              title="JMP NextGenPay · Commission Master"
+              title="Paybridgex · Commission Master"
               subtitle="Service-wise rate-card"
               columns={[
                 { key: "service", header: "Service" },

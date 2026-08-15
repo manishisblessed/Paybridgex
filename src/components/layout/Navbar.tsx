@@ -30,6 +30,9 @@ export function Navbar() {
     setOpen(false);
   }, [pathname]);
 
+  // The landing hero is dark navy — render light-on-dark until scrolled.
+  const onDark = pathname === "/" && !scrolled;
+
   return (
     <motion.header
       initial={false}
@@ -52,7 +55,10 @@ export function Navbar() {
         transition={{ duration: reduce ? 0 : 0.35, ease: easeOut }}
         className="container-x flex items-center justify-between gap-6"
       >
-        <Logo className="transition-transform hover:scale-[1.02]" />
+        <Logo
+          variant={onDark ? "light" : "dark"}
+          className="transition-transform hover:scale-[1.02]"
+        />
 
         <nav className="hidden lg:flex">
           <ul className="flex items-center gap-1">
@@ -67,9 +73,13 @@ export function Navbar() {
                     data-active={isActive}
                     className={cn(
                       "link-underline inline-flex items-center gap-1 rounded-full px-4 py-2 text-sm font-medium transition",
-                      isActive
-                        ? "text-ink-900"
-                        : "text-ink-700 hover:bg-ink-100/70 hover:text-ink-900"
+                      onDark
+                        ? isActive
+                          ? "text-white"
+                          : "text-white/75 hover:bg-white/10 hover:text-white"
+                        : isActive
+                          ? "text-ink-900"
+                          : "text-ink-700 hover:bg-ink-100/70 hover:text-ink-900"
                     )}
                   >
                     {item.label}
@@ -101,12 +111,18 @@ export function Navbar() {
 
         <div className="hidden items-center gap-2 lg:flex">
           <Link href="/login">
-            <Button variant="ghost" size="sm">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={onDark ? "!text-white/85 hover:!bg-white/10 hover:!text-white" : undefined}
+            >
               Login
             </Button>
           </Link>
           <Link href="/register">
-            <Button size="sm">Become an Agent</Button>
+            <Button size="sm" variant={onDark ? "accent" : "primary"} className={onDark ? "!text-white" : undefined}>
+              Get started free
+            </Button>
           </Link>
         </div>
 
@@ -114,7 +130,12 @@ export function Navbar() {
           type="button"
           aria-label="Toggle menu"
           aria-expanded={open}
-          className="lg:hidden inline-flex h-10 w-10 items-center justify-center rounded-xl border border-ink-200 bg-white text-ink-900 transition hover:border-brand-300 hover:text-brand-700 active:scale-95"
+          className={cn(
+            "lg:hidden inline-flex h-10 w-10 items-center justify-center rounded-xl border transition active:scale-95",
+            onDark
+              ? "border-white/25 bg-white/10 text-white hover:border-accent-300/60"
+              : "border-ink-200 bg-white text-ink-900 hover:border-brand-300 hover:text-brand-700"
+          )}
           onClick={() => setOpen((o) => !o)}
         >
           <AnimatePresence mode="wait" initial={false}>

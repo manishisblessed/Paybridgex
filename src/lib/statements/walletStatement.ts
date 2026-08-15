@@ -114,7 +114,7 @@ export async function generateWalletStatementPdf(data: StatementData): Promise<U
   const ink = rgb(0.1, 0.12, 0.18);
   const dim = rgb(0.42, 0.45, 0.52);
   const line = rgb(0.88, 0.89, 0.92);
-  const brand = rgb(0.15, 0.3, 0.85);
+  const brand = rgb(0.106, 0.271, 0.918); // brand-600 royal blue #1b45ea
 
   let page = doc.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H - M;
@@ -152,7 +152,7 @@ export async function generateWalletStatementPdf(data: StatementData): Promise<U
   }
 
   // ── Letterhead ──
-  text("NextGenPay", M, 18, bold, brand);
+  text("Paybridgex", M, 18, bold, brand);
   y -= 16;
   text("Wallet Statement", M, 11, bold);
   y -= 20;

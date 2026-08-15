@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "=========================================="
-echo "  NextGenPay EC2 Setup — Ubuntu 26.04"
+echo "  Paybridgex EC2 Setup — Ubuntu 26.04"
 echo "=========================================="
 
 # 1. System updates
@@ -33,21 +33,21 @@ fi
 
 # 5. Create app directory and logs
 echo "[5/7] Setting up directories..."
-mkdir -p /home/ubuntu/nextgenpay
+mkdir -p /home/ubuntu/paybridgex
 mkdir -p /home/ubuntu/logs
 
 # 6. Clone the repo
 echo "[6/7] Cloning repository..."
-if [ -d "/home/ubuntu/nextgenpay/.git" ]; then
+if [ -d "/home/ubuntu/paybridgex/.git" ]; then
     echo "Repo already exists, pulling latest..."
-    cd /home/ubuntu/nextgenpay && git pull origin main
+    cd /home/ubuntu/paybridgex && git pull origin main
 else
-    git clone https://github.com/manishisblessed/nextgen.git /home/ubuntu/nextgenpay
+    git clone https://github.com/manishisblessed/paybridgex.git /home/ubuntu/paybridgex
 fi
 
 # 7. Install dependencies
 echo "[7/7] Installing npm dependencies..."
-cd /home/ubuntu/nextgenpay
+cd /home/ubuntu/paybridgex
 npm ci --production=false
 
 echo ""
@@ -55,14 +55,14 @@ echo "=========================================="
 echo "  Base setup complete!"
 echo "  Next steps:"
 echo "  1. Load secrets from AWS (DO NOT create .env.production by hand):"
-echo "       SECRETS_BACKEND=ssm SSM_PREFIX=/nextgenpay/prod AWS_REGION=ap-south-1 \\"
+echo "       SECRETS_BACKEND=ssm SSM_PREFIX=/paybridgex/prod AWS_REGION=ap-south-1 \\"
 echo "         bash deploy/load-secrets.sh"
 echo "     (requires an EC2 instance role with ssm:GetParametersByPath + kms:Decrypt"
 echo "      — or secretsmanager:GetSecretValue. No static AWS keys on the box.)"
 echo "  2. Run: npx prisma generate"
 echo "  3. Run: npx prisma migrate deploy"
 echo "  4. Run: npm run build"
-echo "  5. Configure Nginx (TLS via certbot; see deploy/nginx-nextgenpay.conf)"
+echo "  5. Configure Nginx (TLS via certbot; see deploy/nginx-paybridgex.conf)"
 echo "  6. Start PM2 (app + worker)"
 echo ""
 echo "  Security reminders:"

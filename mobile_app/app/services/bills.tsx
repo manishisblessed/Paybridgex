@@ -77,7 +77,7 @@ const metaMap: Record<BillType, { title: string; subtitle: string; icon: keyof t
     subtitle: "Postpaid broadband & landline",
     icon: "wifi-outline",
     consumerLabel: "Account / Customer ID",
-    tone: ["#6366f1", "#4f46e5"],
+    tone: ["#6366f1", "#1b45ea"],
     refPrefix: "BB",
   },
 };

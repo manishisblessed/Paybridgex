@@ -1,8 +1,8 @@
 {
-  "name": "nextgenpay-portal",
+  "name": "paybridgex-portal",
   "version": "0.1.0",
   "private": true,
-  "description": "NextGenPay (JMP NEXTGENPAY PRIVATE LIMITED) - Digital banking & utility fintech portal",
+  "description": "Paybridgex (K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED) - Digital banking & utility fintech portal",
   "scripts": {
     "dev": "next dev --turbo",
     "dev:all": "concurrently -k -n web,worker -c cyan,magenta \"npm run dev\" \"npm run worker\"",
@@ -61,6 +61,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.53.1",
+    "sharp": "^0.35.3",
     "sonner": "^2.0.7",
     "swr": "^2.2.5",
     "tailwind-merge": "^2.5.4",

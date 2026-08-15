@@ -18,31 +18,33 @@ const config: Config = {
     },
     extend: {
       colors: {
+        // Royal Blue — primary brand colour (matches the Paybridgex logo).
         brand: {
-          50: "#eef1fb",
-          100: "#dce3f7",
-          200: "#c0cdf0",
-          300: "#95abe4",
-          400: "#6383d4",
-          500: "#4263c7",
-          600: "#2e49ad",
-          700: "#273b8d",
-          800: "#243373",
-          900: "#1a2350",
-          950: "#10142e"
+          50: "#eef4ff",
+          100: "#d9e6ff",
+          200: "#bcd3ff",
+          300: "#8db4ff",
+          400: "#578bfc",
+          500: "#3164f6",
+          600: "#1b45ea",
+          700: "#1434d0",
+          800: "#172ca6",
+          900: "#192a82",
+          950: "#131b4e"
         },
+        // Emerald Green — secondary brand colour (matches the Paybridgex logo).
         accent: {
-          50: "#fdf2f4",
-          100: "#fce7eb",
-          200: "#f9d0d9",
-          300: "#f4a9ba",
-          400: "#ed7392",
-          500: "#e94560",
-          600: "#d52a52",
-          700: "#b41d45",
-          800: "#971b40",
-          900: "#811a3c",
-          950: "#48091d"
+          50: "#ecfdf5",
+          100: "#d1fae5",
+          200: "#a7f3d0",
+          300: "#6ee7b9",
+          400: "#34d399",
+          500: "#10b981",
+          600: "#059669",
+          700: "#047857",
+          800: "#065f46",
+          900: "#064e3b",
+          950: "#022c22"
         },
         ink: {
           50: "#f5f7fa",
@@ -77,13 +79,13 @@ const config: Config = {
       },
       backgroundImage: {
         "hero-radial":
-          "radial-gradient(60% 80% at 50% 0%, rgba(66,99,199,0.18) 0%, rgba(66,99,199,0) 60%), radial-gradient(40% 60% at 100% 100%, rgba(233,69,96,0.12) 0%, rgba(233,69,96,0) 60%)",
+          "radial-gradient(60% 80% at 50% 0%, rgba(49,100,246,0.18) 0%, rgba(49,100,246,0) 60%), radial-gradient(40% 60% at 100% 100%, rgba(16,185,129,0.12) 0%, rgba(16,185,129,0) 60%)",
         "grid-pattern":
           "linear-gradient(to right, rgba(15,23,42,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(15,23,42,0.06) 1px, transparent 1px)"
       },
       boxShadow: {
         soft: "0 10px 30px -12px rgba(15,23,42,0.18)",
-        glow: "0 20px 50px -12px rgba(66,99,199,0.45)"
+        glow: "0 20px 50px -12px rgba(49,100,246,0.45)"
       },
       keyframes: {
         "fade-up": {

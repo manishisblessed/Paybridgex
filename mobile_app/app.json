@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "NextGenPay Retailer",
-    "slug": "nextgenpay-retailer",
-    "scheme": "nextgenpay",
+    "name": "Paybridgex Retailer",
+    "slug": "paybridgex-retailer",
+    "scheme": "paybridgex",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,20 +10,20 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#1a1a2e"
+      "backgroundColor": "#131b4e"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.nxtgpay.retailer",
+      "bundleIdentifier": "com.paybridgex.retailer",
       "infoPlist": {
-        "NSFaceIDUsageDescription": "Use Face ID to sign in to your NextGenPay account."
+        "NSFaceIDUsageDescription": "Use Face ID to sign in to your Paybridgex account."
       }
     },
     "android": {
-      "package": "com.nxtgpay.retailer",
+      "package": "com.paybridgex.retailer",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1a1a2e"
+        "backgroundColor": "#131b4e"
       },
       "permissions": ["USE_FINGERPRINT", "USE_BIOMETRIC"]
     },
@@ -38,7 +38,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Use Face ID to sign in to your NextGenPay account."
+          "faceIDPermission": "Use Face ID to sign in to your Paybridgex account."
         }
       ]
     ],

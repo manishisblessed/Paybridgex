@@ -115,7 +115,7 @@ export function AdminOverview({ session }: { session: Session }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs text-ink-500">Platform admin · {session.email}</p>
-          <h1 className="heading-md">NextGenPay Control Tower</h1>
+          <h1 className="heading-md">Paybridgex Control Tower</h1>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={fetchStats} disabled={loading}>

@@ -14,7 +14,7 @@ export function Faq() {
   const [open, setOpen] = useState<number | null>(0);
 
   return (
-    <Section className="bg-ink-50/50">
+    <Section id="faq" className="bg-ink-50/50">
       <Container>
         <Reveal>
           <SectionHeading

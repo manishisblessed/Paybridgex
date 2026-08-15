@@ -7,7 +7,7 @@ import { verifyRazorpayWebhook } from "@/lib/partners/razorpay";
  * Razorpay webhook receiver.
  *
  * Configure in Razorpay dashboard → Settings → Webhooks:
- *   URL    : https://app.nxtgpay.com/api/webhooks/razorpay
+ *   URL    : https://app.paybridgex.in/api/webhooks/razorpay
  *   Secret : RAZORPAY_WEBHOOK_SECRET (env)
  *   Events : payment_link.paid, payout.processed, payout.reversed, payout.failed
  */

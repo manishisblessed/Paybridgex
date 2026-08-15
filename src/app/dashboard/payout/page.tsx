@@ -327,7 +327,7 @@ export default function PayoutPage() {
             {rows.length > 0 && (
               <ReportActions
                 filename="payouts"
-                title="JMP NextGenPay · Payouts"
+                title="Paybridgex · Payouts"
                 subtitle="My payouts"
                 columns={[
                   { key: "id", header: "Payout ID" },
@@ -1341,7 +1341,7 @@ function printReceipt(result: PayoutResult, text: string, gradient: string, payB
   </head>
   <body>
     <div class="head">
-      <div style="font-weight:700">JMP NextGenPay · Payout</div>
+      <div style="font-weight:700">Paybridgex · Payout</div>
       <div class="amt">₹${result.amount.toFixed(2)}</div>
     </div>
     <div class="div"></div>
@@ -1355,7 +1355,7 @@ function printReceipt(result: PayoutResult, text: string, gradient: string, payB
       })
       .join("")}
     <div class="div"></div>
-    <div class="foot"><div style="font-weight:600;color:#059669;margin-bottom:4px">${payBy}</div>JMP NextGenPay · Payout Receipt</div>
+    <div class="foot"><div style="font-weight:600;color:#059669;margin-bottom:4px">${payBy}</div>Paybridgex · Payout Receipt</div>
   </body>
 </html>`);
   printWindow.document.close();

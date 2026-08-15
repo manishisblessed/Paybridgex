@@ -152,7 +152,7 @@ export function downloadPDF<T>(
 <body>
   <header>
     <div>
-      <p class="brand">JMP NEXTGENPAY PRIVATE LIMITED</p>
+      <p class="brand">K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED</p>
       <h1>${escapeHtml(title)}</h1>
       ${meta?.subtitle ? `<p style="margin:2px 0 0;font-size:12px;color:#5a6675;">${escapeHtml(meta.subtitle)}</p>` : ""}
     </div>
@@ -174,7 +174,7 @@ export function downloadPDF<T>(
   </table>
 
   <p style="margin-top:24px;font-size:10px;color:#94a0af;">
-    This is a system-generated report from the JMP NextGenPay dashboard.
+    This is a system-generated report from the Paybridgex dashboard.
     Confidential — for internal use only.
   </p>
 </body></html>`);

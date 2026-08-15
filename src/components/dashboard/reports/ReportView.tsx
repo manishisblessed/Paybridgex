@@ -302,7 +302,7 @@ export function ReportView({ type }: { type: ReportType }) {
           <>
             <ReportActions
               filename={`${type}-report`}
-              title={`JMP NextGenPay · ${config.title}`}
+              title={`Paybridgex · ${config.title}`}
               subtitle={
                 f.dateRange && from && to ? `${toDateStr(from)} – ${toDateStr(to)}` : "All records"
               }

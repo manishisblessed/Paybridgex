@@ -149,7 +149,7 @@ export default function JoinPage() {
           </div>
         ) : (
           <>
-            <h1 className="heading-md">Join NextGenPay</h1>
+            <h1 className="heading-md">Join Paybridgex</h1>
             <p className="mt-2 text-sm text-ink-500">
               Fill in your details — our support team will reach out and complete
               your onboarding. Already a member?{" "}
@@ -216,7 +216,7 @@ export default function JoinPage() {
                   id="city"
                   value={form.city}
                   onChange={(e) => update("city", e.target.value)}
-                  placeholder="e.g. Surat"
+                  placeholder="e.g. Ahmedabad"
                 />
               </div>
               <div className="sm:col-span-2">
@@ -274,7 +274,7 @@ export default function JoinPage() {
                     required
                     className="mt-0.5 h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
                   />
-                  I agree to be contacted by NextGenPay and accept the{" "}
+                  I agree to be contacted by Paybridgex and accept the{" "}
                   <Link href="/legal/terms" className="font-semibold text-brand-700">
                     Terms
                   </Link>{" "}

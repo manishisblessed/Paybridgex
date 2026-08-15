@@ -1,5 +1,5 @@
 // =====================================================================
-// JMP NextGenPay — production schema (Supabase Postgres + Prisma)
+// Paybridgex — production schema (Supabase Postgres + Prisma)
 // =====================================================================
 
 generator client {
@@ -462,7 +462,7 @@ model Document {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   type         DocumentType
   // Cloudinary
-  publicId     String // e.g. "nextgenpay/kyc/abc123"
+  publicId     String // e.g. "paybridgex/kyc/abc123"
   url          String // secure_url
   resourceType String       @default("image") // image | raw | video
   format       String?
@@ -1664,7 +1664,7 @@ model StaticQr {
 
 // =====================================================================
 // Admin Console expansion — Phases A1–A6 (functional parity with the
-// reference platform's admin, built natively on the NextGen ledger).
+// reference platform's admin, built natively on the Paybridgex ledger).
 // =====================================================================
 
 // ---------- A1: Platform settings (typed key-value store) ----------

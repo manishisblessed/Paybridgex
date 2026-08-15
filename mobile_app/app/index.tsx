@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Image, StyleSheet, Text, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { getSession, clearSession } from "@/lib/auth";
@@ -43,12 +43,16 @@ export default function Splash() {
     >
       <View style={styles.center}>
         <View style={styles.logoBadge}>
-          <Text style={styles.logoP}>P</Text>
+          <Image
+            source={require("../assets/logo.png")}
+            style={styles.logoImg}
+            resizeMode="contain"
+          />
         </View>
-        <Text style={styles.brand}>NextGenPay</Text>
-        <Text style={styles.tagline}>Banking that builds Bharat</Text>
+        <Text style={styles.brand}>Paybridgex</Text>
+        <Text style={styles.tagline}>Smart Payments. Trusted Solutions.</Text>
       </View>
-      <Text style={styles.foot}>Powered by JMP NEXTGENPAY PRIVATE LIMITED</Text>
+      <Text style={styles.foot}>Powered by K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED</Text>
     </LinearGradient>
   );
 }
@@ -57,15 +61,15 @@ const styles = StyleSheet.create({
   wrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   center: { alignItems: "center" },
   logoBadge: {
-    width: 88,
-    height: 88,
-    borderRadius: 26,
-    backgroundColor: "rgba(255,255,255,0.18)",
+    width: 96,
+    height: 96,
+    borderRadius: 28,
+    backgroundColor: "rgba(255,255,255,0.14)",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 20
   },
-  logoP: { fontSize: 48, fontWeight: "900", color: "#fff" },
+  logoImg: { width: 72, height: 72 },
   brand: { fontSize: 36, fontWeight: "900", color: "#fff", letterSpacing: -1 },
   tagline: { marginTop: 8, color: "rgba(255,255,255,0.9)", fontSize: 14 },
   foot: { position: "absolute", bottom: 32, color: "rgba(255,255,255,0.7)", fontSize: 11 }

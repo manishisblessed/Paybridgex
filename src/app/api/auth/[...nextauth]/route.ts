@@ -11,7 +11,7 @@ if (!process.env.NEXTAUTH_URL) {
   console.warn(
     "[nextauth] NEXTAUTH_URL is not set. NextAuth will attempt auto-detection " +
     "which may fail behind a reverse proxy or on AWS Amplify. " +
-    "Set NEXTAUTH_URL to your production domain (e.g. https://nxtgpay.com)."
+    "Set NEXTAUTH_URL to your production domain (e.g. https://paybridgex.in)."
   );
 }
 

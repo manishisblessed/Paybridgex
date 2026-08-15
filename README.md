@@ -1,11 +1,11 @@
-# NextGenPay — Fintech Distribution Portal
+# Paybridgex — Fintech Distribution Portal
 
-A production-grade Next.js 14 fintech portal for **JMP NEXTGENPAY PRIVATE LIMITED** (trade name: `nxtgpay`). Built per the agreed proposal, it covers all 7 modules — **Payment Gateway (PG), Point of Sale (POS), QR Code Payments, Master Distributor (MDS), Distributor (DS), Retailer Portal and Sub-Admin Panel** — plus a polished marketing site and 15+ additional service modules (AePS, money transfer, recharges, bill payments, travel bookings, wallet, transactions, and more).
+A production-grade Next.js 14 fintech portal for **K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED** (trade name: `paybridgex`). Built per the agreed proposal, it covers all 7 modules — **Payment Gateway (PG), Point of Sale (POS), QR Code Payments, Master Distributor (MDS), Distributor (DS), Retailer Portal and Sub-Admin Panel** — plus a polished marketing site and 15+ additional service modules (AePS, money transfer, recharges, bill payments, travel bookings, wallet, transactions, and more).
 
-> Registered office: 2nd Floor, 201, Devi Arcade, Ashwini Kumar Road, Modi Maholla, Surat, Gujarat - 395008
-> Email: Info@nxtgpay.com · Domain: [nxtgpay.com](https://nxtgpay.com/)
+> Registered office: E-340, SAFAL 11, Opp. Namaskar Circle, Shahibag, Ahmedabad City, Ahmedabad, Gujarat - 380004
+> Email: info@paybridgex.in · Domain: [paybridgex.in](https://paybridgex.in/)
 >
-> Note: the CIN and phone number in `src/lib/data.ts` are placeholders — replace them with the client's official details before launch.
+> Note: the phone number and grievance/nodal officer names in `src/lib/data.ts` are placeholders — replace them with the official details before launch. CIN: U82910GJ2026OPC181144.
 
 ## ✨ Features
 
@@ -18,7 +18,7 @@ A production-grade Next.js 14 fintech portal for **JMP NEXTGENPAY PRIVATE LIMITE
 
 ### Auth
 - `/login` and `/register` with split-pane premium UI
-- Mock auth using `localStorage` + cookie (demo creds: `demo@nxtgpay.com / demo1234`)
+- Mock auth using `localStorage` + cookie (demo creds: `demo@paybridgex.in / demo1234`)
 
 ### Dashboard (`/dashboard`)
 - Sidebar + topbar with wallet pill, notifications and profile menu
@@ -30,7 +30,7 @@ A production-grade Next.js 14 fintech portal for **JMP NEXTGENPAY PRIVATE LIMITE
 - **Wallet**: top-up + withdraw with live balance updates
 - **Money Transfer (DMT)**: full IMPS/NEFT/RTGS form with success modal
 - **AePS** (Aadhaar Pay): Withdrawal / balance / mini-statement
-- **UPI Collect**: live QR generator + copyable UPI link (`nextgenpay@axisbank`)
+- **UPI Collect**: live QR generator + copyable UPI link (`paybridgex@axisbank`)
 - **Recharges**: Mobile / DTH / Broadband
 - **Bill Payments**: Electricity / Water / Gas / Credit Card / Education
 - **Travel**: Flight search, Hotel search, Bus search with mock results
@@ -124,4 +124,4 @@ Never commit `.env` or `.env.local`. Both are gitignored. Copy `.env.example` to
 
 ## 📄 License
 
-© JMP NEXTGENPAY PRIVATE LIMITED. Brand assets shown for product purposes; replace with finalized logo/imagery before launch.
+© K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED. Brand assets shown for product purposes; replace with finalized logo/imagery before launch.

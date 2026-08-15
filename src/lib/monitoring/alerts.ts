@@ -32,7 +32,7 @@ const SEVERITY_PREFIX: Record<OpsAlertSeverity, string> = {
 };
 
 function formatAlertText(alert: OpsAlert): string {
-  const lines = [`${SEVERITY_PREFIX[alert.severity]} NextGenPay — ${alert.title}`];
+  const lines = [`${SEVERITY_PREFIX[alert.severity]} Paybridgex — ${alert.title}`];
   for (const [key, value] of Object.entries(alert.details ?? {})) {
     if (value === undefined || value === null) continue;
     lines.push(`• ${key}: ${value}`);

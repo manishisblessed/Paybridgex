@@ -241,7 +241,7 @@ export default function PayoutApprovalsPage() {
           <>
             <ReportActions
               filename="payout-approvals"
-              title="JMP NextGenPay · Payout Approvals"
+              title="Paybridgex · Payout Approvals"
               subtitle={filter === "PENDING" ? "Pending queue" : "All payouts"}
               columns={[
                 { key: "id", header: "Payout ID" },

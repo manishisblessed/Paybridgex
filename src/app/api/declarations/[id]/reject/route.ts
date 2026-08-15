@@ -94,7 +94,7 @@ export async function POST(
       const emailProvider = getPartner("email");
       await emailProvider.send({
         to: invite.email,
-        subject: "NextGenPay — Your declaration was not approved",
+        subject: "Paybridgex — Your declaration was not approved",
         html: `
           <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;">
             <h1 style="color:#1e293b;font-size:22px;margin:0 0 16px;">Declaration Not Approved</h1>
@@ -105,7 +105,7 @@ export async function POST(
             </div>
             <p>Please contact your upline to resolve this and re-submit your declaration.</p>
             <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;" />
-            <p style="color:#94a3b8;font-size:12px;text-align:center;">NextGenPay — JMP NEXTGENPAY PRIVATE LIMITED</p>
+            <p style="color:#94a3b8;font-size:12px;text-align:center;">Paybridgex — K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED</p>
           </div>
         `,
       });

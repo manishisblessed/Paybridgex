@@ -8,7 +8,7 @@ import { settlePgCollect, isPgCollectRef } from "@/lib/wallet/pgCollect";
  * BulkPe Simple PG (collect) webhook — wallet top-up + PG collection auto-credit.
  *
  * Configure in the BulkPe dashboard alongside the payout webhook:
- *   URL    : https://app.nxtgpay.com/api/webhooks/bulkpe-pg
+ *   URL    : https://app.paybridgex.in/api/webhooks/bulkpe-pg
  *   Secret : BULKPE_WEBHOOK_SECRET (env)
  *
  * Defense in depth: the webhook body is only used to LOCATE our transaction

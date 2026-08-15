@@ -87,7 +87,7 @@ export default function SecuritySettingsPage() {
 
   function downloadBackupCodes() {
     const text = [
-      "NextGenPay — 2FA Backup Codes",
+      "Paybridgex — 2FA Backup Codes",
       `Account: ${session?.user?.email}`,
       `Generated: ${new Date().toLocaleDateString()}`,
       "",
@@ -100,7 +100,7 @@ export default function SecuritySettingsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "nextgenpay-backup-codes.txt";
+    a.download = "paybridgex-backup-codes.txt";
     a.click();
     URL.revokeObjectURL(url);
   }

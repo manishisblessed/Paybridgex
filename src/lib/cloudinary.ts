@@ -22,7 +22,7 @@ export async function uploadToCloudinary(
     isSensitive?: boolean;
   }
 ): Promise<UploadApiResponse> {
-  const folder = `nextgenpay/${opts.isSensitive ? "private" : "public"}/${opts.userId}/${opts.type.toLowerCase()}`;
+  const folder = `paybridgex/${opts.isSensitive ? "private" : "public"}/${opts.userId}/${opts.type.toLowerCase()}`;
 
   const payload =
     typeof fileOrDataUrl === "string"
@@ -50,7 +50,7 @@ export async function uploadPdfToCloudinary(
   buffer: Buffer,
   opts: { userId: string; type: string }
 ): Promise<UploadApiResponse> {
-  const folder = `nextgenpay/private/${opts.userId}/${opts.type.toLowerCase()}`;
+  const folder = `paybridgex/private/${opts.userId}/${opts.type.toLowerCase()}`;
   const payload = `data:application/pdf;base64,${buffer.toString("base64")}`;
   return cloudinary.uploader.upload(payload, {
     folder,
@@ -91,7 +91,7 @@ export function signedDeliveryUrl(publicId: string, opts?: { expiresInSec?: numb
  */
 export function getSignedUploadParams(opts: { userId: string; type: string; isSensitive?: boolean }) {
   const timestamp = Math.floor(Date.now() / 1000);
-  const folder = `nextgenpay/${opts.isSensitive ? "private" : "public"}/${opts.userId}/${opts.type.toLowerCase()}`;
+  const folder = `paybridgex/${opts.isSensitive ? "private" : "public"}/${opts.userId}/${opts.type.toLowerCase()}`;
 
   const paramsToSign: Record<string, string | number | boolean> = {
     folder,

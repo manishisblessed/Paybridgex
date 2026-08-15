@@ -45,11 +45,14 @@ export function Footer() {
         <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-12 lg:gap-10">
           {/* Brand + newsletter */}
           <div className="md:col-span-2 lg:col-span-4">
-            <Logo variant="light" />
-            <p className="mt-4 max-w-sm text-sm leading-relaxed text-ink-400">
-              NextGenPay simplifies high-end fintech so anyone — from a village
-              kirana to an urban distributor — can offer 60+ digital services
-              and grow with us. Engineered in Bharat, certified by India.
+            <Logo variant="light" withTagline />
+            <p className="mt-3 text-sm font-semibold tracking-wide text-accent-400">
+              Smart Payments. Trusted Solutions.
+            </p>
+            <p className="mt-3 max-w-sm text-sm leading-relaxed text-ink-400">
+              Paybridgex is the bridge between everyday counters and India&apos;s
+              payment rails — so anyone, from a village kirana to an urban
+              distributor, can offer 60+ digital services and grow with us.
             </p>
 
             <div className="mt-6">
@@ -169,8 +172,8 @@ export function Footer() {
               reserved.
             </p>
             <p className="mt-1">
-              CIN: {company.cin} · GSTIN: {company.gstin} · Incorporated{" "}
-              {company.incorporated}, {company.jurisdiction}.
+              CIN: {company.cin} · Incorporated {company.incorporated},{" "}
+              {company.jurisdiction}.
             </p>
           </div>
 

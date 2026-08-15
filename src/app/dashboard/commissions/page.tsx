@@ -67,8 +67,8 @@ export default function CommissionsPage() {
               filename="commission-slabs"
               title={
                 role === "master-distributor"
-                  ? "JMP NextGenPay · Commission Master"
-                  : "JMP NextGenPay · Commission Slabs"
+                  ? "Paybridgex · Commission Master"
+                  : "Paybridgex · Commission Slabs"
               }
               subtitle="Service-wise rate-card"
               columns={[

@@ -213,13 +213,13 @@ export default function FundsRequestPage() {
         description={
           isApprover
             ? "Approve incoming wallet top-up requests with bank reference. Auto-credit on approval."
-            : "Submit your bank deposit reference to top up your NextGenPay wallet within minutes."
+            : "Submit your bank deposit reference to top up your Paybridgex wallet within minutes."
         }
         actions={
           <>
             <ReportActions
               filename="fund-requests"
-              title="JMP NextGenPay · Fund Requests"
+              title="Paybridgex · Fund Requests"
               subtitle={isApprover ? "Incoming approvals" : "My requests"}
               columns={[
                 { key: "id", header: "Request ID" },

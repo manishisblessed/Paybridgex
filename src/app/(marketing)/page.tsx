@@ -1,39 +1,27 @@
-import { HeroNext } from "@/components/home/HeroNext";
-import { TrustMarquee } from "@/components/home/TrustMarquee";
-import { RoleShowcase } from "@/components/home/RoleShowcase";
-import { ServicesGrid } from "@/components/home/ServicesGrid";
-import { PlatformPillars } from "@/components/home/PlatformPillars";
-import { PaymentProcess } from "@/components/home/PaymentProcess";
-import { MadeInIndia } from "@/components/home/MadeInIndia";
-import { ImpactStats } from "@/components/home/ImpactStats";
-import { Coverage } from "@/components/home/Coverage";
-import { Compliance } from "@/components/home/Compliance";
-import { IntegrationsConstellation } from "@/components/home/IntegrationsConstellation";
+import { BridgeHero } from "@/components/home/BridgeHero";
+import { HowItWorks } from "@/components/home/HowItWorks";
+import { ServicesBento } from "@/components/home/ServicesBento";
+import { WhyPaybridgex } from "@/components/home/WhyPaybridgex";
+import { RolesStrip } from "@/components/home/RolesStrip";
+import { ComplianceBand } from "@/components/home/ComplianceBand";
 import { Pricing } from "@/components/home/Pricing";
-import { AnimatedTestimonials } from "@/components/home/AnimatedTestimonials";
+import { TestimonialWall } from "@/components/home/TestimonialWall";
 import { Faq } from "@/components/home/Faq";
-import { Blog } from "@/components/home/Blog";
-import { StackedCTA } from "@/components/home/StackedCTA";
+import { FinalCTA } from "@/components/home/FinalCTA";
 
 export default function HomePage() {
   return (
     <>
-      <HeroNext />
-      <TrustMarquee />
-      <RoleShowcase />
-      <ServicesGrid />
-      <PlatformPillars />
-      <PaymentProcess />
-      <MadeInIndia />
-      <ImpactStats />
-      <Coverage />
-      <Compliance />
-      <IntegrationsConstellation />
+      <BridgeHero />
+      <HowItWorks />
+      <ServicesBento />
+      <WhyPaybridgex />
+      <RolesStrip />
+      <ComplianceBand />
       <Pricing />
-      <AnimatedTestimonials />
+      <TestimonialWall />
       <Faq />
-      <Blog />
-      <StackedCTA />
+      <FinalCTA />
     </>
   );
 }

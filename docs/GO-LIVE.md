@@ -24,7 +24,7 @@ token, eKYC Hub token, Resend key). Before anything else:
       Don't point production at the current dev DB. Run
       `npx prisma migrate deploy` against it (all 19 migrations apply cleanly).
 - [ ] Set `NODE_ENV="production"`, `NEXT_PUBLIC_APP_URL` and `NEXTAUTH_URL`
-      to your real domain (e.g. `https://nxtgpay.com`).
+      to your real domain (e.g. `https://paybridgex.in`).
 - [ ] Set `ALERT_WEBHOOK_URL` (Slack/Google Chat/Discord webhook). Without it,
       ledger-mismatch and AML alerts land only in logs that nobody watches.
 
@@ -46,7 +46,7 @@ Each rail is dark until its flag is on AND its credentials are set:
 | KYC video storage | `S3_KYC_BUCKET`, `S3_KMS_KEY_ID`, `AWS_REGION` | Private S3 bucket: Block Public Access ON, SSE-KMS, versioning, TLS-only policy; prefer an EC2 IAM role over access keys |
 | Verification (eKYC Hub) | already set ✔ | move to a production account/token if the current one is sandbox |
 | OTP (Twilio Verify) | already set ✔ | confirm sender/DLT compliance for India traffic at volume |
-| Email (Resend) | already set ✔ | verify the `nxtgpay.com` domain (SPF/DKIM) in Resend |
+| Email (Resend) | already set ✔ | verify the `paybridgex.in` domain (SPF/DKIM) in Resend |
 
 Sandbox first: run each rail against the partner's sandbox, then flip base
 URLs/keys to production. Do a ₹10 "penny test" per rail on day one.
@@ -62,7 +62,7 @@ URLs/keys to production. Do a ₹10 "penny test" per rail on day one.
       audit anchoring and video purging all run there.
 - [ ] Set `TRUSTED_PROXY_HOPS` (1 for nginx alone, 2 if Cloudflare in front).
 - [ ] DNS: apex + `www` → server. For white-label subdomains add a wildcard
-      record (`*.nxtgpay.com`) and a wildcard/SAN certificate.
+      record (`*.paybridgex.in`) and a wildcard/SAN certificate.
 - [ ] Database: enable automated backups / PITR on the production DB. pg-boss
       creates its own `pgboss` schema on first worker start — no action needed.
 - [ ] Optional but recommended: `SENTRY_DSN` for error tracking,

@@ -1,11 +1,15 @@
 import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
-export const alt = "NextGenPay — Payment Gateway, POS & QR Payments";
+export const alt = "Paybridgex — Payment Gateway, POS & QR Payments";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
 export default async function OpengraphImage() {
+  const mark = await fetch(new URL("./og-logo.png", import.meta.url)).then(
+    (res) => res.arrayBuffer()
+  );
+
   return new ImageResponse(
     (
       <div
@@ -17,29 +21,18 @@ export default async function OpengraphImage() {
           justifyContent: "space-between",
           padding: 80,
           background:
-            "radial-gradient(60% 80% at 20% 20%, rgba(233,69,96,0.4) 0%, rgba(233,69,96,0) 60%), radial-gradient(50% 60% at 100% 100%, rgba(212,168,67,0.3) 0%, rgba(212,168,67,0) 60%), linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
+            "radial-gradient(60% 80% at 20% 20%, rgba(16,185,129,0.35) 0%, rgba(16,185,129,0) 60%), radial-gradient(50% 60% at 100% 100%, rgba(49,100,246,0.35) 0%, rgba(49,100,246,0) 60%), linear-gradient(135deg, #0b1030 0%, #131b4e 50%, #172ca6 100%)",
           color: "white",
           fontFamily: "system-ui, sans-serif"
         }}
       >
-        {/* Top: logo lockup — bare violet mark + wordmark */}
+        {/* Top: official emblem + dual-tone wordmark */}
         <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
-          <svg width="102" height="70" viewBox="0 0 32 22" fill="none">
-            <path
-              fillRule="evenodd"
-              clipRule="evenodd"
-              d="M0.00172773 0V6.85398C0.00172773 6.85398 -0.133178 9.01207 1.98092 10.8388L13.6912 21.9964L19.7809 21.9181L18.8042 9.88248L16.4951 7.17289L9.23799 0H0.00172773Z"
-              fill="#7367F0"
-            />
-            <path
-              fillRule="evenodd"
-              clipRule="evenodd"
-              d="M7.77295 16.3566L23.6563 0H32V6.88383C32 6.88383 31.8262 9.17836 30.6591 10.4057L19.7824 22H13.6938L7.77295 16.3566Z"
-              fill="#7367F0"
-            />
-          </svg>
-          <div style={{ fontSize: 48, fontWeight: 800, letterSpacing: -1 }}>
-            NextGenPay
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={mark as unknown as string} alt="" width={96} height={96} />
+          <div style={{ display: "flex", fontSize: 48, fontWeight: 800, letterSpacing: -1 }}>
+            <span style={{ color: "#ffffff" }}>Pay</span>
+            <span style={{ color: "#34d399" }}>bridgex</span>
           </div>
         </div>
 
@@ -53,16 +46,16 @@ export default async function OpengraphImage() {
               letterSpacing: -2
             }}
           >
-            Powering Payments for a{" "}
+            Smart Payments.{" "}
             <span
               style={{
                 background:
-                  "linear-gradient(90deg, #e94560 0%, #f0d68a 100%)",
+                  "linear-gradient(90deg, #34d399 0%, #8db4ff 100%)",
                 backgroundClip: "text",
                 color: "transparent"
               }}
             >
-              Digital Bharat
+              Trusted Solutions.
             </span>
           </div>
           <div
@@ -92,9 +85,9 @@ export default async function OpengraphImage() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontWeight: 600 }}>nxtgpay.com</span>
+            <span style={{ fontWeight: 600 }}>paybridgex.in</span>
             <span>·</span>
-            <span>Info@nxtgpay.com</span>
+            <span>info@paybridgex.in</span>
           </div>
           <div style={{ display: "flex", gap: 18 }}>
             {["PG", "POS", "QR", "AePS", "DMT", "BBPS"].map((tag) => (

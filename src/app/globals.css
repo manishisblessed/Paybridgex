@@ -18,7 +18,7 @@
   --border: 226 232 240;
   --input: 226 232 240;
 
-  --ring: 47 123 255;
+  --ring: 49 100 246;
 
   /* Global motion design tokens */
   --ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1);
@@ -63,7 +63,7 @@ button {
 
 /* Subtle, branded selection */
 ::selection {
-  background: rgb(66 99 199 / 0.18);
+  background: rgb(49 100 246 / 0.18);
   color: rgb(14 22 38);
 }
 
@@ -83,8 +83,8 @@ button {
 *::-webkit-scrollbar-thumb {
   background: linear-gradient(
     180deg,
-    rgba(66, 99, 199, 0.45),
-    rgba(124, 58, 237, 0.45)
+    rgba(49, 100, 246, 0.45),
+    rgba(16, 185, 129, 0.45)
   );
   border-radius: 999px;
   border: 2px solid transparent;
@@ -93,8 +93,8 @@ button {
 *::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(
     180deg,
-    rgba(66, 99, 199, 0.75),
-    rgba(124, 58, 237, 0.75)
+    rgba(49, 100, 246, 0.75),
+    rgba(16, 185, 129, 0.75)
   );
   background-clip: padding-box;
   border: 2px solid transparent;
@@ -210,8 +210,8 @@ button {
 
   .text-glow {
     text-shadow:
-      0 0 24px rgba(47, 123, 255, 0.4),
-      0 0 60px rgba(249, 118, 6, 0.15);
+      0 0 24px rgba(49, 100, 246, 0.4),
+      0 0 60px rgba(16, 185, 129, 0.15);
   }
 
   .glass {
@@ -235,10 +235,10 @@ button {
   .conic-glow {
     background: conic-gradient(
       from 90deg at 50% 50%,
-      #185df5 0deg,
-      #f97606 120deg,
-      #7c3aed 240deg,
-      #185df5 360deg
+      #1b45ea 0deg,
+      #10b981 120deg,
+      #1434d0 240deg,
+      #1b45ea 360deg
     );
     filter: blur(50px);
     opacity: 0.45;
@@ -263,7 +263,7 @@ button {
     bottom: 6px;
     height: 2px;
     border-radius: 2px;
-    background: linear-gradient(90deg, #2e49ad, #e94560);
+    background: linear-gradient(90deg, #1b45ea, #10b981);
     transform: scaleX(0);
     transform-origin: left center;
     transition: transform 320ms var(--ease-out-quart);

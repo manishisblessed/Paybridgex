@@ -176,7 +176,7 @@ export async function POST(
       const emailProvider = getPartner("email");
       await emailProvider.send({
         to: invite.email,
-        subject: "NextGenPay — Your declaration has been approved",
+        subject: "Paybridgex — Your declaration has been approved",
         html: `
           <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;">
             <h1 style="color:#1e293b;font-size:22px;margin:0 0 16px;">Declaration Approved</h1>
@@ -184,7 +184,7 @@ export async function POST(
             <p><strong>${user.name}</strong> (${approval.approverRole.replace(/_/g, " ")}) has approved your responsibility declaration.</p>
             <p>You can now return to your onboarding and complete your registration.</p>
             <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;" />
-            <p style="color:#94a3b8;font-size:12px;text-align:center;">NextGenPay — JMP NEXTGENPAY PRIVATE LIMITED</p>
+            <p style="color:#94a3b8;font-size:12px;text-align:center;">Paybridgex — K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED</p>
           </div>
         `,
       });

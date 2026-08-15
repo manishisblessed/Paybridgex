@@ -17,14 +17,14 @@ const manrope = Manrope({
 
 export const metadata: Metadata = {
   title: {
-    default: "NextGenPay — Payment Gateway, POS & QR Payments",
-    template: "%s · NextGenPay"
+    default: "Paybridgex — Smart Payments. Trusted Solutions.",
+    template: "%s · Paybridgex"
   },
   description:
-    "NextGenPay (JMP NEXTGENPAY PRIVATE LIMITED, Surat) is a fintech distribution platform offering payment gateway, POS machines, QR collections, AePS, money transfer, recharges and bill payments for retailers and merchants across India.",
+    "Paybridgex (K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED, Ahmedabad) is a payments and digital-services platform offering payment gateway, POS machines, QR collections, AePS, money transfer, recharges and bill payments for retailers and merchants across India.",
   keywords: [
-    "NextGenPay",
-    "nxtgpay",
+    "Paybridgex",
+    "paybridgex.in",
     "payment gateway",
     "POS machine",
     "QR payments",
@@ -37,13 +37,13 @@ export const metadata: Metadata = {
     "fintech India",
     "agent banking"
   ],
-  metadataBase: new URL("https://nxtgenpay.space"),
+  metadataBase: new URL("https://paybridgex.in"),
   openGraph: {
-    title: "NextGenPay — Payment Gateway, POS & QR Payments",
+    title: "Paybridgex — Smart Payments. Trusted Solutions.",
     description:
       "Payment gateway, POS machines, QR collections and 60+ digital services for retailers, distributors and merchants.",
-    url: "https://nxtgenpay.space",
-    siteName: "NextGenPay",
+    url: "https://paybridgex.in",
+    siteName: "Paybridgex",
     type: "website"
   }
 };

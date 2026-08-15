@@ -1,4 +1,4 @@
-# Security Controls — NextGenPay
+# Security Controls — Paybridgex
 
 This document maps each security goal to the concrete control that implements it,
 and provides a route-by-route guard audit for every API endpoint. It is the
@@ -233,7 +233,7 @@ dashboard pages export `dynamic = "force-dynamic"`. (Client-component pages
 cannot carry route-segment config and are covered by the middleware no-store +
 the fact that they render no authenticated data on the server.)
 
-### 3. nginx (`deploy/nginx-nextgenpay.conf`)
+### 3. nginx (`deploy/nginx-paybridgex.conf`)
 
 - `location /` and `location /api/`: `proxy_no_cache 1; proxy_cache_bypass 1;`
   and `/api/` additionally emits `Cache-Control: no-store always`.
@@ -418,7 +418,7 @@ identity on the 1st of every month before they can transact.
 Quick header check (PowerShell):
 
 ```powershell
-curl.exe -sI https://api.nxtgpay.com/api/healthz | Select-String -Pattern "cache-control"
+curl.exe -sI https://api.paybridgex.in/api/healthz | Select-String -Pattern "cache-control"
 ```
 
 ---

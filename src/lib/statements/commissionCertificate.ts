@@ -57,7 +57,7 @@ export async function generateCommissionCertificatePdf(
   const ink = rgb(0.1, 0.12, 0.18);
   const dim = rgb(0.42, 0.45, 0.52);
   const line = rgb(0.88, 0.89, 0.92);
-  const brand = rgb(0.15, 0.3, 0.85);
+  const brand = rgb(0.106, 0.271, 0.918); // brand-600 royal blue #1b45ea
 
   const page = doc.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H - M;
@@ -85,9 +85,9 @@ export async function generateCommissionCertificatePdf(
     borderWidth: 1.5,
   });
 
-  center("NextGenPay", 22, bold, brand);
+  center("Paybridgex", 22, bold, brand);
   y -= 20;
-  center("JMP NEXTGENPAY PRIVATE LIMITED", 9, font, dim);
+  center("K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED", 9, font, dim);
   y -= 36;
 
   center("COMMISSION CERTIFICATE", 15, bold);
@@ -107,7 +107,7 @@ export async function generateCommissionCertificatePdf(
 
   const para = [
     `This is to certify that ${data.accountName} (registered mobile ${data.accountPhone}),`,
-    `engaged as ${data.role.replace(/_/g, " ").toLowerCase()} on the NextGenPay platform, has earned the`,
+    `engaged as ${data.role.replace(/_/g, " ").toLowerCase()} on the Paybridgex platform, has earned the`,
     `following commission during ${data.periodLabel} (${data.from.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })} to ${data.to.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}):`,
   ];
   for (const l of para) {

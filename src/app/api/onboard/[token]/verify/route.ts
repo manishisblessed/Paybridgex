@@ -117,7 +117,7 @@ export async function POST(
             {
               ok: false,
               type: "PAN_360",
-              message: "This PAN is already linked to another NextGenPay account.",
+              message: "This PAN is already linked to another Paybridgex account.",
               code: "PAN_DUPLICATE",
             },
             { status: 409 }
@@ -179,7 +179,7 @@ export async function POST(
             {
               ok: false,
               type: "BANK_PENNY_DROP",
-              message: "This bank account is already linked to another NextGenPay account.",
+              message: "This bank account is already linked to another Paybridgex account.",
               code: "BANK_DUPLICATE",
             },
             { status: 409 }
@@ -241,7 +241,7 @@ export async function POST(
             {
               ok: false,
               type: "BANK_ADVANCE",
-              message: "This bank account is already linked to another NextGenPay account.",
+              message: "This bank account is already linked to another Paybridgex account.",
               code: "BANK_DUPLICATE",
             },
             { status: 409 }
@@ -297,7 +297,7 @@ export async function POST(
             {
               ok: false,
               type: "GST",
-              message: "This GST number is already linked to another NextGenPay account.",
+              message: "This GST number is already linked to another Paybridgex account.",
               code: "GST_DUPLICATE",
             },
             { status: 409 }
@@ -415,7 +415,7 @@ export async function POST(
             {
               ok: false,
               type: "AADHAAR_COMPLETE",
-              message: "This Aadhaar is already linked to another NextGenPay account. Each Aadhaar can only be used once.",
+              message: "This Aadhaar is already linked to another Paybridgex account. Each Aadhaar can only be used once.",
               code: "AADHAAR_DUPLICATE",
             },
             { status: 409 }
@@ -458,7 +458,7 @@ export async function POST(
               {
                 ok: false,
                 type: "AADHAAR_COMPLETE",
-                message: "This Aadhaar is already linked to another NextGenPay account. Each Aadhaar can only be used once.",
+                message: "This Aadhaar is already linked to another Paybridgex account. Each Aadhaar can only be used once.",
                 code: "AADHAAR_DUPLICATE",
               },
               { status: 409 }

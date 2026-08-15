@@ -279,7 +279,7 @@ export default function AdminUsersPage() {
           <>
             <ReportActions
               filename="users"
-              title="JMP NextGenPay · Users & Shops"
+              title="Paybridgex · Users & Shops"
               subtitle={`${users.length} users`}
               columns={[
                 { key: "id", header: "ID" },

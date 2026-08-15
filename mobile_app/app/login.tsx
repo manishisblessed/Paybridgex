@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -21,7 +22,7 @@ import { api, ApiError } from "@/lib/api";
 
 export default function Login() {
   const router = useRouter();
-  const [email, setEmail] = useState("retailer@nxtgpay.com");
+  const [email, setEmail] = useState("retailer@paybridgex.in");
   const [password, setPassword] = useState("Demo@1234");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -63,7 +64,7 @@ export default function Login() {
       const enrolled = await LocalAuth.isEnrolledAsync();
       if (!has || !enrolled) return signIn();
       const r = await LocalAuth.authenticateAsync({
-        promptMessage: "Sign in to NextGenPay",
+        promptMessage: "Sign in to Paybridgex",
         cancelLabel: "Use password",
         disableDeviceFallback: false
       });
@@ -86,7 +87,11 @@ export default function Login() {
           style={styles.hero}
         >
           <View style={styles.logoBadge}>
-            <Text style={styles.logoP}>P</Text>
+            <Image
+              source={require("../assets/logo.png")}
+              style={styles.logoImg}
+              resizeMode="contain"
+            />
           </View>
           <Text style={styles.brand}>Welcome back</Text>
           <Text style={styles.tagline}>
@@ -145,7 +150,7 @@ export default function Login() {
           <View style={styles.demo}>
             <Text style={styles.demoText}>
               <Text style={{ fontWeight: "800" }}>Demo · </Text>
-              retailer@nxtgpay.com / Demo@1234
+              retailer@paybridgex.in / Demo@1234
             </Text>
           </View>
         </View>
@@ -162,15 +167,15 @@ const styles = StyleSheet.create({
     alignItems: "center"
   },
   logoBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.18)",
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.14)",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 14
   },
-  logoP: { fontSize: 36, fontWeight: "900", color: "#fff" },
+  logoImg: { width: 54, height: 54 },
   brand: { fontSize: 26, fontWeight: "900", color: "#fff" },
   tagline: { marginTop: 8, color: "rgba(255,255,255,0.9)", textAlign: "center", fontSize: 13 },
   sheet: {

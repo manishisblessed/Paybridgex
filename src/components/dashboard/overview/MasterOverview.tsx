@@ -71,7 +71,7 @@ export function MasterOverview({ session }: { session: Session }) {
   const mtdTurnover = children.reduce((s, d) => s + (d.monthlyTurnover ?? 0), 0);
   const domain =
     wl?.customDomain ||
-    (wl?.subdomain ? `${wl.subdomain}.nxtgpay.com` : null);
+    (wl?.subdomain ? `${wl.subdomain}.paybridgex.in` : null);
 
   return (
     <div className="space-y-8">

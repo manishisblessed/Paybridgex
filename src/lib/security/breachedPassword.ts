@@ -38,7 +38,7 @@ export async function isPasswordBreached(password: string): Promise<BreachResult
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     const res = await fetch(`${HIBP_RANGE_URL}${prefix}`, {
       // Add-Padding masks the real result size from a network observer.
-      headers: { "Add-Padding": "true", "User-Agent": "NextGenPay-Security" },
+      headers: { "Add-Padding": "true", "User-Agent": "Paybridgex-Security" },
       signal: controller.signal,
       cache: "no-store",
     }).finally(() => clearTimeout(timer));

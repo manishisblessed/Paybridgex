@@ -1,26 +1,28 @@
 export const colors = {
+  // Royal Blue — primary Paybridgex brand colour.
   brand: {
-    50: "#eef6ff",
-    100: "#d9eaff",
-    200: "#bcdaff",
-    300: "#8dc1ff",
-    400: "#579dff",
-    500: "#2f7bff",
-    600: "#185df5",
-    700: "#1448dc",
-    800: "#173db1",
-    900: "#193a8c",
-    950: "#0e2358"
+    50: "#eef4ff",
+    100: "#d9e6ff",
+    200: "#bcd3ff",
+    300: "#8db4ff",
+    400: "#578bfc",
+    500: "#3164f6",
+    600: "#1b45ea",
+    700: "#1434d0",
+    800: "#172ca6",
+    900: "#192a82",
+    950: "#131b4e"
   },
+  // Emerald Green — secondary Paybridgex brand colour.
   accent: {
-    50: "#fff8eb",
-    100: "#ffeac6",
-    200: "#ffd388",
-    300: "#ffb547",
-    400: "#ff981e",
-    500: "#f97606",
-    600: "#dd5602",
-    700: "#b73a06"
+    50: "#ecfdf5",
+    100: "#d1fae5",
+    200: "#a7f3d0",
+    300: "#6ee7b9",
+    400: "#34d399",
+    500: "#10b981",
+    600: "#059669",
+    700: "#047857"
   },
   ink: {
     50: "#f5f7fa",

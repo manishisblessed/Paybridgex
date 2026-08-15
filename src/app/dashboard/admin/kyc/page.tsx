@@ -392,7 +392,7 @@ export default function AdminKycPage() {
           <>
             <ReportActions
               filename="kyc-queue"
-              title="JMP NextGenPay · KYC Queue"
+              title="Paybridgex · KYC Queue"
               subtitle={`${rows.length} applicants`}
               columns={[
                 { key: "id", header: "KYC ID" },

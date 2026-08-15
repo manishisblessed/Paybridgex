@@ -83,7 +83,7 @@ export async function POST(req: Request) {
       to: parsed.data.target,
       // Code in the subject: visible in the inbox preview and prevents Gmail
       // from collapsing repeated OTP mails into one stale-looking thread.
-      subject: `${otp} is your NextGenPay OTP`,
+      subject: `${otp} is your Paybridgex OTP`,
       text: `Your OTP is ${otp}. Valid for 5 minutes. Do not share it with anyone.`,
       html: `<p>Your OTP is <strong>${otp}</strong>. Valid for 5 minutes.</p>`
     });

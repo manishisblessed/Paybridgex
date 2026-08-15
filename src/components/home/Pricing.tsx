@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 export function Pricing() {
   return (
-    <Section className="bg-ink-50/50">
+    <Section id="pricing" className="bg-ink-50/50">
       <Container>
         <Reveal>
           <SectionHeading

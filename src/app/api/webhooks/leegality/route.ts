@@ -7,7 +7,7 @@ import { getEsignDetails, leegalityConfigured } from "@/lib/partners/leegality";
  * Leegality webhook — signing progress notifications.
  *
  * Configure in the Leegality dashboard (workflow → webhooks) pointing at
- *   https://app.nxtgpay.com/api/webhooks/leegality
+ *   https://app.paybridgex.in/api/webhooks/leegality
  *
  * Leegality does not sign webhook payloads, so we treat the body as a HINT
  * only: we take the documentId, re-fetch the authoritative state from the
