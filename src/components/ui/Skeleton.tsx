@@ -68,12 +68,12 @@ export function TableSkeleton({
 
 export function DashboardShellSkeleton() {
   return (
-    <div className="flex min-h-screen bg-ink-50/40">
-      <aside className="hidden w-72 shrink-0 border-r border-ink-100 bg-white p-4 lg:block">
-        <Skeleton className="mb-8 h-8 w-36" />
+    <div className="flex min-h-screen bg-gradient-to-br from-ink-50/70 via-white to-brand-50/30">
+      <aside className="hidden w-72 shrink-0 bg-[#0b1030] p-4 lg:block">
+        <div className="mb-8 h-8 w-36 animate-pulse rounded-xl bg-white/10" />
         <div className="space-y-2">
           {Array.from({ length: 10 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full rounded-xl" />
+            <div key={i} className="h-10 w-full animate-pulse rounded-xl bg-white/[0.06]" />
           ))}
         </div>
       </aside>

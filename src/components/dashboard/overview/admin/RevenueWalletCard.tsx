@@ -50,10 +50,10 @@ export function RevenueWalletCard() {
   if (forbidden) return null;
 
   return (
-    <div className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50/80 to-fuchsia-50/60 p-5">
+    <div className="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50/80 to-accent-50/50 p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-violet-100 text-violet-700">
+          <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
             <Landmark className="h-4.5 w-4.5" />
           </span>
           <div>
@@ -65,14 +65,14 @@ export function RevenueWalletCard() {
           <button
             type="button"
             onClick={load}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-100"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-brand-200 text-brand-700 transition-colors hover:bg-brand-100"
             aria-label="Refresh revenue wallet"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </button>
           <Link
             href="/dashboard/admin/revenue"
-            className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-white/70 px-2.5 py-1.5 text-[11px] font-semibold text-violet-700 hover:bg-white"
+            className="inline-flex items-center gap-1 rounded-lg border border-brand-200 bg-white/70 px-2.5 py-1.5 text-[11px] font-semibold text-brand-700 transition-colors hover:bg-white"
           >
             Company Earnings <ArrowRight className="h-3 w-3" />
           </Link>
@@ -96,8 +96,8 @@ export function RevenueWalletCard() {
             {data ? `−${formatINR(data.commissionOutToday)}` : "…"}
           </p>
         </div>
-        <div className="rounded-xl border border-violet-200 bg-white/80 p-3">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-violet-700/80">
+        <div className="rounded-xl border border-brand-200 bg-white/80 p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-brand-700/80">
             Wallet Balance
           </div>
           <p className="mt-1 font-display text-lg font-bold text-ink-900">

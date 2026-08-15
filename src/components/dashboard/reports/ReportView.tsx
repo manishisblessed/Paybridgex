@@ -33,13 +33,13 @@ const ACCENT_TEXT: Record<Accent, string> = {
 };
 const ACCENT_BG: Record<Accent, string> = {
   brand: "from-brand-500 to-brand-700",
-  accent: "from-accent-500 to-accent-600",
+  accent: "from-accent-500 to-accent-700",
   emerald: "from-emerald-500 to-emerald-700",
   violet: "from-violet-500 to-violet-700",
 };
 const ACCENT_HEX: Record<Accent, string> = {
-  brand: "#185df5",
-  accent: "#f97606",
+  brand: "#3164f6",
+  accent: "#10b981",
   emerald: "#059669",
   violet: "#7c3aed",
 };

@@ -1129,8 +1129,8 @@ function PayoutReceipt({ result, onDone }: { result: PayoutResult; onDone: () =>
   const [copied, setCopied] = useState(false);
   const { session } = useAuth();
   const payBy = session?.userCode
-    ? `Pay by NxtGenPay by RT Code - ${session.userCode}`
-    : "Pay by NxtGenPay";
+    ? `Pay by Paybridgex · RT Code ${session.userCode}`
+    : "Pay by Paybridgex";
   const isSuccess = result.status === "SUCCESS";
   const isFailed = result.status === "FAILED" || result.status === "REJECTED" || result.status === "REVERSED";
 

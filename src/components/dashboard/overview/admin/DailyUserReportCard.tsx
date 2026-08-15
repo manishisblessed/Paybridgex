@@ -258,7 +258,7 @@ export function DailyUserReportCard() {
     <section
       className={cn(
         "relative overflow-hidden rounded-3xl border border-white/10 p-5 text-white shadow-[0_25px_80px_-25px_rgba(9,13,37,0.55)]",
-        "bg-[radial-gradient(120%_120%_at_100%_100%,#1a2456_0%,#0a1030_45%,#070a1c_100%)]"
+        "bg-[radial-gradient(120%_120%_at_100%_100%,#1a2456_0%,#0b1030_45%,#070a1c_100%)]"
       )}
     >
       <div className="pointer-events-none absolute -top-24 left-16 h-56 w-72 rounded-full bg-brand-500/20 blur-3xl" />

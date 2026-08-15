@@ -9,11 +9,13 @@ import {
   Wallet,
   ArrowRight,
   Plus,
+  Sparkles,
 } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { TransactionsTable } from "@/components/dashboard/TransactionsTable";
 import { Sparkline } from "@/components/dashboard/Sparkline";
 import { StatSkeleton } from "@/components/ui/Skeleton";
+import { Stagger, StaggerItem, Reveal, CountUp } from "@/components/motion";
 import { services } from "@/lib/data";
 import type { Transaction } from "@/lib/data";
 import { Button } from "@/components/ui/Button";
@@ -76,33 +78,41 @@ export function RetailerOverview({ session }: { session: Session }) {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-sm text-ink-500">{greeting},</p>
-          <h1 className="heading-md mt-1">
-            {session.name?.split(" ")[0] ?? "there"} 👋
-          </h1>
-          <p className="mt-1 text-sm text-ink-600">
-            Here&apos;s a snapshot of your shop today.
-          </p>
+      <Reveal distance={16} duration={0.45}>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="flex items-center gap-2 text-sm text-ink-500">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-400 opacity-60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-500" />
+              </span>
+              {greeting},
+            </p>
+            <h1 className="heading-md mt-1">
+              {session.name?.split(" ")[0] ?? "there"} 👋
+            </h1>
+            <p className="mt-1 text-sm text-ink-500">
+              Here&apos;s a snapshot of your shop today.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard/funds-request">
+              <Button variant="outline">
+                <Plus className="h-4 w-4" />
+                Add funds
+              </Button>
+            </Link>
+            <Link href="/dashboard/money-transfer">
+              <Button>
+                Send money
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/dashboard/funds-request">
-            <Button variant="outline">
-              <Plus className="h-4 w-4" />
-              Request funds
-            </Button>
-          </Link>
-          <Link href="/dashboard/money-transfer">
-            <Button>
-              Send money
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
-        </div>
-      </div>
+      </Reveal>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <Stagger className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" stagger={0.06}>
         {loadingTxns ? (
           <>
             <StatSkeleton />
@@ -112,71 +122,90 @@ export function RetailerOverview({ session }: { session: Session }) {
           </>
         ) : (
           <>
-            <WalletCard balance={session.walletBalance} />
-            <StatCard
-              label="Today's Volume"
-              value={formatINR(todayVolume)}
-              icon={IndianRupee}
-              accent="emerald"
-            />
-            <StatCard
-              label="Transactions Today"
-              value={`${todayCount}`}
-              icon={TrendingUp}
-              accent="brand"
-            />
-            <StatCard
-              label="Customers Served"
-              value={`${txns.filter((t) => t.status === "Success").length}`}
-              icon={Users}
-              accent="violet"
-            />
+            <StaggerItem distance={16} duration={0.4}>
+              <WalletCard balance={session.walletBalance} />
+            </StaggerItem>
+            <StaggerItem distance={16} duration={0.4}>
+              <StatCard
+                label="Today's Volume"
+                value={formatINR(todayVolume)}
+                countTo={todayVolume}
+                prefix="₹"
+                decimals={2}
+                icon={IndianRupee}
+                accent="emerald"
+              />
+            </StaggerItem>
+            <StaggerItem distance={16} duration={0.4}>
+              <StatCard
+                label="Transactions Today"
+                value={`${todayCount}`}
+                countTo={todayCount}
+                icon={TrendingUp}
+                accent="brand"
+              />
+            </StaggerItem>
+            <StaggerItem distance={16} duration={0.4}>
+              <StatCard
+                label="Customers Served"
+                value={`${txns.filter((t) => t.status === "Success").length}`}
+                countTo={txns.filter((t) => t.status === "Success").length}
+                icon={Users}
+                accent="violet"
+              />
+            </StaggerItem>
           </>
         )}
-      </div>
+      </Stagger>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-ink-100 bg-white p-5 lg:col-span-2">
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-ink-500">
-                Volume · recent
-              </p>
-              <p className="mt-1 font-display text-2xl font-bold text-ink-900">
-                {formatINR(volume14d)}
-              </p>
+        <Reveal className="lg:col-span-2" distance={18} duration={0.5}>
+          <div className="h-full rounded-2xl border border-ink-100 bg-white p-5 shadow-sm">
+            <div className="flex items-end justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-ink-500">
+                  Volume · recent
+                </p>
+                <p className="mt-1 font-display text-2xl font-bold text-ink-900">
+                  <CountUp value={volume14d} prefix="₹" decimals={2} duration={1.2} />
+                </p>
+              </div>
             </div>
+            <div className="mt-4">
+              <Sparkline
+                values={Array.from({ length: 14 }, () => 0)}
+                color="#3164f6"
+                height={80}
+              />
+            </div>
+            {!loadingTxns && volume14d === 0 && (
+              <p className="mt-2 text-xs text-ink-500">
+                No transactions yet — your processed volume appears after successful live transactions.
+              </p>
+            )}
           </div>
-          <div className="mt-4">
-            <Sparkline
-              values={Array.from({ length: 14 }, () => 0)}
-              color="#185df5"
-              height={80}
-            />
-          </div>
-          {!loadingTxns && volume14d === 0 && (
-            <p className="mt-2 text-xs text-ink-500">
-              No transactions yet — your processed volume appears after successful live transactions.
+        </Reveal>
+        <Reveal distance={18} duration={0.5} delay={0.08}>
+          <div className="relative h-full overflow-hidden rounded-2xl border border-accent-200/60 bg-gradient-to-br from-accent-50 via-white to-brand-50 p-5">
+            <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-accent-400/15 blur-2xl" aria-hidden />
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-accent-700">
+              <Sparkles className="h-3.5 w-3.5" />
+              Get started
             </p>
-          )}
-        </div>
-        <div className="rounded-2xl border border-dashed border-brand-200 bg-gradient-to-br from-brand-50 to-accent-50 p-5">
-          <p className="text-xs font-bold uppercase tracking-widest text-brand-700">
-            Get started
-          </p>
-          <p className="mt-3 font-display text-lg font-semibold text-ink-900">
-            Run your first live transaction
-          </p>
-          <p className="mt-1 text-sm text-ink-600">
-            Top up your wallet, then use Quick services below to process real payments.
-          </p>
-          <Link
-            href="/dashboard/wallet"
-            className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:underline"
-          >
-            Open wallet <ArrowRight className="h-3 w-3" />
-          </Link>
-        </div>
+            <p className="mt-3 font-display text-lg font-semibold text-ink-900">
+              Run your first live transaction
+            </p>
+            <p className="mt-1 text-sm text-ink-600">
+              Top up your wallet, then use Quick services below to process real payments.
+            </p>
+            <Link
+              href="/dashboard/wallet"
+              className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-accent-700 transition-colors hover:text-accent-600"
+            >
+              Open wallet <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+        </Reveal>
       </div>
 
       <div>
@@ -191,9 +220,9 @@ export function RetailerOverview({ session }: { session: Session }) {
           </div>
           <Link
             href="/services"
-            className="text-sm font-semibold text-brand-700 hover:underline"
+            className="inline-flex items-center gap-1 text-sm font-semibold text-brand-700 transition-colors hover:text-brand-600"
           >
-            View all
+            View all <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
         {quickServices.length === 0 && (
@@ -202,56 +231,62 @@ export function RetailerOverview({ session }: { session: Session }) {
             get services activated.
           </div>
         )}
-        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+        <Stagger className="grid gap-3 sm:grid-cols-2 md:grid-cols-4" stagger={0.05}>
           {quickServices.map((s) => {
             const Icon = s.icon;
             return (
-              <Link
-                key={s.slug}
-                href={s.href}
-                className={cn(
-                  "group flex items-center gap-3 rounded-2xl border border-ink-100 bg-white p-4 transition hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-soft"
-                )}
-              >
-                <span className="grid h-11 w-11 place-items-center rounded-xl bg-brand-50 text-brand-700 transition group-hover:bg-brand-600 group-hover:text-white">
-                  <Icon className="h-5 w-5" />
-                </span>
-                <div>
-                  <p className="font-display text-sm font-semibold text-ink-900">
-                    {s.title}
-                  </p>
-                  <p className="text-xs text-ink-500">{s.description.slice(0, 36)}...</p>
-                </div>
-              </Link>
+              <StaggerItem key={s.slug} distance={14} duration={0.35}>
+                <Link
+                  href={s.href}
+                  className={cn(
+                    "group flex items-center gap-3 rounded-2xl border border-ink-100 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-soft"
+                  )}
+                >
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700 transition-colors duration-200 group-hover:bg-gradient-to-br group-hover:from-brand-600 group-hover:to-accent-500 group-hover:text-white">
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate font-display text-sm font-semibold text-ink-900">
+                      {s.title}
+                    </p>
+                    <p className="truncate text-xs text-ink-500">{s.description.slice(0, 36)}...</p>
+                  </div>
+                </Link>
+              </StaggerItem>
             );
           })}
-        </div>
+        </Stagger>
       </div>
 
-      <TransactionsTable data={txns} loading={loadingTxns} showCommission={false} />
+      <Reveal distance={18} duration={0.5}>
+        <TransactionsTable data={txns} loading={loadingTxns} showCommission={false} />
+      </Reveal>
     </div>
   );
 }
 
 function WalletCard({ balance }: { balance: number }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 via-brand-600 to-accent-500 p-5 text-white shadow-glow">
-      <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
-      <div className="flex items-start justify-between">
-        <span className="grid h-11 w-11 place-items-center rounded-xl bg-white/15">
-          <Wallet className="h-5 w-5" />
+    <div className="relative overflow-hidden rounded-2xl bg-[#0b1030] p-5 text-white shadow-glow">
+      <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-brand-500/40 blur-2xl" aria-hidden />
+      <div className="pointer-events-none absolute -bottom-12 -left-8 h-28 w-28 rounded-full bg-accent-500/25 blur-2xl" aria-hidden />
+      <div className="relative flex items-start justify-between">
+        <span className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 ring-1 ring-white/15">
+          <Wallet className="h-5 w-5 text-accent-300" />
         </span>
-        <span className="rounded-full bg-white/20 px-2 py-1 text-[10px] font-semibold uppercase tracking-widest">
+        <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-white/80 ring-1 ring-white/10">
           Paybridgex Wallet
         </span>
       </div>
-      <p className="mt-5 text-xs font-semibold uppercase tracking-widest text-white/80">
+      <p className="relative mt-5 text-[11px] font-semibold uppercase tracking-widest text-white/60">
         Available balance
       </p>
-      <p className="mt-1 font-display text-2xl font-bold">{formatINR(balance)}</p>
+      <p className="relative mt-0.5 font-display text-xl font-bold">
+        <CountUp value={balance} prefix="₹" decimals={2} duration={1.2} />
+      </p>
       <Link
         href="/dashboard/wallet"
-        className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-white/90 hover:text-white"
+        className="relative mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent-300 transition-colors hover:text-accent-200"
       >
         Manage wallet <ArrowRight className="h-3 w-3" />
       </Link>

@@ -71,7 +71,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-ink-50/40">
+    <div className="flex min-h-screen bg-gradient-to-br from-ink-50/70 via-white to-brand-50/30">
       <Toaster
         position="top-right"
         richColors

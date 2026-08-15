@@ -1,6 +1,8 @@
+import { useId } from "react";
+
 export function Sparkline({
   values,
-  color = "#185df5",
+  color = "#3164f6",
   height = 40,
   width = 140
 }: {
@@ -9,6 +11,7 @@ export function Sparkline({
   height?: number;
   width?: number;
 }) {
+  const gradientId = useId();
   if (values.length < 2) return null;
   const max = Math.max(...values);
   const min = Math.min(...values);
@@ -26,12 +29,12 @@ export function Sparkline({
       preserveAspectRatio="none"
     >
       <defs>
-        <linearGradient id={`spark-${color}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.4" />
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.35" />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      <polygon points={area} fill={`url(#spark-${color})`} />
+      <polygon points={area} fill={`url(#${gradientId})`} />
       <polyline
         points={points}
         fill="none"

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { useSession } from "next-auth/react";
-import { X, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { motion } from "framer-motion";
+import { X, ChevronsLeft, ChevronsRight, Sparkles } from "lucide-react";
 import { Logo } from "@/components/layout/Logo";
 import { cn } from "@/lib/utils";
 import { toDisplayRole, type Role } from "@/lib/auth";
@@ -92,49 +93,59 @@ export function Sidebar({
     <>
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-ink-900/50 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-ink-950/60 backdrop-blur-sm lg:hidden"
           onClick={onClose}
           aria-hidden
         />
       )}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-ink-100 bg-white transition-all duration-300 lg:static lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex flex-col bg-[#0b1030] text-white transition-all duration-300 lg:static lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
           collapsed ? "lg:w-[72px]" : "lg:w-72",
           "w-72"
         )}
       >
-        <div className={cn(
-          "flex h-16 items-center border-b border-ink-100 md:h-20",
-          collapsed ? "justify-center px-2" : "justify-between px-5"
-        )}>
-          {!collapsed && <Logo />}
+        {/* Subtle brand glow at the top of the rail */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(80%_100%_at_50%_0%,rgba(49,100,246,0.22)_0%,rgba(16,185,129,0.06)_55%,transparent_100%)]" />
+
+        <div
+          className={cn(
+            "relative flex h-16 items-center border-b border-white/10 md:h-20",
+            collapsed ? "justify-center px-2" : "justify-between px-5"
+          )}
+        >
+          {!collapsed && <Logo variant="light" />}
           {collapsed && (
             <div className="hidden lg:flex h-9 w-9 items-center justify-center">
-              <Logo iconOnly />
+              <Logo iconOnly variant="light" />
             </div>
           )}
           <button
             type="button"
             onClick={onClose}
-            className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-lg text-ink-700 hover:bg-ink-100"
+            className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-lg text-white/70 hover:bg-white/10 hover:text-white"
             aria-label="Close menu"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <nav className={cn("flex-1 overflow-y-auto py-5", collapsed ? "px-2" : "px-3")}>
+        <nav
+          className={cn(
+            "relative flex-1 overflow-y-auto py-5 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.18)_transparent]",
+            collapsed ? "px-2" : "px-3"
+          )}
+        >
           {groups.map((group) => (
-            <div key={group.heading} className="mb-5 last:mb-0">
+            <div key={group.heading} className="mb-6 last:mb-0">
               {!collapsed && (
-                <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-widest text-ink-400">
+                <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
                   {group.heading}
                 </p>
               )}
-              {collapsed && <div className="mb-2 mx-auto h-px w-8 bg-ink-100" />}
-              <ul className="space-y-1">
+              {collapsed && <div className="mb-2 mx-auto h-px w-8 bg-white/10" />}
+              <ul className="space-y-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
                   const active =
@@ -147,30 +158,42 @@ export function Sidebar({
                         onClick={onClose}
                         title={collapsed ? item.label : undefined}
                         className={cn(
-                          "group relative flex items-center rounded-xl text-sm font-medium transition-all duration-200",
+                          "group relative flex items-center rounded-xl text-sm font-medium transition-colors duration-200",
                           collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
                           active
-                            ? "bg-brand-600 text-white shadow-soft"
-                            : "text-ink-700 hover:bg-ink-100 hover:text-ink-900",
-                          !collapsed && !active && "hover:translate-x-0.5"
+                            ? "text-white"
+                            : "text-white/60 hover:bg-white/5 hover:text-white"
                         )}
                       >
+                        {active && (
+                          <motion.span
+                            layoutId="sidebar-active-pill"
+                            transition={{ type: "spring", stiffness: 420, damping: 36 }}
+                            className="absolute inset-0 rounded-xl bg-gradient-to-r from-accent-500/25 via-white/[0.07] to-white/[0.04] ring-1 ring-inset ring-accent-400/30"
+                            aria-hidden
+                          />
+                        )}
+                        {active && !collapsed && (
+                          <motion.span
+                            layoutId="sidebar-active-dot"
+                            transition={{ type: "spring", stiffness: 420, damping: 36 }}
+                            className="absolute left-0 h-5 w-1 rounded-r-full bg-accent-400 shadow-[0_0_12px_rgba(52,211,153,0.65)]"
+                            aria-hidden
+                          />
+                        )}
                         <Icon
                           className={cn(
-                            "h-4 w-4 shrink-0",
-                            active ? "text-white" : "text-ink-500 group-hover:text-ink-700"
+                            "relative h-4 w-4 shrink-0 transition-colors",
+                            active
+                              ? "text-accent-300"
+                              : "text-white/45 group-hover:text-white/80"
                           )}
                         />
-                        {!collapsed && <span className="truncate">{item.label}</span>}
+                        {!collapsed && (
+                          <span className="relative truncate">{item.label}</span>
+                        )}
                         {!collapsed && item.badge && (
-                          <span
-                            className={cn(
-                              "ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold",
-                              active
-                                ? "bg-white/20 text-white"
-                                : "bg-accent-100 text-accent-700"
-                            )}
-                          >
+                          <span className="relative ml-auto rounded-full bg-accent-400/15 px-2 py-0.5 text-[10px] font-bold text-accent-300">
                             {item.badge}
                           </span>
                         )}
@@ -184,11 +207,13 @@ export function Sidebar({
         </nav>
 
         {!collapsed && (
-          <div className="m-3 rounded-2xl bg-gradient-to-br from-brand-600 via-brand-700 to-accent-500 p-4 text-white">
-            <p className="text-xs font-semibold uppercase tracking-widest opacity-80">
+          <div className="relative m-3 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+            <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-accent-500/25 blur-2xl" />
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-accent-300">
+              <Sparkles className="h-3 w-3" />
               Paybridgex Pro
             </p>
-            <p className="mt-1 text-sm font-medium">
+            <p className="mt-2 text-xs leading-relaxed text-white/70">
               {role === "retailer"
                 ? "Become a distributor and earn commission overrides on every retailer."
                 : role === "distributor"
@@ -197,18 +222,25 @@ export function Sidebar({
                 ? "Need help scaling? Talk to our enterprise team."
                 : "All systems nominal · 99.97% uptime this month."}
             </p>
-            <button className="mt-3 rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white hover:text-brand-700">
-              {role === "master-admin" || role === "admin" || role === "sub-admin" ? "View status page" : "Upgrade plan"}
+            <button className="mt-3 rounded-full bg-accent-500/90 px-3.5 py-1.5 text-xs font-semibold text-ink-950 transition-colors hover:bg-accent-400">
+              {role === "master-admin" || role === "admin" || role === "sub-admin"
+                ? "View status page"
+                : "Upgrade plan"}
             </button>
           </div>
         )}
 
         {/* Collapse/Expand toggle — desktop only */}
-        <div className={cn("hidden lg:flex border-t border-ink-100", collapsed ? "justify-center p-2" : "justify-end px-3 py-2")}>
+        <div
+          className={cn(
+            "hidden lg:flex border-t border-white/10",
+            collapsed ? "justify-center p-2" : "justify-end px-3 py-2"
+          )}
+        >
           <button
             type="button"
             onClick={onToggleCollapse}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-700 transition-colors"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/45 transition-colors hover:bg-white/10 hover:text-white"
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >

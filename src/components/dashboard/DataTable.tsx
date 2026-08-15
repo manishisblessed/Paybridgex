@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { ReactNode } from "react";
+import { Inbox } from "lucide-react";
 import { Skeleton } from "@/components/ui/Skeleton";
 
 export type Column<T> = {
@@ -37,12 +38,13 @@ export function DataTable<T>({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 px-5 py-4">
           <div className="min-w-0">
             {title && (
-              <h3 className="font-display text-base font-semibold text-ink-900">
+              <h3 className="flex items-center gap-2 font-display text-base font-semibold text-ink-900">
+                <span className="inline-block h-4 w-1 rounded-full bg-gradient-to-b from-brand-500 to-accent-500" aria-hidden />
                 {title}
               </h3>
             )}
             {description && (
-              <p className="truncate text-xs text-ink-500">{description}</p>
+              <p className="mt-0.5 truncate text-xs text-ink-500">{description}</p>
             )}
           </div>
           {action && <div className="flex items-center gap-2">{action}</div>}
@@ -66,7 +68,7 @@ export function DataTable<T>({
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-ink-100 text-ink-800">
+          <tbody className="divide-y divide-ink-100/80 text-ink-800">
             {loading ? (
               Array.from({ length: loadingRows }).map((_, r) => (
                 <tr key={`sk-${r}`}>
@@ -84,18 +86,20 @@ export function DataTable<T>({
               ))
             ) : data.length === 0 ? (
               <tr>
-                <td
-                  colSpan={columns.length}
-                  className="px-5 py-10 text-center text-sm text-ink-500"
-                >
-                  {empty}
+                <td colSpan={columns.length} className="px-5 py-12">
+                  <div className="flex flex-col items-center gap-3 text-center">
+                    <span className="grid h-12 w-12 place-items-center rounded-2xl border border-dashed border-ink-200 bg-ink-50/60 text-ink-300">
+                      <Inbox className="h-5 w-5" />
+                    </span>
+                    <p className="max-w-xs text-sm text-ink-500">{empty}</p>
+                  </div>
                 </td>
               </tr>
             ) : (
               data.map((row, i) => (
                 <tr
                   key={(row as { id?: string | number }).id ?? i}
-                  className="transition-colors hover:bg-brand-50/40"
+                  className="transition-colors duration-150 hover:bg-brand-50/40"
                 >
                   {columns.map((c) => (
                     <td

@@ -8,8 +8,8 @@ import { useAuth } from "@/lib/useAuth";
 /** Branding line shown on every payment result/receipt. */
 function payByLine(userCode?: string | null): string {
   return userCode
-    ? `Pay by NxtGenPay by RT Code - ${userCode}`
-    : "Pay by NxtGenPay";
+    ? `Pay by Paybridgex · RT Code ${userCode}`
+    : "Pay by Paybridgex";
 }
 
 export type TxnResult = {
@@ -40,7 +40,7 @@ function buildReceiptHtml(r: NonNullable<TxnResult>, userCode?: string | null): 
 ${r.customer ? `<tr><td style="padding:6px 0;color:#666;font-size:13px">Customer</td><td style="padding:6px 0;text-align:right;font-weight:600;font-size:13px">${r.customer}</td></tr>` : ""}
 ${metaRows}
 <tr><td style="padding:6px 0;color:#666;font-size:13px">Date</td><td style="padding:6px 0;text-align:right;font-weight:600;font-size:13px">${date}</td></tr></table></div>
-<div class="foot"><div style="font-weight:600;color:#059669;margin-bottom:4px">${payByLine(userCode)}</div>Paybridgex — Powered by BBPS</div></div></body></html>`;
+<div class="foot"><div style="font-weight:600;color:#059669;margin-bottom:4px">${payByLine(userCode)}</div>Paybridgex — Smart Payments. Trusted Solutions.</div></div></body></html>`;
 }
 
 export function TransactionResult({
@@ -93,17 +93,18 @@ export function TransactionResult({
           <X className="h-4 w-4" />
         </button>
 
-        <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 px-6 py-8 text-center text-white">
-          <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-white/20 backdrop-blur">
+        <div className="relative overflow-hidden bg-gradient-to-br from-accent-500 via-accent-600 to-accent-700 px-6 py-8 text-center text-white">
+          <div className="pointer-events-none absolute -left-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" aria-hidden />
+          <span className="relative mx-auto grid h-16 w-16 place-items-center rounded-full bg-white/20 backdrop-blur">
             <CheckCircle2 className="h-9 w-9" />
           </span>
-          <p className="mt-4 font-display text-lg font-semibold">
+          <p className="relative mt-4 font-display text-lg font-semibold">
             Transaction successful
           </p>
-          <p className="mt-1 text-3xl font-bold">
+          <p className="relative mt-1 font-display text-3xl font-bold">
             ₹{result.amount.toLocaleString("en-IN")}
           </p>
-          <p className="text-xs text-white/80">{result.service}</p>
+          <p className="relative text-xs text-white/80">{result.service}</p>
         </div>
 
         <div className="space-y-3 p-6">
@@ -150,7 +151,7 @@ export function TransactionResult({
               </div>
             ))}
 
-          <p className="pt-1 text-center text-xs font-semibold text-emerald-600">
+          <p className="pt-1 text-center text-xs font-semibold text-accent-600">
             {payByLine(userCode)}
           </p>
 
