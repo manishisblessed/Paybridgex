@@ -42,12 +42,6 @@ export async function POST(req: Request) {
 
     const keySet = new Set(serviceKeys);
 
-    const allGlobalKeys = await prisma.serviceRoute.findMany({
-      where: { type: "SERVICE" },
-      select: { key: true },
-    }).then((rows) => rows.map((r) => r.key));
-    const allKeySet = new Set(allGlobalKeys);
-
     let updated = 0;
     const BATCH = 500;
 
@@ -63,20 +57,18 @@ export async function POST(req: Request) {
       });
       if (users.length === 0) break;
 
+      // Strict allowlist: `enable` adds the keys, `disable` removes them. An
+      // empty list means NO services (default-disabled) — never expand it.
       await prisma.$transaction(
         users.map((u) => {
-          let current = u.enabledServices;
-          if (current.length === 0) {
-            current = allGlobalKeys;
-          }
+          const current = u.enabledServices;
           const next =
             action === "enable"
               ? Array.from(new Set([...current, ...serviceKeys]))
               : current.filter((k) => !keySet.has(k));
-          const isAllEnabled = next.length >= allKeySet.size && next.every((k) => allKeySet.has(k));
           return prisma.user.update({
             where: { id: u.id },
-            data: { enabledServices: isAllEnabled ? [] : next },
+            data: { enabledServices: next },
           });
         })
       );

@@ -4,7 +4,7 @@ import { captureHold, creditWallet, releaseHold, LedgerError } from "@/lib/ledge
 import { decryptField } from "@/lib/crypto/fieldEncryption";
 import { toNumber, sub, round } from "@/lib/money";
 import { creditServiceMargin, reverseServiceMargin } from "@/lib/commission/revenue";
-import { getPartner } from "@/lib/partners";
+import { getPartner, assertRealMoneyProvider } from "@/lib/partners";
 import { enqueue, QUEUES } from "@/lib/queue";
 import { emitWebhookEvent } from "@/lib/platform/webhooks";
 import { logger } from "@/lib/logger";
@@ -271,6 +271,13 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
   });
 
   const provider = getPartner("payout");
+  // Never push real money through a mock in production. A mock "PAID" would
+  // capture the hold (debit the user) without any bank transfer. Refuse instead
+  // — the request stays PROCESSING (funds held) for ops/recon to resolve.
+  assertRealMoneyProvider(
+    provider,
+    () => new Error("Payout rail resolved to MOCK in production — refusing to send")
+  );
   const res = await provider.payout({
     idempotencyKey: row.bulkpeReferenceId,
     userId: row.userId,
@@ -331,6 +338,12 @@ export async function reconcilePayout(payoutRequestId: string): Promise<void> {
   if (!row || !HOLDABLE.includes(row.status)) return;
 
   const provider = getPartner("payout");
+  // A mock status poll unconditionally returns "PAID" — never let recon finalize
+  // a phantom success (capture the hold with no real transfer) in production.
+  assertRealMoneyProvider(
+    provider,
+    () => new Error("Payout rail resolved to MOCK in production — refusing to reconcile")
+  );
   const lookupId = row.bulkpeTxnId || row.bulkpeReferenceId;
   const res = await provider.status(lookupId);
   if (!res.ok) return; // transient; try again on the next poll

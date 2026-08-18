@@ -883,7 +883,7 @@ function UserServicesDialog({
           const services: ServiceItem[] = data.allServices ?? [];
           setAllServices(services);
           const userKeys: string[] = data.enabledServices ?? [];
-          setEnabledKeys(userKeys.length === 0 ? services.map((s) => s.key) : userKeys);
+          setEnabledKeys(userKeys);
         }
       } catch {
         notify("Failed to load services", false);
@@ -910,11 +910,12 @@ function UserServicesDialog({
   async function handleSave() {
     setSaving(true);
     try {
-      const allEnabled = enabledKeys.length === allServices.length;
+      // Strict allowlist: persist exactly the selected keys. An empty selection
+      // means NO services are enabled for this user (default-disabled).
       const res = await fetch(`/api/admin/users/${userId}/services`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabledServices: allEnabled ? [] : enabledKeys }),
+        body: JSON.stringify({ enabledServices: enabledKeys }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "Update failed");

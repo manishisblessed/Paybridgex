@@ -15,7 +15,7 @@ import { nanoid } from "nanoid";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { creditWallet } from "../ledger";
-import { getPartner } from "../partners";
+import { getPartner, assertRealMoneyProvider } from "../partners";
 import { round } from "../money";
 import { emitWebhookEvent } from "../platform/webhooks";
 import { assertPushWithinCap, WalletOpError } from "./operations";
@@ -50,6 +50,19 @@ export async function initiateTopup(input: {
   }
 
   const upi = getPartner("upi");
+  // Never open a collect through a mock provider in production — the mock
+  // auto-"pays" every request, which would mint wallet balance with no real
+  // money behind it. Block the top-up up front until a live PG is configured.
+  assertRealMoneyProvider(
+    upi,
+    () =>
+      new TopupError(
+        "Wallet top-up is temporarily unavailable. Please try again later.",
+        503,
+        "PG_NOT_LIVE"
+      )
+  );
+
   const refId = `TOPUP${nanoid(10).toUpperCase()}`;
 
   const txn = await prisma.transaction.create({
@@ -120,6 +133,19 @@ export async function settleTopup(refId: string): Promise<{ refId: string; statu
   if (txn.status === "FAILED") return { refId, status: "FAILED" };
 
   const upi = getPartner("upi");
+  // Defence-in-depth: even if a stale INITIATED/PROCESSING top-up exists, never
+  // settle (credit the wallet) through a mock provider in production. The mock's
+  // status() always reports PAID, so crediting on it would create phantom money.
+  assertRealMoneyProvider(
+    upi,
+    () =>
+      new TopupError(
+        "Wallet top-up settlement is unavailable. Please contact support.",
+        503,
+        "PG_NOT_LIVE"
+      )
+  );
+
   const r = await upi.status(txn.partnerTxnId || refId);
   if (!r.ok) throw new TopupError(r.message, 502, r.code);
 

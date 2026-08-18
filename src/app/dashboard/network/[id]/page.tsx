@@ -21,6 +21,7 @@ import {
   CreditCard,
   Send,
   ClipboardCheck,
+  FileText,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
@@ -32,6 +33,7 @@ import {
   OnboardingProgressView,
   type OnboardingProgress,
 } from "@/components/network/OnboardingProgressView";
+import { KycDetailView, type KycDetailData } from "@/components/kyc/KycDetailView";
 
 type Detail = {
   user: {
@@ -121,7 +123,7 @@ type Scheme = {
   mdrSlabs?: MdrSlab[];
 };
 
-type Tab = "onboarding" | "transactions" | "activity" | "scheme";
+type Tab = "onboarding" | "kyc" | "transactions" | "activity" | "scheme";
 
 const fmtRate = (type: RateType, value: number) =>
   type === "PERCENT" ? `${(value * 100).toFixed(2)}%` : `₹${value}`;
@@ -189,6 +191,9 @@ export default function NetworkMemberDetailPage() {
   const [onboarding, setOnboarding] = useState<OnboardingProgress | null>(null);
   const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [onboardingError, setOnboardingError] = useState<string | null>(null);
+  const [kyc, setKyc] = useState<KycDetailData | null>(null);
+  const [kycLoading, setKycLoading] = useState(false);
+  const [kycError, setKycError] = useState<string | null>(null);
 
   const loadDetail = useCallback(async () => {
     setLoading(true);
@@ -273,6 +278,25 @@ export default function NetworkMemberDetailPage() {
     }
   }, [id]);
 
+  const loadKyc = useCallback(async () => {
+    setKycLoading(true);
+    setKycError(null);
+    try {
+      const res = await fetch(`/api/network/${id}/kyc`);
+      const data = await res.json();
+      if (!res.ok) {
+        setKycError(data.error ?? "Could not load documents & KYC.");
+        setKyc(null);
+      } else {
+        setKyc(data.kyc);
+      }
+    } catch {
+      setKycError("Network error — please try again.");
+    } finally {
+      setKycLoading(false);
+    }
+  }, [id]);
+
   useEffect(() => {
     loadDetail();
   }, [loadDetail]);
@@ -288,7 +312,8 @@ export default function NetworkMemberDetailPage() {
     else if (tab === "activity") loadActs();
     else if (tab === "scheme") loadScheme();
     else if (tab === "onboarding") loadOnboarding();
-  }, [tab, loadTxns, loadActs, loadScheme, loadOnboarding]);
+    else if (tab === "kyc") loadKyc();
+  }, [tab, loadTxns, loadActs, loadScheme, loadOnboarding, loadKyc]);
 
   const cols: Column<Txn>[] = [
     { key: "id", header: "Ref ID", render: (r) => <span className="font-medium text-brand-600">{r.id}</span> },
@@ -386,6 +411,7 @@ export default function NetworkMemberDetailPage() {
           <div className="flex flex-wrap gap-1 border-b border-ink-100">
             {([
               { key: "onboarding", label: "Onboarding", icon: ClipboardCheck },
+              { key: "kyc", label: "Documents & KYC", icon: FileText },
               { key: "transactions", label: "Transactions", icon: History },
               { key: "activity", label: "Activity", icon: ActivityIcon },
               { key: "scheme", label: "Scheme", icon: Layers },
@@ -416,6 +442,30 @@ export default function NetworkMemberDetailPage() {
               memberName={u.name}
               memberStatus={u.status}
             />
+          )}
+
+          {tab === "kyc" && (
+            <div className="rounded-2xl border border-ink-100 bg-white">
+              {kycLoading ? (
+                <div className="flex items-center justify-center py-16 text-ink-500">
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading documents & KYC…
+                </div>
+              ) : kycError ? (
+                <div className="m-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  <Info className="mt-0.5 h-5 w-5 shrink-0" />
+                  <div>{kycError}</div>
+                </div>
+              ) : !kyc ? (
+                <p className="py-16 text-center text-sm text-ink-500">
+                  No KYC record found for this member.
+                </p>
+              ) : (
+                <KycDetailView
+                  kyc={kyc}
+                  getDocHref={(docId) => `/api/network/${id}/documents/${docId}`}
+                />
+              )}
+            </div>
           )}
 
           {tab === "transactions" && (

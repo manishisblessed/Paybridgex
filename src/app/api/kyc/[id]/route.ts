@@ -5,9 +5,11 @@ import { requireRole, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getPartner } from "@/lib/partners";
+import { deleteFromCloudinary } from "@/lib/cloudinary";
 import { renderDocResubmissionEmail } from "@/lib/email/templates";
 import { docTypeLabel } from "@/lib/onboarding/requiredDocuments";
 import { computeInviteExpiry } from "@/lib/onboarding/inviteExpiry";
+import { getResubmitStatus } from "@/lib/onboarding/resubmission";
 
 const PatchBody = z.object({
   action: z.enum(["approve", "reject", "request_resubmission"]),
@@ -52,14 +54,54 @@ export async function PATCH(
   if (!kyc)
     return NextResponse.json({ error: "KYC record not found" }, { status: 404 });
 
-  if (kyc.status !== "PENDING_REVIEW")
+  // Reviewable when freshly submitted, or when it was awaiting a targeted
+  // re-upload (the applicant may have replaced the flagged documents without
+  // pressing the final "submit" button — the admin can still act on it).
+  if (kyc.status !== "PENDING_REVIEW" && kyc.status !== "AWAITING_RESUBMISSION")
     return NextResponse.json(
       { error: "Only pending KYC applications can be reviewed" },
       { status: 409 }
     );
 
   if (parsed.data.action === "approve") {
+    // If the application was awaiting a targeted re-upload, only approve once
+    // every flagged document has actually been replaced, then finalise the
+    // re-opened invite and drop the now-stale rejected rows in the same step.
+    let resubmitInvite: { id: string } | null = null;
+    if (kyc.status === "AWAITING_RESUBMISSION") {
+      resubmitInvite = await prisma.invite.findFirst({
+        where: { userId: kyc.user.id, status: "RESUBMIT" },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
+      if (resubmitInvite) {
+        const st = await getResubmitStatus(resubmitInvite.id);
+        if (!st.allDone) {
+          return NextResponse.json(
+            { error: "The applicant still has documents left to re-upload." },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
+    // Snapshot the stale rejected rows so their private assets can be cleaned
+    // up after the state transition commits.
+    const rejectedRows = resubmitInvite
+      ? await prisma.verificationResult.findMany({
+          where: { inviteId: resubmitInvite.id, status: "Rejected" },
+          select: { id: true, requestPayload: true },
+        })
+      : [];
+
     await prisma.$transaction([
+      ...(resubmitInvite
+        ? [
+            prisma.verificationResult.deleteMany({
+              where: { inviteId: resubmitInvite.id, status: "Rejected" },
+            }),
+          ]
+        : []),
       prisma.kyc.update({
         where: { id: params.id },
         data: {
@@ -74,11 +116,11 @@ export async function PATCH(
         data: { status: "ACTIVE" },
       }),
       // Keep the onboarding invite in sync so it doesn't stay stuck at
-      // VERIFIED/REGISTERED once KYC has been approved.
+      // VERIFIED/REGISTERED/RESUBMIT once KYC has been approved.
       prisma.invite.updateMany({
         where: {
           userId: kyc.user.id,
-          status: { in: ["VERIFIED", "REGISTERED"] },
+          status: { in: ["VERIFIED", "REGISTERED", "RESUBMIT"] },
         },
         data: { status: "APPROVED", approvedAt: new Date() },
       }),
@@ -88,10 +130,24 @@ export async function PATCH(
           action: "kyc.approved",
           entity: "Kyc",
           entityId: params.id,
-          meta: { userId: kyc.user.id },
+          meta: { userId: kyc.user.id, fromResubmission: !!resubmitInvite },
         },
       }),
     ]);
+
+    // Best-effort: destroy the old (rejected) Cloudinary assets so they don't
+    // linger. S3-stored selfies/videos have no publicId and are skipped.
+    for (const row of rejectedRows) {
+      const payload = row.requestPayload as Record<string, unknown> | null;
+      const publicId = payload?.publicId;
+      if (typeof publicId === "string" && publicId) {
+        try {
+          await deleteFromCloudinary(publicId, { isSensitive: true });
+        } catch {
+          // ignore — the DB row is already gone, which is what matters
+        }
+      }
+    }
 
     return NextResponse.json({ status: "APPROVED" });
   }
@@ -285,11 +341,12 @@ export async function PATCH(
         rejectedReason: parsed.data.reason ?? null,
       },
     }),
-    // Mirror the rejection onto the onboarding invite.
+    // Mirror the rejection onto the onboarding invite (including a re-opened
+    // RESUBMIT invite, so its live re-upload link is closed).
     prisma.invite.updateMany({
       where: {
         userId: kyc.user.id,
-        status: { in: ["VERIFIED", "REGISTERED"] },
+        status: { in: ["VERIFIED", "REGISTERED", "RESUBMIT"] },
       },
       data: {
         status: "REJECTED",

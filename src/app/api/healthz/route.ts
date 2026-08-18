@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { partnerStatus } from "@/lib/partners";
+import { partnerStatus, moneyRailsOnMock } from "@/lib/partners";
+import { isProd } from "@/lib/env";
 
 export const fetchCache = "force-no-store";
 
@@ -15,8 +16,14 @@ export async function GET() {
     db = "down";
   }
 
+  // Money rails (upi/payout/aeps/dmt/bbps) must never run on a mock in prod —
+  // that is how phantom wallet balance got minted. Surface it here so uptime
+  // monitors alert on it, and fail `ok` in production if any are on mock.
+  const railsOnMock = moneyRailsOnMock();
+  const moneyRailsMisconfigured = isProd && railsOnMock.length > 0;
+
   return NextResponse.json({
-    ok: db === "up",
+    ok: db === "up" && !moneyRailsMisconfigured,
     db,
     // Presence booleans only (never values) — lets ops verify the runtime
     // actually received critical env vars (Amplify bakes them in at build).
@@ -27,6 +34,7 @@ export async function GET() {
       encryptionKey: Boolean(process.env.APP_ENCRYPTION_KEY),
     },
     partners: partnerStatus(),
+    moneyRailsOnMock: railsOnMock,
     time: new Date().toISOString()
   });
 }

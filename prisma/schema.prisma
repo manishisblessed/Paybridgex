@@ -115,6 +115,9 @@ model User {
   // financial summary (denormalized for fast reads; keep authoritative ledger in WalletTxn)
   // walletBalance = available/spendable balance. heldBalance = funds reserved for
   // in-flight operations (e.g. a pending payout). spendable = walletBalance - heldBalance.
+  // NOTE: walletBalance/heldBalance/lienBalance/aepsBalance carry DB CHECK
+  // constraints (>= 0) — see migration 20260817190000_wallet_balance_nonneg — so
+  // no code path can ever drive a wallet negative (e.g. push more than it holds).
   walletBalance Decimal @default(0) @db.Decimal(14, 2)
   heldBalance   Decimal @default(0) @db.Decimal(14, 2)
   // lienBalance = funds frozen by an admin lien (chargeback / fraud recovery).

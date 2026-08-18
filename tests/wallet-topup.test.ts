@@ -26,6 +26,9 @@ vi.mock("@/lib/partners", () => ({
     collect: async () => holder.collectResult,
     status: async () => holder.statusResult,
   }),
+  // FAKE_PG is a real (non-mock) provider double, so the money-provider guard
+  // is a no-op here; provide it so the mocked module mirrors the real exports.
+  assertRealMoneyProvider: () => {},
 }));
 
 import { initiateTopup, settleTopup, TopupError } from "@/lib/wallet/topup";

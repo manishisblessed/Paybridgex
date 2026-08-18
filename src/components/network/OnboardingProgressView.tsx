@@ -265,7 +265,7 @@ export function OnboardingProgressView({
           })}
         </div>
         <p className="mt-4 flex items-center gap-1.5 border-t border-ink-50 pt-3 text-[11px] text-ink-400">
-          <Circle className="h-3 w-3" /> Documents &amp; KYC details are visible to admins only.
+          <Circle className="h-3 w-3" /> Document images &amp; KYC details are visible to admins and the direct parent.
         </p>
       </div>
     </div>

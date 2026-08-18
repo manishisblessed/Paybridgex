@@ -18,7 +18,7 @@
 import { nanoid } from "nanoid";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
-import { getPartner } from "../partners";
+import { getPartner, assertRealMoneyProvider } from "../partners";
 import { round } from "../money";
 import { handlePgCapture } from "../settlement/pg";
 
@@ -48,6 +48,13 @@ export async function initiatePgCollect(input: {
   ip?: string;
 }): Promise<{ refId: string; orderId: string; paymentUrl?: string; upiIntent?: string; provider: string }> {
   const upi = getPartner("upi");
+  // A mock provider auto-"pays" every collect, which would credit the retailer's
+  // wallet with money that was never actually collected. Refuse in production.
+  assertRealMoneyProvider(
+    upi,
+    () => new PgCollectError("PG collections are temporarily unavailable.", 503, "PG_NOT_LIVE")
+  );
+
   const refId = `PGC${nanoid(10).toUpperCase()}`;
 
   const txn = await prisma.transaction.create({
@@ -124,6 +131,13 @@ export async function settlePgCollect(refId: string): Promise<{ refId: string; s
   if (txn.status === "FAILED") return { refId, status: "FAILED" };
 
   const upi = getPartner("upi");
+  // Defence-in-depth: never settle (credit the retailer) through a mock provider
+  // in production — its status() always reports PAID, minting phantom balance.
+  assertRealMoneyProvider(
+    upi,
+    () => new PgCollectError("PG collection settlement is unavailable.", 503, "PG_NOT_LIVE")
+  );
+
   const r = await upi.status(txn.partnerTxnId || refId);
   if (!r.ok) throw new PgCollectError(r.message, 502, r.code);
 

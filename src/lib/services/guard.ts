@@ -69,10 +69,10 @@ export async function isServiceEnabled(
 
 /**
  * True if the service is enabled for this user. Staff roles always pass.
- * For network users: empty `enabledServices` means ALL services are allowed
- * (no restriction configured); a non-empty list means ONLY those keys are
- * allowed (admin explicitly configured the user's access).
- * Does NOT consider the global switch.
+ * For network users (RT/DT/MD/SD): access is a strict allowlist — a service is
+ * usable ONLY when its key is present in `enabledServices`. An empty list means
+ * NO services are enabled (default-disabled); an admin must explicitly grant
+ * each rail per user. Does NOT consider the global switch.
  */
 export async function isServiceEnabledForUser(
   key: string,
@@ -87,7 +87,6 @@ export async function isServiceEnabledForUser(
   });
   if (!user) return false;
   if (STAFF_ROLES.has(user.role) && !NO_STAFF_BYPASS_KEYS.has(key)) return true;
-  if (user.enabledServices.length === 0) return true;
   return user.enabledServices.includes(key);
 }
 
@@ -122,9 +121,9 @@ export async function assertServiceEnabled(
 /**
  * Effective service keys for a user: globally-enabled rails filtered by the
  * user's access config. Staff roles get every globally-enabled rail.
- * For network users: empty `enabledServices` means ALL globally-enabled
- * services are available; a non-empty list means ONLY those keys are allowed
- * (admin explicitly configured the user's access).
+ * For network users (RT/DT/MD/SD): a strict allowlist — only keys present in
+ * `enabledServices` are returned. An empty list means NO services (the rail
+ * entry points stay hidden until an admin grants them).
  */
 export async function getEffectiveServiceKeys(
   userId: string,
@@ -153,8 +152,6 @@ export async function getEffectiveServiceKeys(
   if (STAFF_ROLES.has(user.role)) {
     return globallyOn.filter((k) => !NO_STAFF_BYPASS_KEYS.has(k));
   }
-
-  if (user.enabledServices.length === 0) return globallyOn;
 
   const allowed = new Set(user.enabledServices);
   return globallyOn.filter((k) => allowed.has(k));
