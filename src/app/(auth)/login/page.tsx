@@ -10,9 +10,6 @@ import {
   EyeOff,
   ShieldCheck,
   Store,
-  Users,
-  Network,
-  Crown,
   ArrowRight,
   AlertCircle,
   Clock,
@@ -27,16 +24,6 @@ import { LogoMark } from "@/components/layout/Logo";
 import { TwoFactorStep } from "@/components/auth/TwoFactorStep";
 import { LocationGate, type LocationData } from "@/components/auth/LocationGate";
 import { Turnstile, captchaConfigured } from "@/components/security/Turnstile";
-import { cn } from "@/lib/utils";
-
-type PublicRole = "retailer" | "distributor" | "master-distributor" | "super-distributor";
-
-const roleOptions: { id: PublicRole; label: string; icon: typeof Store; tagline: string }[] = [
-  { id: "retailer", label: "Retailer", icon: Store, tagline: "Run a single shop" },
-  { id: "distributor", label: "Distributor", icon: Users, tagline: "Manage retailers" },
-  { id: "master-distributor", label: "Master Dist.", icon: Network, tagline: "White-label & API" },
-  { id: "super-distributor", label: "Super Dist.", icon: Crown, tagline: "Multi-state network" },
-];
 
 const panelFigures = [
   { value: "60+", label: "Services" },
@@ -158,7 +145,6 @@ export default function LoginPage() {
 
 function LoginForm({ location }: { location: LocationData }) {
   const router = useRouter();
-  const [role, setRole] = useState<PublicRole>("retailer");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
@@ -195,10 +181,6 @@ function LoginForm({ location }: { location: LocationData }) {
   const [step, setStep] = useState<"credentials" | "2fa">("credentials");
   const [tempToken, setTempToken] = useState("");
   const [userName, setUserName] = useState("");
-
-  function pickRole(r: PublicRole) {
-    setRole(r);
-  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -327,53 +309,6 @@ function LoginForm({ location }: { location: LocationData }) {
             Request to join
           </Link>
         </p>
-
-        <div className="mt-6">
-          <p className="mb-2 text-xs font-bold uppercase tracking-widest text-ink-500">
-            I am a
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {roleOptions.map((r) => {
-              const Icon = r.icon;
-              const active = role === r.id;
-              return (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => pickRole(r.id)}
-                  className={cn(
-                    "relative flex items-center gap-3 rounded-2xl border p-3 text-left transition duration-200",
-                    active
-                      ? "border-transparent shadow-soft"
-                      : "border-ink-100 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-sm"
-                  )}
-                >
-                  {active && (
-                    <motion.span
-                      layoutId="role-pill"
-                      className="absolute inset-0 rounded-2xl bg-gradient-to-br from-brand-50 to-accent-50 ring-1 ring-inset ring-brand-400"
-                      transition={{ type: "spring", stiffness: 400, damping: 32 }}
-                    />
-                  )}
-                  <span
-                    className={cn(
-                      "relative grid h-9 w-9 shrink-0 place-items-center rounded-xl transition",
-                      active
-                        ? "bg-gradient-to-br from-brand-600 to-brand-500 text-white shadow-glow"
-                        : "bg-ink-100 text-ink-700"
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                  </span>
-                  <div className="relative min-w-0">
-                    <p className="truncate text-sm font-semibold text-ink-900">{r.label}</p>
-                    <p className="truncate text-xs text-ink-500">{r.tagline}</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
 
         {error && (
           <motion.div

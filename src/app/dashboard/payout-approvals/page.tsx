@@ -403,7 +403,7 @@ function DetailDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <Field label="Maker (owner)" value={`${detail.user.name} · ${detail.user.email}`} />
               {detail.checker && <Field label="Checker" value={detail.checker.name} />}
               {detail.utr && <Field label="UTR" value={detail.utr} mono />}
-              {detail.bulkpeTxnId && <Field label="BulkPe txn" value={detail.bulkpeTxnId} mono />}
+              {detail.bulkpeTxnId && <Field label="Payout txn" value={detail.bulkpeTxnId} mono />}
               {detail.failureReason && (
                 <Field label="Failure reason" value={detail.failureReason} />
               )}

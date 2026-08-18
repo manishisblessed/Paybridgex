@@ -12,7 +12,6 @@ import {
   ShieldAlert,
   CircleDot,
   CreditCard,
-  Send,
   ShieldCheck,
   Zap,
 } from "lucide-react";
@@ -38,11 +37,6 @@ const PROVIDER_META: Record<
   string,
   { subtitle: string; tint: "teal" | "violet" | "emerald" | "amber" | "sky"; icon: React.ComponentType<{ className?: string }> }
 > = {
-  bulkpe: {
-    subtitle: "Payout · IMPS / NEFT / RTGS",
-    tint: "violet",
-    icon: Send,
-  },
   sameday_settlement: {
     subtitle: "Settlement wallet · Same Day",
     tint: "teal",
@@ -82,7 +76,9 @@ export function ProviderWalletsCard({
   const money = (n: number | null | undefined) =>
     masked ? "₹ ●●●●●" : formatINRFull(n ?? 0);
 
-  const totalAvailable = (providers ?? []).reduce(
+  const visibleProviders = (providers ?? []).filter((p) => p.key !== "bulkpe");
+
+  const totalAvailable = visibleProviders.reduce(
     (a, p) => a + (typeof p.balance === "number" ? p.balance : 0),
     0
   );
@@ -170,7 +166,7 @@ export function ProviderWalletsCard({
           </div>
         )}
 
-        {providers?.map((p) => (
+        {visibleProviders.map((p) => (
           <ProviderTile key={p.key} p={p} money={money} />
         ))}
       </div>
