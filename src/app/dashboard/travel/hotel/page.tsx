@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Hotel, MapPin, Star } from "lucide-react";
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
+import { Reveal } from "@/components/motion";
 import { Input, Label } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { formatINR } from "@/lib/utils";
@@ -29,18 +30,21 @@ export default function HotelPage() {
 
   return (
     <div>
-      <ServicePageHeader
-        icon={Hotel}
-        title="Hotel Booking"
-        description="50,000+ hotels across India at exclusive agent rates."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={Hotel}
+          title="Hotel Booking"
+          description="50,000+ hotels across India at exclusive agent rates."
+        />
+      </Reveal>
 
+      <Reveal distance={16} duration={0.45}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           setSearched(true);
         }}
-        className="grid items-end gap-4 rounded-2xl border border-ink-100 bg-white p-6 lg:grid-cols-12"
+        className="grid items-end gap-4 rounded-2xl border border-ink-100 bg-white p-6 shadow-sm lg:grid-cols-12"
       >
         <div className="lg:col-span-5">
           <Label>City / Hotel</Label>
@@ -70,13 +74,14 @@ export default function HotelPage() {
           </Button>
         </div>
       </form>
+      </Reveal>
 
       {searched && (
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <Reveal distance={16} duration={0.45} className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {hotels.map((h) => (
             <div
               key={h.name}
-              className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm"
+              className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-soft"
             >
               <div className="relative h-36 bg-gradient-to-br from-brand-100 via-brand-50 to-accent-100">
                 <div className="absolute inset-0 bg-grid-pattern opacity-30" />
@@ -104,7 +109,7 @@ export default function HotelPage() {
               </div>
             </div>
           ))}
-        </div>
+        </Reveal>
       )}
     </div>
   );

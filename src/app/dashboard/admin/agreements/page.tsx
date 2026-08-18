@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import { FilterBar, StatusPill } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { formatNumber } from "@/lib/utils";
 import { RefreshCw, Search, Download } from "lucide-react";
 
@@ -98,15 +99,19 @@ export default function AgreementsVaultPage() {
     {
       key: "role",
       header: "Role",
-      render: (r) => <Badge variant="default">{r.user.role.toLowerCase().replace(/_/g, " ")}</Badge>,
+      render: (r) => (
+        <StatusPill status={r.user.role} tone="brand">
+          {r.user.role.toLowerCase().replace(/_/g, " ")}
+        </StatusPill>
+      ),
     },
     {
       key: "status",
       header: "Account",
       render: (r) => (
-        <Badge variant={r.user.status === "ACTIVE" ? "success" : "warning"}>
+        <StatusPill status={r.user.status} tone={r.user.status === "ACTIVE" ? "success" : "warning"}>
           {r.user.status.toLowerCase()}
-        </Badge>
+        </StatusPill>
       ),
     },
     {
@@ -141,21 +146,23 @@ export default function AgreementsVaultPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Agreements Vault"
-        description="Signed onboarding agreements across the network — access is signed, short-lived, and audit-logged."
-        actions={
-          <Button variant="outline" onClick={load}>
-            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          title="Agreements Vault"
+          description="Signed onboarding agreements across the network — access is signed, short-lived, and audit-logged."
+          actions={
+            <Button variant="outline" onClick={load}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+            </Button>
+          }
+        />
+      </Reveal>
 
       {error && (
-        <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>
       )}
 
-      <div className="flex gap-2">
+      <FilterBar>
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
           <input
@@ -180,13 +187,15 @@ export default function AgreementsVaultPage() {
         >
           Search
         </Button>
-      </div>
+      </FilterBar>
 
-      <DataTable
-        columns={columns}
-        data={rows}
-        loading={loading}
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          columns={columns}
+          data={rows}
+          loading={loading}
+        />
+      </Reveal>
 
       {pages > 1 && (
         <div className="flex items-center justify-between text-sm text-ink-500">

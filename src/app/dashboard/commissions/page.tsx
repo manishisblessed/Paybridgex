@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
-import { Award, RefreshCw, Sparkles } from "lucide-react";
+import { Award, RefreshCw } from "lucide-react";
 import { ReportActions } from "@/components/dashboard/ReportActions";
+import { Reveal } from "@/components/motion";
 import { type Role } from "@/lib/auth";
 import { useAuth } from "@/lib/useAuth";
 
@@ -55,6 +56,7 @@ export default function CommissionsPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow="Commissions"
         title={role === "master-distributor" ? "Commission master" : "Commission slabs"}
@@ -92,14 +94,17 @@ export default function CommissionsPage() {
           </>
         }
       />
+      </Reveal>
 
-      <DataTable
-        title="Service rate-card"
-        columns={cols}
-        data={slabs}
-        loading={loading}
-        empty="No commission slabs found."
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title="Service rate-card"
+          columns={cols}
+          data={slabs}
+          loading={loading}
+          empty="No commission slabs found."
+        />
+      </Reveal>
     </div>
   );
 }

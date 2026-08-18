@@ -8,7 +8,6 @@ import {
   Loader2,
   Search,
   Eye,
-  X,
   Copy,
   UserPlus,
   Phone,
@@ -16,10 +15,21 @@ import {
   Store,
   MapPin,
   MessageSquare,
+  Inbox,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
+import {
+  FilterBar,
+  ModalShell,
+  StatusPill,
+  TableEmptyRow,
+  TablePro,
+  TableSkeletonRows,
+  type PillTone,
+} from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import {
   CreateInviteForm,
   type CreateInviteResult,
@@ -45,12 +55,12 @@ type JoinRequest = {
 
 const STATUS_OPTIONS = ["NEW", "CONTACTED", "INVITED", "CLOSED", "REJECTED"];
 
-const STATUS_COLORS: Record<string, string> = {
-  NEW: "bg-amber-100 text-amber-800",
-  CONTACTED: "bg-blue-100 text-blue-800",
-  INVITED: "bg-indigo-100 text-indigo-800",
-  CLOSED: "bg-gray-100 text-gray-600",
-  REJECTED: "bg-rose-100 text-rose-800",
+const STATUS_TONES: Record<string, PillTone> = {
+  NEW: "warning",
+  CONTACTED: "brand",
+  INVITED: "violet",
+  CLOSED: "neutral",
+  REJECTED: "danger",
 };
 
 function fmtRole(role: string) {
@@ -133,118 +143,121 @@ export default function AdminJoinRequestsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="Join Requests"
-        description="Leads from the public Join Form. Connect with each applicant and convert them into an onboarding invite."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="Join Requests"
+          description="Leads from the public Join Form. Connect with each applicant and convert them into an onboarding invite."
+        />
+      </Reveal>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="w-44"
-        >
-          <option value="">All statuses</option>
-          {STATUS_OPTIONS.map((s) => (
-            <option key={s} value={s}>
-              {fmtRole(s)}
-              {statusCounts[s] != null ? ` (${statusCounts[s]})` : ""}
-            </option>
-          ))}
-        </Select>
-        <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name, phone, email, shop..."
-            className="pl-9"
-          />
-        </div>
-        <span className="ml-auto text-sm text-ink-500">
-          {total} request{total !== 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
-        </div>
-      ) : requests.length === 0 ? (
-        <div className="rounded-2xl border border-ink-100 bg-white p-10 text-center">
-          <p className="text-ink-500">No join requests found.</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-2xl border border-ink-100 bg-white">
-          <table className="w-full min-w-[860px] text-sm">
-            <thead className="border-b border-ink-100 bg-ink-50/50">
-              <tr>
-                <th className="px-4 py-3 text-left font-semibold text-ink-700">Applicant</th>
-                <th className="px-4 py-3 text-left font-semibold text-ink-700">Interested as</th>
-                <th className="px-4 py-3 text-left font-semibold text-ink-700">Business</th>
-                <th className="px-4 py-3 text-left font-semibold text-ink-700">Status</th>
-                <th className="px-4 py-3 text-left font-semibold text-ink-700">Submitted</th>
-                <th className="px-4 py-3 text-right font-semibold text-ink-700">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ink-50">
-              {requests.map((r) => (
-                <tr key={r.id} className="hover:bg-ink-50/30">
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-ink-900">{r.name}</div>
-                    <div className="text-xs text-ink-500">{r.phone}</div>
-                    <div className="text-xs text-ink-500">{r.email}</div>
-                  </td>
-                  <td className="px-4 py-3 text-ink-700">{fmtRole(r.role)}</td>
-                  <td className="px-4 py-3 text-ink-700">
-                    <div>{r.shopName || "—"}</div>
-                    <div className="text-xs text-ink-500">
-                      {[r.city, r.state].filter(Boolean).join(", ") || "—"}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                        STATUS_COLORS[r.status] ?? "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {r.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-ink-500">
-                    {new Date(r.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Select
-                        value={r.status}
-                        onChange={(e) =>
-                          updateRequest(r.id, { status: e.target.value })
-                        }
-                        className="h-9 w-36"
-                      >
-                        {STATUS_OPTIONS.map((s) => (
-                          <option key={s} value={s}>
-                            {fmtRole(s)}
-                          </option>
-                        ))}
-                      </Select>
-                      <button
-                        onClick={() => setSelected(r)}
-                        title="View details"
-                        className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-900"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+      <Reveal distance={16} duration={0.45}>
+        <div className="space-y-6">
+          <FilterBar>
+            <Select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="w-44"
+            >
+              <option value="">All statuses</option>
+              {STATUS_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {fmtRole(s)}
+                  {statusCounts[s] != null ? ` (${statusCounts[s]})` : ""}
+                </option>
               ))}
-            </tbody>
-          </table>
+            </Select>
+            <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name, phone, email, shop..."
+                className="pl-9"
+              />
+            </div>
+            <span className="ml-auto text-sm text-ink-500">
+              {total} request{total !== 1 ? "s" : ""}
+            </span>
+          </FilterBar>
+
+          <TablePro title="Join requests" dense>
+            <table className="min-w-[860px]">
+              <thead>
+                <tr>
+                  <th>Applicant</th>
+                  <th>Interested as</th>
+                  <th>Business</th>
+                  <th>Status</th>
+                  <th>Submitted</th>
+                  <th className="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <TableSkeletonRows rows={6} cols={6} />
+                ) : requests.length === 0 ? (
+                  <TableEmptyRow
+                    colSpan={6}
+                    icon={Inbox}
+                    message="No join requests found."
+                  />
+                ) : (
+                  requests.map((r) => (
+                    <tr key={r.id}>
+                      <td>
+                        <div className="font-medium text-ink-900">{r.name}</div>
+                        <div className="text-xs text-ink-500">{r.phone}</div>
+                        <div className="text-xs text-ink-500">{r.email}</div>
+                      </td>
+                      <td className="text-ink-700">{fmtRole(r.role)}</td>
+                      <td className="text-ink-700">
+                        <div>{r.shopName || "—"}</div>
+                        <div className="text-xs text-ink-500">
+                          {[r.city, r.state].filter(Boolean).join(", ") || "—"}
+                        </div>
+                      </td>
+                      <td>
+                        <StatusPill
+                          status={r.status}
+                          tone={STATUS_TONES[r.status] ?? "neutral"}
+                        />
+                      </td>
+                      <td className="text-ink-500">
+                        {new Date(r.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Select
+                            value={r.status}
+                            onChange={(e) =>
+                              updateRequest(r.id, { status: e.target.value })
+                            }
+                            className="h-9 w-36"
+                          >
+                            {STATUS_OPTIONS.map((s) => (
+                              <option key={s} value={s}>
+                                {fmtRole(s)}
+                              </option>
+                            ))}
+                          </Select>
+                          <button
+                            onClick={() => setSelected(r)}
+                            title="View details"
+                            className="grid h-8 w-8 place-items-center rounded-lg text-brand-700 hover:bg-brand-50"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </TablePro>
         </div>
-      )}
+      </Reveal>
 
       {selected && (
         <JoinRequestDetail
@@ -342,78 +355,25 @@ function JoinRequestDetail({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-ink-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-ink-100 px-6 py-4">
-          <div>
-            <h3 className="font-display text-lg font-bold text-ink-900">
-              {request.name}
-            </h3>
-            <p className="text-xs text-ink-500">
-              Interested as {fmtRole(request.role)} · Submitted{" "}
-              {new Date(request.createdAt).toLocaleString()}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-ink-400 hover:text-ink-700"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="space-y-4 px-6 py-5">
-          <div className="space-y-2">
-            {rows.map(({ icon: Icon, label, value }) => (
-              <div key={label} className="flex items-start gap-3 text-sm">
-                <Icon className="mt-0.5 h-4 w-4 shrink-0 text-ink-400" />
-                <span className="w-28 shrink-0 text-ink-500">{label}</span>
-                <span className="min-w-0 flex-1 font-medium text-ink-800">
-                  {value || "—"}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="detail-status">Status</Label>
-              <Select
-                id="detail-status"
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              >
-                {STATUS_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {fmtRole(s)}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-
-          <div>
-            <Label htmlFor="detail-notes">Internal notes</Label>
-            <textarea
-              id="detail-notes"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              maxLength={2000}
-              placeholder="Add a note for your team..."
-              className="flex w-full rounded-xl border border-ink-200 bg-white px-4 py-2.5 text-sm text-ink-900 shadow-sm transition placeholder:text-ink-400 focus:border-brand-400 focus:outline-none focus:ring-4 focus:ring-brand-100"
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 bg-ink-50/40 px-6 py-4">
+    <ModalShell
+      open
+      onClose={onClose}
+      eyebrow="Join request"
+      title={request.name}
+      subtitle={
+        <>
+          Interested as {fmtRole(request.role)} · Submitted{" "}
+          {new Date(request.createdAt).toLocaleString()}
+        </>
+      }
+      footer={
+        <div className="flex w-full flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={copyDetails}>
               <Copy className="h-4 w-4" /> Copy details
             </Button>
             {request.status === "INVITED" && request.inviteId ? (
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700">
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 ring-1 ring-violet-200/70">
                 <UserPlus className="h-4 w-4" /> Invite created
               </span>
             ) : canConvert ? (
@@ -433,7 +393,51 @@ function JoinRequestDetail({
             Save changes
           </Button>
         </div>
+      }
+    >
+      <div className="space-y-4">
+        <div className="space-y-2">
+          {rows.map(({ icon: Icon, label, value }) => (
+            <div key={label} className="flex items-start gap-3 text-sm">
+              <Icon className="mt-0.5 h-4 w-4 shrink-0 text-ink-400" />
+              <span className="w-28 shrink-0 text-ink-500">{label}</span>
+              <span className="min-w-0 flex-1 font-medium text-ink-800">
+                {value || "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="detail-status">Status</Label>
+            <Select
+              id="detail-status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              {STATUS_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {fmtRole(s)}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+
+        <div>
+          <Label htmlFor="detail-notes">Internal notes</Label>
+          <textarea
+            id="detail-notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            maxLength={2000}
+            placeholder="Add a note for your team..."
+            className="flex w-full rounded-xl border border-ink-200 bg-white px-4 py-2.5 text-sm text-ink-900 shadow-sm transition placeholder:text-ink-400 focus:border-brand-400 focus:outline-none focus:ring-4 focus:ring-brand-100"
+          />
+        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }

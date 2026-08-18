@@ -12,7 +12,8 @@ import {
   Banknote
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
-import { StatCard } from "@/components/dashboard/StatCard";
+import { StatTile } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -72,26 +73,37 @@ export default function PgPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Payment Gateway"
-        title="PG Collections"
-        description="Accept UPI, cards, net banking and wallets. Track every order with real-time status and automated T+1 settlement."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Payment Gateway"
+          title="PG Collections"
+          description="Accept UPI, cards, net banking and wallets. Track every order with real-time status and automated T+1 settlement."
+        />
+      </Reveal>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Today's Collections" value="₹1.28 L" delta="+14.2%" icon={IndianRupee} accent="brand" />
-        <StatCard label="Success Rate" value="96.8%" delta="+0.6%" icon={Percent} accent="emerald" />
-        <StatCard label="Transactions Today" value="42" delta="+8" icon={ArrowLeftRight} accent="violet" />
-        <StatCard label="Pending Settlement" value="₹2.69 L" icon={Banknote} accent="accent" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Today's Collections" value="₹1.28 L" hint={<span className="font-semibold text-emerald-600">+14.2%</span>} icon={IndianRupee} tone="brand" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Success Rate" value="96.8%" hint={<span className="font-semibold text-emerald-600">+0.6%</span>} icon={Percent} tone="emerald" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Transactions Today" value="42" hint={<span className="font-semibold text-emerald-600">+8</span>} icon={ArrowLeftRight} tone="violet" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Pending Settlement" value="₹2.69 L" icon={Banknote} tone="amber" />
+        </StaggerItem>
+      </Stagger>
 
+      <Reveal distance={16} duration={0.45}>
       <div className="grid gap-6 lg:grid-cols-2">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             createLink();
           }}
-          className="space-y-4 rounded-2xl border border-ink-100 bg-white p-6"
+          className="space-y-4 rounded-2xl border border-ink-100 bg-white p-6 shadow-sm"
         >
           <div className="flex items-center gap-2">
             <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white">
@@ -125,7 +137,7 @@ export default function PgPage() {
           </Button>
         </form>
 
-        <div className="rounded-2xl border border-ink-100 bg-gradient-to-br from-brand-50 to-accent-50 p-6">
+        <div className="rounded-2xl border border-ink-100 bg-gradient-to-br from-brand-50 to-accent-50 p-6 shadow-sm">
           <h3 className="font-display text-base font-semibold text-ink-900">
             Share with your customer
           </h3>
@@ -159,13 +171,16 @@ export default function PgPage() {
           )}
         </div>
       </div>
+      </Reveal>
 
-      <DataTable
-        title="Recent PG transactions"
-        description="All orders collected through your payment gateway."
-        columns={cols}
-        data={pgTransactions}
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title="Recent PG transactions"
+          description="All orders collected through your payment gateway."
+          columns={cols}
+          data={pgTransactions}
+        />
+      </Reveal>
     </div>
   );
 }

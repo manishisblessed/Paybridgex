@@ -16,9 +16,18 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label } from "@/components/ui/Input";
+import {
+  Panel,
+  DarkPanel,
+  SectionTitle,
+  StatusPill,
+  TablePro,
+  TableEmptyRow,
+  TableSkeletonRows,
+} from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 
 type Scope = { id: string; label: string };
 type ApiKeyRow = {
@@ -228,16 +237,18 @@ export default function ApiKeysPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Platform"
-        title="API keys & webhooks"
-        description="Issue scoped keys for the partner API and receive signed event notifications on your servers."
-        actions={
-          <Button variant="secondary" onClick={load} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Platform"
+          title="API keys & webhooks"
+          description="Issue scoped keys for the partner API and receive signed event notifications on your servers."
+          actions={
+            <Button variant="secondary" onClick={load} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </Button>
+          }
+        />
+      </Reveal>
 
       {error && (
         <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -269,9 +280,9 @@ export default function ApiKeysPage() {
         </div>
       )}
 
-      <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-5">
+      <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-accent-50/40 p-5 shadow-sm">
         <div className="flex items-start gap-3">
-          <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-600 text-white">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
             <ShieldCheck className="h-5 w-5" />
           </span>
           <div>
@@ -286,16 +297,21 @@ export default function ApiKeysPage() {
       </div>
 
       {/* ── API keys ── */}
+      <Reveal distance={16} duration={0.45}>
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-lg font-semibold text-ink-900">API keys</h2>
-          <Button onClick={() => setShowKeyForm((v) => !v)}>
-            <Plus className="h-4 w-4" /> New key
-          </Button>
-        </div>
+        <SectionTitle
+          className="mb-0"
+          title="API keys"
+          description="Scoped credentials for the partner API."
+          action={
+            <Button onClick={() => setShowKeyForm((v) => !v)}>
+              <Plus className="h-4 w-4" /> New key
+            </Button>
+          }
+        />
 
         {showKeyForm && (
-          <div className="rounded-2xl border border-ink-100 bg-white p-5">
+          <Panel>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <Label>Label</Label>
@@ -329,54 +345,55 @@ export default function ApiKeysPage() {
               </Button>
               <Button variant="secondary" onClick={() => setShowKeyForm(false)}>Cancel</Button>
             </div>
-          </div>
+          </Panel>
         )}
 
-        <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-ink-50/60 text-left text-xs uppercase tracking-wider text-ink-500">
+        <TablePro>
+          <table>
+            <thead>
               <tr>
-                <th className="px-5 py-3 font-semibold">Label</th>
-                <th className="px-5 py-3 font-semibold">Key ID</th>
-                <th className="px-5 py-3 font-semibold">Scopes</th>
-                <th className="px-5 py-3 font-semibold">Last used</th>
-                <th className="px-5 py-3 font-semibold">Status</th>
-                <th className="px-5 py-3"></th>
+                <th>Label</th>
+                <th>Key ID</th>
+                <th>Scopes</th>
+                <th>Last used</th>
+                <th>Status</th>
+                <th></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-ink-100 text-ink-800">
+            <tbody>
+              {keys.length === 0 && loading && <TableSkeletonRows rows={3} cols={6} />}
               {keys.length === 0 && !loading && (
-                <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-ink-500">
-                    No API keys yet. Create one to start integrating.
-                  </td>
-                </tr>
+                <TableEmptyRow
+                  colSpan={6}
+                  icon={KeyRound}
+                  message="No API keys yet. Create one to start integrating."
+                />
               )}
               {keys.map((k) => (
-                <tr key={k.id} className="hover:bg-ink-50/40">
-                  <td className="px-5 py-3">
+                <tr key={k.id}>
+                  <td>
                     <div className="flex items-center gap-2 font-semibold text-ink-900">
                       <KeyRound className="h-4 w-4 text-ink-400" /> {k.label}
                     </div>
                   </td>
-                  <td className="px-5 py-3">
+                  <td>
                     <div className="flex items-center gap-2 font-mono text-xs">
                       {k.keyId}
                       <CopyButton text={k.keyId} />
                     </div>
                   </td>
-                  <td className="px-5 py-3">
+                  <td>
                     <div className="flex flex-wrap gap-1">
                       {k.scopes.map((s) => (
                         <span key={s} className="rounded-full bg-ink-100 px-2 py-0.5 font-mono text-[10px] text-ink-600">{s}</span>
                       ))}
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-ink-500">{fmtDate(k.lastUsedAt)}</td>
-                  <td className="px-5 py-3">
-                    {k.revokedAt ? <Badge variant="danger">Revoked</Badge> : <Badge variant="success">Active</Badge>}
+                  <td className="text-ink-500">{fmtDate(k.lastUsedAt)}</td>
+                  <td>
+                    {k.revokedAt ? <StatusPill status="Revoked" tone="danger" /> : <StatusPill status="Active" />}
                   </td>
-                  <td className="px-5 py-3 text-right">
+                  <td className="text-right">
                     {!k.revokedAt && (
                       <button
                         onClick={() => setRevokeTarget(k)}
@@ -391,20 +408,26 @@ export default function ApiKeysPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TablePro>
       </section>
+      </Reveal>
 
       {/* ── Webhooks ── */}
+      <Reveal distance={16} duration={0.45}>
       <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-lg font-semibold text-ink-900">Webhook endpoints</h2>
-          <Button onClick={() => setShowEpForm((v) => !v)}>
-            <Plus className="h-4 w-4" /> Add endpoint
-          </Button>
-        </div>
+        <SectionTitle
+          className="mb-0"
+          title="Webhook endpoints"
+          description="Signed event notifications pushed to your servers."
+          action={
+            <Button onClick={() => setShowEpForm((v) => !v)}>
+              <Plus className="h-4 w-4" /> Add endpoint
+            </Button>
+          }
+        />
 
         {showEpForm && (
-          <div className="rounded-2xl border border-ink-100 bg-white p-5">
+          <Panel>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <Label>HTTPS URL</Label>
@@ -438,46 +461,47 @@ export default function ApiKeysPage() {
               </Button>
               <Button variant="secondary" onClick={() => setShowEpForm(false)}>Cancel</Button>
             </div>
-          </div>
+          </Panel>
         )}
 
-        <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-ink-50/60 text-left text-xs uppercase tracking-wider text-ink-500">
+        <TablePro>
+          <table>
+            <thead>
               <tr>
-                <th className="px-5 py-3 font-semibold">URL</th>
-                <th className="px-5 py-3 font-semibold">Events</th>
-                <th className="px-5 py-3 font-semibold">Status</th>
-                <th className="px-5 py-3"></th>
+                <th>URL</th>
+                <th>Events</th>
+                <th>Status</th>
+                <th></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-ink-100 text-ink-800">
+            <tbody>
+              {endpoints.length === 0 && loading && <TableSkeletonRows rows={3} cols={4} />}
               {endpoints.length === 0 && !loading && (
-                <tr>
-                  <td colSpan={4} className="px-5 py-8 text-center text-ink-500">
-                    No endpoints yet. Add one to receive txn / payout / top-up events.
-                  </td>
-                </tr>
+                <TableEmptyRow
+                  colSpan={4}
+                  icon={Webhook}
+                  message="No endpoints yet. Add one to receive txn / payout / top-up events."
+                />
               )}
               {endpoints.map((ep) => (
-                <tr key={ep.id} className="hover:bg-ink-50/40">
-                  <td className="px-5 py-3">
+                <tr key={ep.id}>
+                  <td>
                     <div className="flex items-center gap-2 font-mono text-xs text-ink-900">
                       <Webhook className="h-4 w-4 shrink-0 text-ink-400" />
                       <span className="max-w-[320px] truncate">{ep.url}</span>
                     </div>
                   </td>
-                  <td className="px-5 py-3">
+                  <td>
                     <div className="flex flex-wrap gap-1">
                       {ep.events.map((e) => (
                         <span key={e} className="rounded-full bg-ink-100 px-2 py-0.5 font-mono text-[10px] text-ink-600">{e}</span>
                       ))}
                     </div>
                   </td>
-                  <td className="px-5 py-3">
-                    {ep.active ? <Badge variant="success">Active</Badge> : <Badge variant="default">Paused</Badge>}
+                  <td>
+                    {ep.active ? <StatusPill status="Active" /> : <StatusPill status="Paused" tone="neutral" />}
                   </td>
-                  <td className="px-5 py-3 text-right">
+                  <td className="text-right">
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => toggleEndpoint(ep)}
@@ -499,57 +523,58 @@ export default function ApiKeysPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TablePro>
 
         {deliveries.length > 0 && (
-          <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-            <div className="border-b border-ink-100 px-5 py-3 text-xs font-bold uppercase tracking-widest text-ink-500">
-              Recent deliveries
-            </div>
-            <table className="w-full text-sm">
-              <thead className="bg-ink-50/60 text-left text-xs uppercase tracking-wider text-ink-500">
+          <TablePro title="Recent deliveries" dense>
+            <table>
+              <thead>
                 <tr>
-                  <th className="px-5 py-3 font-semibold">Event</th>
-                  <th className="px-5 py-3 font-semibold">Status</th>
-                  <th className="px-5 py-3 font-semibold">HTTP</th>
-                  <th className="px-5 py-3 font-semibold">Attempts</th>
-                  <th className="px-5 py-3 font-semibold">Time</th>
+                  <th>Event</th>
+                  <th>Status</th>
+                  <th>HTTP</th>
+                  <th>Attempts</th>
+                  <th>Time</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-ink-100 text-ink-800">
+              <tbody>
                 {deliveries.map((d) => (
                   <tr key={d.id}>
-                    <td className="px-5 py-3 font-mono text-xs">{d.event}</td>
-                    <td className="px-5 py-3">
-                      <Badge variant={d.status === "SUCCESS" ? "success" : d.status === "FAILED" ? "danger" : "warning"}>
-                        {d.status}
-                      </Badge>
+                    <td className="font-mono text-xs">{d.event}</td>
+                    <td>
+                      <StatusPill
+                        status={d.status}
+                        tone={d.status === "SUCCESS" ? "success" : d.status === "FAILED" ? "danger" : "warning"}
+                      />
                       {d.lastError && d.status !== "SUCCESS" && (
                         <span className="ml-2 text-xs text-ink-400">{d.lastError.slice(0, 60)}</span>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-ink-500">{d.responseCode ?? "—"}</td>
-                    <td className="px-5 py-3 text-ink-500">{d.attempts}</td>
-                    <td className="px-5 py-3 text-ink-500">{fmtDate(d.deliveredAt ?? d.createdAt)}</td>
+                    <td className="text-ink-500">{d.responseCode ?? "—"}</td>
+                    <td className="text-ink-500">{d.attempts}</td>
+                    <td className="text-ink-500">{fmtDate(d.deliveredAt ?? d.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+          </TablePro>
         )}
       </section>
+      </Reveal>
 
-      <div className="rounded-2xl border border-ink-100 bg-ink-900 p-6 font-mono text-xs text-ink-100">
-        <div className="mb-2 text-ink-300"># Example: check wallet balance</div>
-        <div className="text-emerald-300">curl {typeof window !== "undefined" ? window.location.origin : ""}/api/v1/wallet \</div>
-        <div>  -H &quot;Authorization: Bearer ngp_live_xxxx.your_secret&quot;</div>
-        <div className="mt-3 text-ink-300"># Example: create a payout (idempotent)</div>
-        <div className="text-emerald-300">curl -X POST {typeof window !== "undefined" ? window.location.origin : ""}/api/v1/payouts \</div>
-        <div>  -H &quot;Authorization: Bearer ngp_live_xxxx.your_secret&quot; \</div>
-        <div>  -H &quot;Idempotency-Key: order-8412-payout&quot; \</div>
-        <div>  -H &quot;Content-Type: application/json&quot; \</div>
-        <div>  -d &apos;{"{"}&quot;mode&quot;:&quot;IMPS&quot;,&quot;amount&quot;:5000,&quot;beneficiaryName&quot;:&quot;Ramesh Kumar&quot;,&quot;accountNumber&quot;:&quot;123456789012&quot;,&quot;ifsc&quot;:&quot;SBIN0001234&quot;{"}"}&apos;</div>
-      </div>
+      <Reveal distance={16} duration={0.45}>
+      <DarkPanel className="p-6 font-mono text-xs">
+        <div className="mb-2 text-white/50"># Example: check wallet balance</div>
+        <div className="text-accent-300">curl {typeof window !== "undefined" ? window.location.origin : ""}/api/v1/wallet \</div>
+        <div className="text-white/80">  -H &quot;Authorization: Bearer ngp_live_xxxx.your_secret&quot;</div>
+        <div className="mt-3 text-white/50"># Example: create a payout (idempotent)</div>
+        <div className="text-accent-300">curl -X POST {typeof window !== "undefined" ? window.location.origin : ""}/api/v1/payouts \</div>
+        <div className="text-white/80">  -H &quot;Authorization: Bearer ngp_live_xxxx.your_secret&quot; \</div>
+        <div className="text-white/80">  -H &quot;Idempotency-Key: order-8412-payout&quot; \</div>
+        <div className="text-white/80">  -H &quot;Content-Type: application/json&quot; \</div>
+        <div className="text-white/80">  -d &apos;{"{"}&quot;mode&quot;:&quot;IMPS&quot;,&quot;amount&quot;:5000,&quot;beneficiaryName&quot;:&quot;Ramesh Kumar&quot;,&quot;accountNumber&quot;:&quot;123456789012&quot;,&quot;ifsc&quot;:&quot;SBIN0001234&quot;{"}"}&apos;</div>
+      </DarkPanel>
+      </Reveal>
 
       <ConfirmDialog
         open={revokeTarget !== null}

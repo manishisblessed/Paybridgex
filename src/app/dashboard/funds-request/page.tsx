@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
+import { Panel, SectionTitle } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -205,6 +207,7 @@ export default function FundsRequestPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow={isApprover ? "Approvals" : "Wallet"}
         title={
@@ -251,9 +254,10 @@ export default function FundsRequestPage() {
           </>
         }
       />
+      </Reveal>
 
       {error && (
-        <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           {error}
         </div>
@@ -269,13 +273,15 @@ export default function FundsRequestPage() {
         />
       )}
 
-      <DataTable
-        title={`${rows.length} request${rows.length === 1 ? "" : "s"}`}
-        columns={cols}
-        data={rows}
-        loading={fetching}
-        empty="No fund requests yet. Click 'New request' to create one."
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title={`${rows.length} request${rows.length === 1 ? "" : "s"}`}
+          columns={cols}
+          data={rows}
+          loading={fetching}
+          empty="No fund requests yet. Click 'New request' to create one."
+        />
+      </Reveal>
 
       <ConfirmDialog
         open={rejectTarget !== null}
@@ -355,10 +361,13 @@ function NewRequestForm({
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50/60 to-white p-5"
-    >
+    <Reveal distance={16} duration={0.45}>
+    <Panel className="border-brand-200 bg-gradient-to-br from-brand-50/60 to-white">
+    <form onSubmit={handleSubmit}>
+      <SectionTitle
+        title="New fund request"
+        description="Submit your bank deposit reference for approval."
+      />
       <div className="grid gap-4 md:grid-cols-4">
         <div>
           <Label>Amount (₹)</Label>
@@ -412,5 +421,7 @@ function NewRequestForm({
         </Button>
       </div>
     </form>
+    </Panel>
+    </Reveal>
   );
 }

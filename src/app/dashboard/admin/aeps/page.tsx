@@ -4,11 +4,24 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
+import { StatTile, StatusPill, TabNav, ModalShell } from "@/components/dashboard/ui";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { formatINR, formatNumber } from "@/lib/utils";
-import { Fingerprint, RefreshCw, UserPlus } from "lucide-react";
+import {
+  Fingerprint,
+  RefreshCw,
+  UserPlus,
+  Store,
+  Clock,
+  Ban,
+  Wallet,
+  Banknote,
+  ShieldAlert,
+  Landmark,
+  History,
+} from "lucide-react";
 
 type Merchant = {
   id: string;
@@ -64,21 +77,6 @@ type Tab = "merchants" | "accounts" | "settlements";
 
 const inputCls =
   "rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100";
-
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
-  return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">{label}</p>
-      <p
-        className={`mt-1 text-xl font-bold ${
-          tone === "good" ? "text-emerald-600" : tone === "bad" ? "text-rose-600" : "text-ink-900"
-        }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
 
 export default function AepsCentrePage() {
   const [tab, setTab] = useState<Tab>("merchants");
@@ -178,13 +176,10 @@ export default function AepsCentrePage() {
       key: "status",
       header: "Status",
       render: (m) => (
-        <Badge
-          variant={
-            m.status === "ACTIVE" ? "success" : m.status === "PENDING" ? "warning" : "danger"
-          }
-        >
-          {m.status.toLowerCase()}
-        </Badge>
+        <StatusPill
+          status={m.status.toLowerCase()}
+          tone={m.status === "ACTIVE" ? "success" : m.status === "PENDING" ? "warning" : "danger"}
+        />
       ),
     },
     {
@@ -244,9 +239,10 @@ export default function AepsCentrePage() {
       key: "penny",
       header: "Penny drop",
       render: (a) => (
-        <Badge variant={a.pennyDropVerified ? "success" : "default"}>
-          {a.pennyDropVerified ? "verified" : "not verified"}
-        </Badge>
+        <StatusPill
+          status={a.pennyDropVerified ? "verified" : "not verified"}
+          tone={a.pennyDropVerified ? "success" : "neutral"}
+        />
       ),
     },
     {
@@ -254,9 +250,10 @@ export default function AepsCentrePage() {
       header: "Status",
       render: (a) => (
         <div>
-          <Badge variant={a.status === "APPROVED" ? "success" : a.status === "REJECTED" ? "danger" : "warning"}>
-            {a.status.toLowerCase().replace(/_/g, " ")}
-          </Badge>
+          <StatusPill
+            status={a.status.toLowerCase().replace(/_/g, " ")}
+            tone={a.status === "APPROVED" ? "success" : a.status === "REJECTED" ? "danger" : "warning"}
+          />
           {a.reviewNote && <p className="mt-0.5 text-xs text-ink-400">{a.reviewNote}</p>}
         </div>
       ),
@@ -291,15 +288,16 @@ export default function AepsCentrePage() {
     },
     { key: "amount", header: "Amount", render: (s) => <span className="font-semibold">{formatINR(s.amount)}</span> },
     { key: "charge", header: "Charge", render: (s) => <span>{s.charge > 0 ? formatINR(s.charge) : "—"}</span> },
-    { key: "mode", header: "Mode", render: (s) => <Badge variant="default">{s.mode.toLowerCase()}</Badge> },
+    { key: "mode", header: "Mode", render: (s) => <StatusPill status={s.mode.toLowerCase()} tone="neutral" /> },
     {
       key: "status",
       header: "Status",
       render: (s) => (
         <div>
-          <Badge variant={s.status === "SUCCESS" ? "success" : s.status === "FAILED" ? "danger" : "warning"}>
-            {s.status.toLowerCase()}
-          </Badge>
+          <StatusPill
+            status={s.status.toLowerCase()}
+            tone={s.status === "SUCCESS" ? "success" : s.status === "FAILED" ? "danger" : "warning"}
+          />
           {s.utr && <p className="mt-0.5 font-mono text-xs text-ink-400">{s.utr}</p>}
         </div>
       ),
@@ -315,61 +313,81 @@ export default function AepsCentrePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="AEPS Centre"
-        description="Aadhaar-enabled payments control — merchant onboarding, settlement account approvals, float and settlement history."
-        actions={
-          <div className="flex gap-2">
-            <OnboardButton busy={busy} act={act} />
-            <Button variant="outline" onClick={load}>
-              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-            </Button>
-          </div>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          title="AEPS Centre"
+          description="Aadhaar-enabled payments control — merchant onboarding, settlement account approvals, float and settlement history."
+          actions={
+            <div className="flex gap-2">
+              <OnboardButton busy={busy} act={act} />
+              <Button variant="outline" onClick={load}>
+                <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+              </Button>
+            </div>
+          }
+        />
+      </Reveal>
 
       {overview && (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-          <Stat label="Active merchants" value={formatNumber(overview.merchants.active)} tone="good" />
-          <Stat label="Pending merchants" value={String(overview.merchants.pending)} />
-          <Stat label="Suspended" value={String(overview.merchants.suspended)} tone={overview.merchants.suspended > 0 ? "bad" : undefined} />
-          <Stat label="AEPS float" value={formatINR(overview.float.totalAmount)} />
-          <Stat label="Settled (24h)" value={formatINR(overview.settled24h.amount)} tone="good" />
-          <Stat label="Account approvals due" value={String(overview.pendingAccountApprovals)} tone={overview.pendingAccountApprovals > 0 ? "bad" : undefined} />
-        </div>
+        <Stagger stagger={0.05} className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="Active merchants" countTo={overview.merchants.active} icon={Store} tone="emerald" />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="Pending merchants" countTo={overview.merchants.pending} icon={Clock} tone="amber" />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label="Suspended"
+              countTo={overview.merchants.suspended}
+              icon={Ban}
+              tone={overview.merchants.suspended > 0 ? "rose" : "ink"}
+            />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="AEPS float" value={formatINR(overview.float.totalAmount)} icon={Wallet} tone="brand" />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="Settled (24h)" value={formatINR(overview.settled24h.amount)} icon={Banknote} tone="emerald" />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label="Account approvals due"
+              countTo={overview.pendingAccountApprovals}
+              icon={ShieldAlert}
+              tone={overview.pendingAccountApprovals > 0 ? "rose" : "ink"}
+            />
+          </StaggerItem>
+        </Stagger>
       )}
 
-      <div className="flex gap-2">
-        {(
-          [
-            ["merchants", "Merchants"],
-            ["accounts", "Settlement accounts"],
-            ["settlements", "Settlement history"],
-          ] as Array<[Tab, string]>
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => {
-              setTab(key);
-              setPage(1);
-            }}
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-              tab === key ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <TabNav
+        tabs={[
+          { key: "merchants", label: "Merchants", icon: Store },
+          { key: "accounts", label: "Settlement accounts", icon: Landmark },
+          { key: "settlements", label: "Settlement history", icon: History },
+        ]}
+        active={tab}
+        onChange={(key) => {
+          setTab(key as Tab);
+          setPage(1);
+        }}
+      />
 
       {tab === "merchants" && (
-        <DataTable columns={merchantColumns} data={merchants} loading={loading} />
+        <Reveal distance={16} duration={0.45}>
+          <DataTable columns={merchantColumns} data={merchants} loading={loading} />
+        </Reveal>
       )}
       {tab === "accounts" && (
-        <DataTable columns={accountColumns} data={accounts} loading={loading} />
+        <Reveal distance={16} duration={0.45}>
+          <DataTable columns={accountColumns} data={accounts} loading={loading} />
+        </Reveal>
       )}
       {tab === "settlements" && (
-        <DataTable columns={settlementColumns} data={settlements} loading={loading} />
+        <Reveal distance={16} duration={0.45}>
+          <DataTable columns={settlementColumns} data={settlements} loading={loading} />
+        </Reveal>
       )}
 
       {pages > 1 && (
@@ -476,71 +494,74 @@ function OnboardButton({
       <Button onClick={() => setOpen(true)}>
         <UserPlus className="mr-2 h-4 w-4" /> Onboard merchant
       </Button>
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/50 p-4 backdrop-blur-sm" onClick={() => setOpen(false)}>
-          <div className="w-full max-w-md rounded-2xl bg-white p-6" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-1 flex items-center gap-2 text-base font-bold text-ink-900">
-              <Fingerprint className="h-4 w-4 text-brand-600" /> Onboard AEPS merchant
-            </h3>
-            <p className="mb-4 text-xs text-ink-400">
-              Creates the merchant record in PENDING state — activate after provider onboarding completes.
-            </p>
-            <label className="block text-xs text-ink-500">
-              Network user
-              <input
-                className={`${inputCls} mt-1 w-full`}
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
+      <ModalShell
+        open={open}
+        onClose={() => setOpen(false)}
+        eyebrow="AEPS Centre"
+        title={
+          <span className="inline-flex items-center gap-2">
+            <Fingerprint className="h-4 w-4 text-brand-600" /> Onboard AEPS merchant
+          </span>
+        }
+        subtitle="Creates the merchant record in PENDING state — activate after provider onboarding completes."
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button
+              disabled={busy || !userId}
+              onClick={async () => {
+                const ok = await act({ action: "onboard_merchant", userId, provider }, "Merchant record created (PENDING).");
+                if (ok) {
+                  setOpen(false);
+                  setQuery("");
                   setUserId("");
-                }}
-                placeholder="Search name / email (min 3 chars)"
-              />
-            </label>
-            {matches.length > 0 && (
-              <div className="mt-1 rounded-xl border border-ink-100">
-                {matches.map((m) => (
-                  <button
-                    key={m.id}
-                    className="block w-full px-3 py-2 text-left text-sm hover:bg-ink-50"
-                    onClick={() => {
-                      setUserId(m.id);
-                      setQuery(m.label);
-                      setMatches([]);
-                    }}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            )}
-            <label className="mt-3 block text-xs text-ink-500">
-              Provider
-              <select className={`${inputCls} mt-1 w-full`} value={provider} onChange={(e) => setProvider(e.target.value)}>
-                <option value="PAYSPRINT">Paysprint</option>
-                <option value="EKYCHUB">eKYC Hub</option>
-                <option value="MOCK">Mock (testing)</option>
-              </select>
-            </label>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button
-                disabled={busy || !userId}
-                onClick={async () => {
-                  const ok = await act({ action: "onboard_merchant", userId, provider }, "Merchant record created (PENDING).");
-                  if (ok) {
-                    setOpen(false);
-                    setQuery("");
-                    setUserId("");
-                  }
+                }
+              }}
+            >
+              Onboard
+            </Button>
+          </>
+        }
+      >
+        <label className="block text-xs text-ink-500">
+          Network user
+          <input
+            className={`${inputCls} mt-1 w-full`}
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setUserId("");
+            }}
+            placeholder="Search name / email (min 3 chars)"
+          />
+        </label>
+        {matches.length > 0 && (
+          <div className="mt-1 overflow-hidden rounded-xl border border-ink-100 shadow-sm">
+            {matches.map((m) => (
+              <button
+                key={m.id}
+                className="block w-full px-3 py-2 text-left text-sm transition hover:bg-brand-50/60"
+                onClick={() => {
+                  setUserId(m.id);
+                  setQuery(m.label);
+                  setMatches([]);
                 }}
               >
-                Onboard
-              </Button>
-            </div>
+                {m.label}
+              </button>
+            ))}
           </div>
-        </div>
-      )}
+        )}
+        <label className="mt-3 block text-xs text-ink-500">
+          Provider
+          <select className={`${inputCls} mt-1 w-full`} value={provider} onChange={(e) => setProvider(e.target.value)}>
+            <option value="PAYSPRINT">Paysprint</option>
+            <option value="EKYCHUB">eKYC Hub</option>
+            <option value="MOCK">Mock (testing)</option>
+          </select>
+        </label>
+      </ModalShell>
     </>
   );
 }

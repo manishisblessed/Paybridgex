@@ -13,8 +13,11 @@ import {
   X,
   Phone,
   Mail,
+  Clock,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
+import { StatTile } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -259,6 +262,7 @@ export default function AdminKycPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow="Admin"
         title="KYC approvals"
@@ -295,6 +299,7 @@ export default function AdminKycPage() {
           </>
         }
       />
+      </Reveal>
 
       {error && (
         <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -303,21 +308,57 @@ export default function AdminKycPage() {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Awaiting review" value={stats.pending} tone="warning" />
-        <Stat label="Awaiting re-upload" value={stats.awaitingResubmission} tone="brand" />
-        <Stat label="Verified" value={stats.approved} tone="success" />
-        <Stat label="Rejected" value={stats.rejected} tone="danger" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Awaiting review"
+            countTo={stats.pending}
+            icon={Clock}
+            tone="amber"
+            loading={fetching}
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Awaiting re-upload"
+            countTo={stats.awaitingResubmission}
+            icon={RefreshCw}
+            tone="brand"
+            loading={fetching}
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Verified"
+            countTo={stats.approved}
+            icon={ShieldCheck}
+            tone="emerald"
+            loading={fetching}
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Rejected"
+            countTo={stats.rejected}
+            icon={XCircle}
+            tone="rose"
+            loading={fetching}
+          />
+        </StaggerItem>
+      </Stagger>
 
-      <DataTable
-        title="KYC queue"
-        columns={cols}
-        data={rows}
-        loading={fetching}
-        empty="No KYC applications found."
-      />
-      <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
+      <Reveal distance={16} duration={0.45}>
+        <div className="space-y-6">
+          <DataTable
+            title="KYC queue"
+            columns={cols}
+            data={rows}
+            loading={fetching}
+            empty="No KYC applications found."
+          />
+          <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
+        </div>
+      </Reveal>
 
       {viewing && (
         <DetailDrawer
@@ -406,7 +447,7 @@ function DetailDrawer({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4 py-6"
+      className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4 py-6 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -414,7 +455,7 @@ function DetailDrawer({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 border-b border-ink-100 bg-gradient-to-br from-brand-50/60 to-white px-6 py-5">
+        <div className="flex items-start justify-between gap-4 border-b border-ink-100 bg-gradient-to-br from-brand-50 to-white px-6 py-5">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-700">
@@ -541,35 +582,6 @@ function DetailDrawer({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ─── Helper Components ──────────────────────────────────────────────── */
-
-function Stat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "success" | "danger" | "warning" | "brand";
-}) {
-  const map = {
-    success: "from-emerald-500 to-emerald-700 text-emerald-50",
-    danger: "from-rose-500 to-rose-700 text-rose-50",
-    warning: "from-amber-500 to-amber-700 text-amber-50",
-    brand: "from-brand-500 to-brand-700 text-brand-50",
-  };
-  return (
-    <div
-      className={`rounded-2xl bg-gradient-to-br ${map[tone]} p-5 shadow-soft`}
-    >
-      <p className="text-xs font-bold uppercase tracking-widest opacity-90">
-        {label}
-      </p>
-      <p className="mt-2 font-display text-3xl font-bold">{value}</p>
     </div>
   );
 }

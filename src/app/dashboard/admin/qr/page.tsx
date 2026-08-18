@@ -13,13 +13,13 @@ import {
   XCircle,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
-import { StatCard } from "@/components/dashboard/StatCard";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
-import { Badge } from "@/components/ui/Badge";
+import { StatTile, StatusPill, TabNav, SegmentedNav, type PillTone } from "@/components/dashboard/ui";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Modal } from "@/components/ui/Modal";
 import { Input, Label } from "@/components/ui/Input";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { formatINR } from "@/lib/utils";
 
 type Overview = {
@@ -205,16 +205,14 @@ function ReviewQueueTab() {
       key: "status",
       header: "Status",
       render: (r) => {
-        const variant =
-          r.status === "SETTLED" || r.status === "APPROVED"
+        const tone: PillTone =
+          r.status === "SETTLED" || r.status === "APPROVED" || r.status === "SETTLEABLE"
             ? "success"
-            : r.status === "SETTLEABLE"
-              ? "accent"
-              : r.status === "PENDING"
-                ? "warning"
-                : r.status === "AWAITING_SECOND_APPROVAL"
-                  ? "brand"
-                  : "danger";
+            : r.status === "PENDING"
+              ? "warning"
+              : r.status === "AWAITING_SECOND_APPROVAL"
+                ? "violet"
+                : "danger";
         const label =
           r.status === "AWAITING_SECOND_APPROVAL"
             ? "NEEDS 2ND APPROVAL"
@@ -223,7 +221,7 @@ function ReviewQueueTab() {
               : r.status;
         return (
           <div>
-            <Badge variant={variant as "success" | "warning" | "danger" | "brand" | "accent"}>{label}</Badge>
+            <StatusPill status={r.status} tone={tone}>{label}</StatusPill>
           </div>
         );
       },
@@ -298,31 +296,37 @@ function ReviewQueueTab() {
   return (
     <div className="space-y-6">
       {overview && (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          <StatCard
-            label="Pending review"
-            value={`${overview.pendingCount + overview.awaitingSecondCount} · ${formatINR(overview.pendingAmount + overview.awaitingSecondAmount)}`}
-            icon={Clock}
-            accent="accent"
-          />
-          <StatCard
-            label="Needs 2nd approval"
-            value={`${overview.awaitingSecondCount} · ${formatINR(overview.awaitingSecondAmount)}`}
-            icon={ShieldCheck}
-            accent="violet"
-          />
-          <StatCard
-            label="Outstanding receivable (credited, unsettled by provider)"
-            value={formatINR(overview.outstandingReceivable)}
-            icon={Banknote}
-            accent="brand"
-          />
-        </div>
+        <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label="Pending review"
+              value={`${overview.pendingCount + overview.awaitingSecondCount} · ${formatINR(overview.pendingAmount + overview.awaitingSecondAmount)}`}
+              icon={Clock}
+              tone="amber"
+            />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label="Needs 2nd approval"
+              value={`${overview.awaitingSecondCount} · ${formatINR(overview.awaitingSecondAmount)}`}
+              icon={ShieldCheck}
+              tone="violet"
+            />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label="Outstanding receivable (credited, unsettled by provider)"
+              value={formatINR(overview.outstandingReceivable)}
+              icon={Banknote}
+              tone="brand"
+            />
+          </StaggerItem>
+        </Stagger>
       )}
 
       {/* Review panel */}
       {selected && (
-        <div className="rounded-2xl border-2 border-brand-200 bg-white p-6">
+        <div className="rounded-2xl border-2 border-brand-200 bg-white p-6 shadow-soft">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-widest text-ink-500">Reviewing claim</p>
@@ -425,39 +429,28 @@ function ReviewQueueTab() {
       )}
 
       <div className="flex items-center justify-between">
-        <div className="flex gap-2">
-          {(
-            [
-              { id: "REVIEWABLE", label: "Awaiting action" },
-              { id: "ALL", label: "All claims" },
-            ] as const
-          ).map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setStatusFilter(f.id)}
-              className={`rounded-xl border px-3 py-1.5 text-xs font-semibold ${
-                statusFilter === f.id
-                  ? "border-brand-500 bg-brand-50 text-brand-700"
-                  : "border-ink-100 bg-white text-ink-600 hover:border-ink-200"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <SegmentedNav
+          tabs={[
+            { key: "REVIEWABLE", label: "Awaiting action" },
+            { key: "ALL", label: "All claims" },
+          ]}
+          active={statusFilter}
+          onChange={(key) => setStatusFilter(key as "REVIEWABLE" | "ALL")}
+        />
         <Button variant="outline" onClick={refresh} disabled={loading} className="h-8 px-2">
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
         </Button>
       </div>
 
-      <DataTable
-        title="Claims (oldest first)"
-        loading={loading}
-        columns={cols}
-        data={claims}
-        empty="Nothing awaiting review."
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title="Claims (oldest first)"
+          loading={loading}
+          columns={cols}
+          data={claims}
+          empty="Nothing awaiting review."
+        />
+      </Reveal>
     </div>
   );
 }
@@ -466,11 +459,11 @@ function ReviewQueueTab() {
 // Tab 2 — static QR management
 // ---------------------------------------------------------------------------
 
-const QR_STATE_BADGE: Record<QrState, { variant: "success" | "brand" | "warning" | "default"; label: string }> = {
-  LIVE: { variant: "success", label: "Live" },
-  QUEUED: { variant: "brand", label: "Queued" },
-  FULL_TODAY: { variant: "warning", label: "Full today" },
-  DISABLED: { variant: "default", label: "Disabled" },
+const QR_STATE_BADGE: Record<QrState, { tone: PillTone; label: string }> = {
+  LIVE: { tone: "success", label: "Live" },
+  QUEUED: { tone: "brand", label: "Queued" },
+  FULL_TODAY: { tone: "warning", label: "Full today" },
+  DISABLED: { tone: "neutral", label: "Disabled" },
 };
 
 function QrManageTab() {
@@ -685,7 +678,7 @@ function QrManageTab() {
       header: "Status",
       render: (r) => {
         const b = QR_STATE_BADGE[r.state];
-        return <Badge variant={b.variant}>{b.label}</Badge>;
+        return <StatusPill status={r.state} tone={b.tone}>{b.label}</StatusPill>;
       },
     },
     {
@@ -723,7 +716,7 @@ function QrManageTab() {
   return (
     <div className="space-y-6">
 
-      <form onSubmit={submitQr} className="rounded-2xl border border-ink-100 bg-white p-6">
+      <form onSubmit={submitQr} className="rounded-2xl border border-ink-100 bg-white p-6 shadow-sm">
         <div className="flex items-center gap-2">
           <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white">
             <QrCode className="h-4 w-4" />
@@ -815,14 +808,16 @@ function QrManageTab() {
         </Button>
       </form>
 
-      <DataTable
-        title="QR queue"
-        loading={loading}
-        description="Ordered by priority. Retailers see remaining headroom on the live QR and collect overflow on the next one; full QRs auto-resume tomorrow. Old QRs are never deleted so historical claims stay traceable."
-        columns={cols}
-        data={qrs}
-        empty="No QR uploaded yet — retailers currently have nothing to collect on."
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title="QR queue"
+          loading={loading}
+          description="Ordered by priority. Retailers see remaining headroom on the live QR and collect overflow on the next one; full QRs auto-resume tomorrow. Old QRs are never deleted so historical claims stay traceable."
+          columns={cols}
+          data={qrs}
+          empty="No QR uploaded yet — retailers currently have nothing to collect on."
+        />
+      </Reveal>
 
       <ConfirmDialog
         open={liveTarget !== null}
@@ -922,33 +917,22 @@ export default function AdminQrPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="QR Collections"
-        description="Manage the shop collection QR and verify retailer settlement claims. Money moves only after the UTR is confirmed in the provider portal."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="QR Collections"
+          description="Manage the shop collection QR and verify retailer settlement claims. Money moves only after the UTR is confirmed in the provider portal."
+        />
+      </Reveal>
 
-      <div className="flex gap-2">
-        {(
-          [
-            { id: "queue", label: "Review queue" },
-            { id: "manage", label: "QR codes" },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`rounded-xl border-2 px-4 py-2 text-sm font-semibold transition ${
-              tab === t.id
-                ? "border-brand-500 bg-brand-50 text-brand-700"
-                : "border-ink-100 bg-white text-ink-700 hover:border-ink-200"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <TabNav
+        tabs={[
+          { key: "queue", label: "Review queue", icon: ShieldCheck },
+          { key: "manage", label: "QR codes", icon: QrCode },
+        ]}
+        active={tab}
+        onChange={(key) => setTab(key as "queue" | "manage")}
+      />
 
       {tab === "queue" ? <ReviewQueueTab /> : <QrManageTab />}
     </div>

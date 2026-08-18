@@ -8,10 +8,8 @@ import {
   Send,
   CheckCircle2,
   XCircle,
-  Clock,
   Loader2,
   Eye,
-  ChevronDown,
   Search,
   RefreshCw,
   Pencil,
@@ -23,12 +21,24 @@ import {
   Link2,
   Copy,
   Share2,
+  Inbox,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { UplineChain } from "@/components/dashboard/UplineChain";
+import {
+  FilterBar,
+  Panel,
+  SectionTitle,
+  StatusPill,
+  TableEmptyRow,
+  TablePro,
+  TableSkeletonRows,
+  type PillTone,
+} from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "SUPER_DISTRIBUTOR", label: "Super Distributor" },
@@ -94,13 +104,13 @@ type Invite = {
   onboardingLink?: string | null;
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: "bg-amber-100 text-amber-800",
-  REGISTERED: "bg-blue-100 text-blue-800",
-  VERIFIED: "bg-indigo-100 text-indigo-800",
-  APPROVED: "bg-emerald-100 text-emerald-800",
-  REJECTED: "bg-rose-100 text-rose-800",
-  EXPIRED: "bg-gray-100 text-gray-600",
+const STATUS_TONES: Record<string, PillTone> = {
+  PENDING: "warning",
+  REGISTERED: "brand",
+  VERIFIED: "violet",
+  APPROVED: "success",
+  REJECTED: "danger",
+  EXPIRED: "neutral",
 };
 
 const DOC_TYPE_LABEL: Record<string, string> = {
@@ -270,13 +280,15 @@ export default function AdminInvitesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="Onboarding Invites"
-        description="Create and manage onboarding invites for any network role."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="Onboarding Invites"
+          description="Create and manage onboarding invites for any network role."
+        />
+      </Reveal>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <FilterBar>
         <Button onClick={() => setShowCreate(true)}>
           <UserPlus className="h-4 w-4" /> Create Invite
         </Button>
@@ -296,7 +308,7 @@ export default function AdminInvitesPage() {
         <span className="ml-auto text-sm text-ink-500">
           {total} invite{total !== 1 ? "s" : ""}
         </span>
-      </div>
+      </FilterBar>
 
       {showCreate && (
         <CreateInviteForm
@@ -341,42 +353,39 @@ export default function AdminInvitesPage() {
         />
       )}
 
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
-        </div>
-      ) : invites.length === 0 ? (
-        <div className="rounded-2xl border border-ink-100 bg-white p-10 text-center">
-          <p className="text-ink-500">No invites found.</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-2xl border border-ink-100 bg-white">
-          <table className="w-full min-w-[960px] text-sm">
-            <thead className="border-b border-ink-100 bg-ink-50/50">
+      <Reveal distance={16} duration={0.45}>
+        <TablePro title="Invites" dense>
+          <table className="min-w-[960px]">
+            <thead>
               <tr>
-                <th className="px-4 py-3 text-left font-semibold text-ink-700">Contact</th>
-                <th className="px-4 py-3 text-left font-semibold text-ink-700">Role</th>
-                <th className="px-4 py-3 text-left font-semibold text-ink-700">Shared By</th>
-                <th className="px-4 py-3 text-left font-semibold text-ink-700">Upline</th>
-                <th className="px-4 py-3 text-left font-semibold text-ink-700">Status</th>
-                <th className="px-4 py-3 text-left font-semibold text-ink-700">Created</th>
-                <th className="sticky right-0 z-20 bg-ink-50 px-4 py-3 text-right font-semibold text-ink-700 shadow-[-8px_0_12px_-8px_rgba(14,22,38,0.12)]">Actions</th>
+                <th>Contact</th>
+                <th>Role</th>
+                <th>Shared By</th>
+                <th>Upline</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th className="sticky right-0 z-20 bg-ink-50 text-right shadow-[-8px_0_12px_-8px_rgba(14,22,38,0.12)]">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-ink-50">
-              {invites.map((inv) => (
-                <tr key={inv.id} className="group hover:bg-ink-50/30">
-                  <td className="px-4 py-3">
+            <tbody>
+              {loading ? (
+                <TableSkeletonRows rows={6} cols={7} />
+              ) : invites.length === 0 ? (
+                <TableEmptyRow colSpan={7} icon={Inbox} message="No invites found." />
+              ) : (
+                invites.map((inv) => (
+                <tr key={inv.id} className="group">
+                  <td>
                     <div className="font-medium text-ink-900">{inv.name || inv.email}</div>
                     <div className="text-xs text-ink-500">{inv.phone}</div>
                     {inv.userCode && (
                       <div className="mt-0.5 text-xs font-medium text-brand-600">{inv.userCode}</div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-ink-700">
+                  <td className="text-ink-700">
                     {inv.role.replace("_", " ")}
                   </td>
-                  <td className="px-4 py-3">
+                  <td>
                     {inv.invitedBy ? (
                       <div>
                         <div className="font-medium text-ink-900">{inv.invitedBy.name}</div>
@@ -389,32 +398,30 @@ export default function AdminInvitesPage() {
                       <span className="text-xs text-ink-400">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td>
                     <UplineChain nodes={inv.upline ?? []} />
                   </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[inv.status] ?? "bg-gray-100 text-gray-700"}`}>
-                      {inv.status}
-                    </span>
+                  <td>
+                    <StatusPill status={inv.status} tone={STATUS_TONES[inv.status] ?? "neutral"} />
                   </td>
-                  <td className="px-4 py-3 text-ink-500">
+                  <td className="text-ink-500">
                     {new Date(inv.createdAt).toLocaleDateString()}
                   </td>
-                  <td className="sticky right-0 z-10 bg-white px-4 py-3 text-right shadow-[-8px_0_12px_-8px_rgba(14,22,38,0.12)] group-hover:bg-ink-50">
-                    <div className="flex items-center justify-end gap-2">
+                  <td className="sticky right-0 z-10 bg-white text-right shadow-[-8px_0_12px_-8px_rgba(14,22,38,0.12)] group-hover:bg-brand-50">
+                    <div className="flex items-center justify-end gap-1">
                       {inv.onboardingLink && ACTIVE_LINK_STATUSES.includes(inv.status) && (
                         <>
                           <button
                             onClick={() => copyOnboardingLink(inv.onboardingLink!)}
                             title="Copy onboarding link"
-                            className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-900"
+                            className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-900"
                           >
                             <Link2 className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => shareOnboardingLink(inv.onboardingLink!, inv.name)}
                             title="Share onboarding link"
-                            className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-900"
+                            className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-900"
                           >
                             <Share2 className="h-4 w-4" />
                           </button>
@@ -425,7 +432,7 @@ export default function AdminInvitesPage() {
                           <button
                             onClick={() => setEditingInvite(inv)}
                             title="Edit mobile number or email"
-                            className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-900"
+                            className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-900"
                           >
                             <Pencil className="h-4 w-4" />
                           </button>
@@ -433,7 +440,7 @@ export default function AdminInvitesPage() {
                             onClick={() => handleResend(inv.id)}
                             disabled={resending === inv.id}
                             title="Resend onboarding email"
-                            className="rounded-lg p-1.5 text-brand-600 hover:bg-brand-50 disabled:opacity-50"
+                            className="grid h-8 w-8 place-items-center rounded-lg text-brand-700 hover:bg-brand-50 disabled:opacity-30"
                           >
                             {resending === inv.id ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
@@ -448,7 +455,7 @@ export default function AdminInvitesPage() {
                           onClick={() => handleReshare(inv.id)}
                           disabled={resharing === inv.id}
                           title="Generate a fresh link & reshare (for users who couldn't finish onboarding)"
-                          className="rounded-lg p-1.5 text-amber-600 hover:bg-amber-50 disabled:opacity-50"
+                          className="grid h-8 w-8 place-items-center rounded-lg text-amber-700 hover:bg-amber-50 disabled:opacity-30"
                         >
                           {resharing === inv.id ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -459,7 +466,8 @@ export default function AdminInvitesPage() {
                       )}
                       <button
                         onClick={() => viewDetail(inv.id)}
-                        className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-100 hover:text-ink-900"
+                        title="View details"
+                        className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-900"
                       >
                         <Eye className="h-4 w-4" />
                       </button>
@@ -467,13 +475,15 @@ export default function AdminInvitesPage() {
                         <>
                           <button
                             onClick={() => handleAction(inv.id, "approve")}
-                            className="rounded-lg p-1.5 text-emerald-600 hover:bg-emerald-50"
+                            title="Approve"
+                            className="grid h-8 w-8 place-items-center rounded-lg text-emerald-700 hover:bg-emerald-50"
                           >
                             <CheckCircle2 className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => setRejectTarget(inv.id)}
-                            className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50"
+                            title="Reject"
+                            className="grid h-8 w-8 place-items-center rounded-lg text-rose-700 hover:bg-rose-50"
                           >
                             <XCircle className="h-4 w-4" />
                           </button>
@@ -482,11 +492,12 @@ export default function AdminInvitesPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
-        </div>
-      )}
+        </TablePro>
+      </Reveal>
 
       <ConfirmDialog
         open={rejectTarget !== null}
@@ -617,11 +628,19 @@ function CreateInviteForm({
   }
 
   return (
-    <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-6 shadow-soft">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="font-display text-lg font-bold text-ink-900">Create New Invite</h3>
-        <button onClick={onClose} className="text-ink-400 hover:text-ink-700">✕</button>
-      </div>
+    <Panel className="border-brand-200/70 bg-gradient-to-br from-brand-50/60 to-white shadow-soft">
+      <SectionTitle
+        title="Create New Invite"
+        action={
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        }
+      />
 
       {error && (
         <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
@@ -753,7 +772,7 @@ function CreateInviteForm({
           </Button>
         </div>
       </form>
-    </div>
+    </Panel>
   );
 }
 
@@ -809,18 +828,20 @@ function EditInviteForm({
   }
 
   return (
-    <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-6 shadow-soft">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="font-display text-lg font-bold text-ink-900">
-          Edit Invite — {invite.role.replace(/_/g, " ")}
-        </h3>
-        <button onClick={onClose} className="text-ink-400 hover:text-ink-700">✕</button>
-      </div>
-
-      <p className="mb-4 text-sm text-ink-500">
-        Correct the mobile number or email if the invite was sent to the wrong
-        contact. The onboarding link will be re-sent to the updated details.
-      </p>
+    <Panel className="border-brand-200/70 bg-gradient-to-br from-brand-50/60 to-white shadow-soft">
+      <SectionTitle
+        title={<>Edit Invite — {invite.role.replace(/_/g, " ")}</>}
+        description="Correct the mobile number or email if the invite was sent to the wrong contact. The onboarding link will be re-sent to the updated details."
+        action={
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        }
+      />
 
       {error && (
         <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
@@ -871,7 +892,7 @@ function EditInviteForm({
           </Button>
         </div>
       </form>
-    </div>
+    </Panel>
   );
 }
 
@@ -929,13 +950,19 @@ function InviteDetail({
   }
 
   return (
-    <div className="rounded-2xl border border-ink-200 bg-white p-6 shadow-soft">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="font-display text-lg font-bold text-ink-900">
-          Invite Details
-        </h3>
-        <button onClick={onClose} className="text-ink-400 hover:text-ink-700">✕</button>
-      </div>
+    <Panel className="shadow-soft">
+      <SectionTitle
+        title="Invite Details"
+        action={
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        }
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-xl bg-ink-50 p-4">
@@ -947,9 +974,7 @@ function InviteDetail({
         <div className="rounded-xl bg-ink-50 p-4">
           <p className="text-xs font-bold uppercase tracking-wider text-ink-500">Role & Status</p>
           <p className="mt-1 font-semibold">{invite.role.replace("_", " ")}</p>
-          <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[invite.status]}`}>
-            {invite.status}
-          </span>
+          <StatusPill status={invite.status} tone={STATUS_TONES[invite.status] ?? "neutral"} />
         </div>
         <div className="rounded-xl bg-ink-50 p-4">
           <p className="text-xs font-bold uppercase tracking-wider text-ink-500">Timeline</p>
@@ -1252,17 +1277,16 @@ function InviteDetail({
                         {new Date(a.sentAt).toLocaleString()}
                       </p>
                     </div>
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                    <StatusPill
+                      status={a.status}
+                      tone={
                         tone === "ok"
-                          ? "bg-emerald-100 text-emerald-800"
+                          ? "success"
                           : tone === "pending"
-                          ? "bg-amber-100 text-amber-800"
-                          : "bg-rose-100 text-rose-800"
-                      }`}
-                    >
-                      {a.status}
-                    </span>
+                          ? "warning"
+                          : "danger"
+                      }
+                    />
                   </div>
 
                   {a.status === "APPROVED" && (
@@ -1370,6 +1394,6 @@ function InviteDetail({
           />
         </div>
       )}
-    </div>
+    </Panel>
   );
 }

@@ -7,6 +7,7 @@ import { ServicePageHeader } from "@/components/dashboard/ServicePage";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { PinInput } from "@/components/security/PinInput";
+import { Reveal } from "@/components/motion";
 
 type Status = { isSet: boolean; setAt: string | null; lockedUntil: string | null };
 
@@ -77,7 +78,7 @@ export default function TxnPinPage() {
   if (done) {
     return (
       <div className="mx-auto max-w-lg space-y-6 text-center">
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-100">
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-emerald-50 to-brand-50 ring-1 ring-emerald-100">
           <CheckCircle2 className="h-8 w-8 text-emerald-600" />
         </div>
         <div>
@@ -98,11 +99,13 @@ export default function TxnPinPage() {
 
   return (
     <div className="mx-auto max-w-lg">
-      <ServicePageHeader
-        icon={KeyRound}
-        title={isChange ? "Change transaction PIN" : "Set transaction PIN"}
-        description="A 4-digit PIN confirmed on every payment. It's separate from your login password — never share it."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={KeyRound}
+          title={isChange ? "Change transaction PIN" : "Set transaction PIN"}
+          description="A 4-digit PIN confirmed on every payment. It's separate from your login password — never share it."
+        />
+      </Reveal>
 
       <div className="mb-6 flex items-start gap-3 rounded-2xl border border-brand-100 bg-brand-50/60 p-4 text-sm text-ink-700">
         <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-brand-700" />
@@ -126,7 +129,7 @@ export default function TxnPinPage() {
           </span>
         </div>
       ) : (
-        <form onSubmit={submit} className="space-y-6 rounded-2xl border border-ink-100 bg-white p-6">
+        <form onSubmit={submit} className="space-y-6 rounded-2xl border border-ink-100 bg-white p-6 shadow-sm">
           {isChange && !forgotPin && (
             <div>
               <p className="mb-3 text-center text-xs font-semibold uppercase tracking-widest text-ink-500">

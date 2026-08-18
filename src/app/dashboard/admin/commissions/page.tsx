@@ -5,7 +5,8 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { ReportActions } from "@/components/dashboard/ReportActions";
-import { Plus, RefreshCw, Trash2, Loader2 } from "lucide-react";
+import { RefreshCw, Trash2, Loader2 } from "lucide-react";
+import { Reveal } from "@/components/motion";
 
 type SlabRow = {
   id: string;
@@ -81,7 +82,7 @@ export default function AdminCommissionsPage() {
         ) : (
           <button
             onClick={() => deactivateSlab(r.id)}
-            className="grid h-8 w-8 place-items-center rounded-lg text-rose-600 hover:bg-rose-50"
+            className="grid h-8 w-8 place-items-center rounded-lg text-rose-700 hover:bg-rose-50 disabled:opacity-30"
             title="Deactivate slab"
           >
             <Trash2 className="h-4 w-4" />
@@ -92,6 +93,7 @@ export default function AdminCommissionsPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow="Admin"
         title="Commission master"
@@ -118,6 +120,8 @@ export default function AdminCommissionsPage() {
           </>
         }
       />
+      </Reveal>
+      <Reveal distance={16} duration={0.45}>
       <DataTable
         title={`${slabs.length} active slabs`}
         loading={loading}
@@ -126,6 +130,7 @@ export default function AdminCommissionsPage() {
         data={slabs}
         empty="No commission slabs configured yet."
       />
+      </Reveal>
     </div>
   );
 }

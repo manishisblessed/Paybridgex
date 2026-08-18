@@ -17,7 +17,8 @@ import {
   Receipt,
   X,
 } from "lucide-react";
-import { StatCard } from "@/components/dashboard/StatCard";
+import { FilterBar, FilterField, SegmentedNav, StatTile } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -353,46 +354,54 @@ export function QrSettlementReportTab() {
   return (
     <>
       {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Claims" value={summary ? summary.totalTransactions.toLocaleString("en-IN") : "..."} icon={ArrowLeftRight} accent="brand" />
-        <StatCard label="Total Volume" value={summary ? formatINR(summary.totalGross) : "..."} icon={IndianRupee} accent="violet" />
-        <StatCard label="MDR Deducted" value={summary ? formatINR(summary.totalMdr) : "..."} icon={Scissors} accent="accent" />
-        <StatCard label="Amount Settled" value={summary ? formatINR(summary.totalSettled) : "..."} icon={Banknote} accent="emerald" />
-        {showCommission ? (
-          <StatCard label="My Commission" value={summary ? formatINR(summary.totalCommission ?? 0) : "..."} icon={Wallet} accent="brand" />
-        ) : (
-          <StatCard
-            label="Ready / Settled"
-            value={summary ? `${summary.settleableCount} / ${summary.settledCount}` : "..."}
-            icon={Wallet}
-            accent="emerald"
-          />
-        )}
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Claims" value={summary ? summary.totalTransactions.toLocaleString("en-IN") : "..."} icon={ArrowLeftRight} tone="brand" loading={!summary && isLoading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Total Volume" value={summary ? formatINR(summary.totalGross) : "..."} icon={IndianRupee} tone="violet" loading={!summary && isLoading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="MDR Deducted" value={summary ? formatINR(summary.totalMdr) : "..."} icon={Scissors} tone="amber" loading={!summary && isLoading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Amount Settled" value={summary ? formatINR(summary.totalSettled) : "..."} icon={Banknote} tone="emerald" loading={!summary && isLoading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          {showCommission ? (
+            <StatTile label="My Commission" value={summary ? formatINR(summary.totalCommission ?? 0) : "..."} icon={Wallet} tone="sky" loading={!summary && isLoading} />
+          ) : (
+            <StatTile
+              label="Ready / Settled"
+              value={summary ? `${summary.settleableCount} / ${summary.settledCount}` : "..."}
+              icon={Wallet}
+              tone="sky"
+              loading={!summary && isLoading}
+            />
+          )}
+        </StaggerItem>
+      </Stagger>
 
       {/* Filters */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">From</label>
+      <div>
+        <FilterBar>
+          <FilterField label="From">
             <input
               type="date"
               value={dateFrom}
               onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
               className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
             />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">To</label>
+          </FilterField>
+          <FilterField label="To">
             <input
               type="date"
               value={dateTo}
               onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
               className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
             />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Status</label>
+          </FilterField>
+          <FilterField label="Status">
             <select
               value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value as typeof statusFilter); setPage(1); }}
@@ -404,7 +413,7 @@ export function QrSettlementReportTab() {
               <option value="SETTLED">Settled</option>
               <option value="REJECTED">Rejected / Reversed</option>
             </select>
-          </div>
+          </FilterField>
           <Button variant="outline" size="sm" onClick={() => mutate()} title="Refresh">
             <RefreshCw className="h-4 w-4" /> Refresh
           </Button>
@@ -419,12 +428,12 @@ export function QrSettlementReportTab() {
               fetchRows={fetchAllRows}
             />
           </div>
-        </div>
+        </FilterBar>
 
         {/* Active drill-down chip */}
         {retailerLabel && (
           <div className="mt-3 flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 ring-1 ring-brand-200/70">
               Showing: {retailerLabel}
               <button onClick={clearDrill} className="rounded-full hover:bg-brand-100" aria-label="Clear filter">
                 <X className="h-3.5 w-3.5" />
@@ -435,24 +444,14 @@ export function QrSettlementReportTab() {
       </div>
 
       {/* View toggle */}
-      <div className="flex gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
-        {([
-          { id: "transactions", label: "Per Transaction", icon: Receipt },
-          { id: "rollup", label: "By Merchant / Downline", icon: Users },
-        ] as const).map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setView(id)}
-            className={
-              view === id
-                ? "flex-1 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-ink-900 shadow-sm"
-                : "flex-1 rounded-lg px-4 py-2 text-sm font-semibold text-ink-500 transition-colors hover:text-ink-700"
-            }
-          >
-            <span className="flex items-center justify-center gap-2"><Icon className="h-4 w-4" /> {label}</span>
-          </button>
-        ))}
-      </div>
+      <SegmentedNav
+        tabs={[
+          { key: "transactions", label: "Per Transaction", icon: Receipt },
+          { key: "rollup", label: "By Merchant / Downline", icon: Users },
+        ]}
+        active={view}
+        onChange={(key) => setView(key as View)}
+      />
 
       {error ? (
         <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
@@ -461,20 +460,22 @@ export function QrSettlementReportTab() {
         </div>
       ) : view === "transactions" ? (
         <>
-          <DataTable
-            title="QR Settlement — per transaction"
-            description={
-              pagination
-                ? `${pagination.total.toLocaleString("en-IN")} claim${pagination.total === 1 ? "" : "s"} · page ${pagination.page} of ${pagination.totalPages}`
-                : isLoading
-                  ? "Loading..."
-                  : "No data yet"
-            }
-            columns={txnCols}
-            data={rows}
-            loading={isLoading}
-            empty="No QR claims for the selected filters."
-          />
+          <Reveal distance={16} duration={0.45}>
+            <DataTable
+              title="QR Settlement — per transaction"
+              description={
+                pagination
+                  ? `${pagination.total.toLocaleString("en-IN")} claim${pagination.total === 1 ? "" : "s"} · page ${pagination.page} of ${pagination.totalPages}`
+                  : isLoading
+                    ? "Loading..."
+                    : "No data yet"
+              }
+              columns={txnCols}
+              data={rows}
+              loading={isLoading}
+              empty="No QR claims for the selected filters."
+            />
+          </Reveal>
           {pagination && pagination.totalPages > 1 && (
             <Paginator
               page={pagination.page}
@@ -487,20 +488,22 @@ export function QrSettlementReportTab() {
           )}
         </>
       ) : (
-        <DataTable
-          title="Settlement rollup — by merchant / downline"
-          description={
-            rollup.length
-              ? `${rollup.length} merchant${rollup.length === 1 ? "" : "s"} with QR activity in this period`
-              : isLoading
-                ? "Loading..."
-                : "No data yet"
-          }
-          columns={rollupCols}
-          data={rollup}
-          loading={isLoading}
-          empty="No QR activity in your network for the selected filters."
-        />
+        <Reveal distance={16} duration={0.45}>
+          <DataTable
+            title="Settlement rollup — by merchant / downline"
+            description={
+              rollup.length
+                ? `${rollup.length} merchant${rollup.length === 1 ? "" : "s"} with QR activity in this period`
+                : isLoading
+                  ? "Loading..."
+                  : "No data yet"
+            }
+            columns={rollupCols}
+            data={rollup}
+            loading={isLoading}
+            empty="No QR activity in your network for the selected filters."
+          />
+        </Reveal>
       )}
     </>
   );

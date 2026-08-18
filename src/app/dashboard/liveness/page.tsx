@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ShieldCheck, Loader2, ArrowRight, ScanFace } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
+import { Reveal } from "@/components/motion";
 import { LivenessVideoCapture } from "@/components/kyc/LivenessVideoCapture";
 import { InAppBrowserWarning } from "@/components/kyc/InAppBrowserWarning";
 
@@ -44,11 +45,13 @@ export default function LivenessPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Security"
-        title="One-time liveness verification"
-        description="Record a quick 10-second video so we can confirm it's really you. This sets up your secure face baseline and unlocks transactions on your account."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Security"
+          title="One-time liveness verification"
+          description="Record a quick 10-second video so we can confirm it's really you. This sets up your secure face baseline and unlocks transactions on your account."
+        />
+      </Reveal>
 
       <div className="mx-auto w-full max-w-lg">
         {step === "loading" && (

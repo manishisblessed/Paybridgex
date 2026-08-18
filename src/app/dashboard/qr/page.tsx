@@ -18,7 +18,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
-import { StatCard } from "@/components/dashboard/StatCard";
+import { Panel, SectionTitle, StatTile, TabNav } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -614,74 +615,77 @@ export default function QrCollectionsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="QR Collections"
-        title={isRetailer ? "Collect on the shop QR" : "QR Settlement & Commission"}
-        description={
-          isRetailer
-            ? "Take customer payments on the live QR up to its remaining daily amount. If the customer is paying more than what's left, collect the rest on the next QR."
-            : "QR collections across your retailer network — volume, MDR, settlements and the commission you earn on each claim."
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="QR Collections"
+          title={isRetailer ? "Collect on the shop QR" : "QR Settlement & Commission"}
+          description={
+            isRetailer
+              ? "Take customer payments on the live QR up to its remaining daily amount. If the customer is paying more than what's left, collect the rest on the next QR."
+              : "QR collections across your retailer network — volume, MDR, settlements and the commission you earn on each claim."
+          }
+        />
+      </Reveal>
 
       {/* Retailers toggle Collect & Claim vs Settlement Report; DT/MD/SD only
           ever see the report, so the switcher is hidden for them. */}
       {isRetailer && (
-        <div className="flex gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
-          {([
-            { id: "collect", label: "Collect & Claim", icon: Store },
-            { id: "report", label: "Settlement Report", icon: Receipt },
-          ] as const).map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={
-                tab === id
-                  ? "flex-1 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-ink-900 shadow-sm"
-                  : "flex-1 rounded-lg px-4 py-2 text-sm font-semibold text-ink-500 transition-colors hover:text-ink-700"
-              }
-            >
-              <span className="flex items-center justify-center gap-2"><Icon className="h-4 w-4" /> {label}</span>
-            </button>
-          ))}
-        </div>
+        <TabNav
+          tabs={[
+            { key: "collect", label: "Collect & Claim", icon: Store },
+            { key: "report", label: "Settlement Report", icon: Receipt },
+          ]}
+          active={tab}
+          onChange={(key) => setTab(key as "collect" | "report")}
+        />
       )}
 
       {sessionStatus === "loading" ? (
-        <div className="rounded-2xl border border-ink-100 bg-white p-10 text-center text-sm text-ink-500">
+        <Panel className="p-10 text-center text-sm text-ink-500">
           Loading…
-        </div>
+        </Panel>
       ) : activeTab === "report" ? (
         <QrSettlementReportTab />
       ) : (
       <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Under review" value={formatINR(pendingAmount)} icon={Clock} accent="accent" />
-        <StatCard label="Ready to settle" value={formatINR(settleableTotal)} icon={Banknote} accent="brand" />
-        <StatCard label="Settled this month" value={formatINR(creditedThisMonth)} icon={CheckCircle2} accent="emerald" />
-        <StatCard
-          label={qr?.headroom?.remainingAmount != null ? "This QR remaining" : "Active QR"}
-          value={
-            qr?.headroom?.remainingAmount != null
-              ? formatINR(qr.headroom.remainingAmount)
-              : qr
-                ? "Live"
-                : qrReason === "LIMIT_REACHED"
-                  ? "Paused"
-                  : "—"
-          }
-          icon={QrCode}
-          accent="violet"
-        />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Under review" countTo={pendingAmount} prefix="₹" decimals={2} icon={Clock} tone="amber" loading={loading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Ready to settle" countTo={settleableTotal} prefix="₹" decimals={2} icon={Banknote} tone="brand" loading={loading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Settled this month" countTo={creditedThisMonth} prefix="₹" decimals={2} icon={CheckCircle2} tone="emerald" loading={loading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label={qr?.headroom?.remainingAmount != null ? "This QR remaining" : "Active QR"}
+            value={
+              qr?.headroom?.remainingAmount != null
+                ? formatINR(qr.headroom.remainingAmount)
+                : qr
+                  ? "Live"
+                  : qrReason === "LIMIT_REACHED"
+                    ? "Paused"
+                    : "—"
+            }
+            icon={QrCode}
+            tone="violet"
+            loading={loading}
+          />
+        </StaggerItem>
+      </Stagger>
 
       {/* Ready to settle — instant or auto T+1 */}
       {settleable.length > 0 && (
-        <div className="space-y-3 rounded-2xl border border-brand-100 bg-white p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="font-display text-base font-semibold text-ink-900">Ready to settle</h3>
-              <p className="text-xs text-ink-500">
+        <Reveal distance={16} duration={0.45}>
+        <Panel className="space-y-3 border-brand-100">
+          <SectionTitle
+            className="mb-0"
+            title="Ready to settle"
+            description={
+              <span className="block max-w-2xl text-xs">
                 {instantEnabled ? (
                   <>
                     Approved payments awaiting settlement. Instant-settle the ones you need now (at your scheme&apos;s
@@ -693,34 +697,37 @@ export default function QrCollectionsPage() {
                     standard rate — no action needed.
                   </>
                 )}
-              </p>
-            </div>
-            {instantEnabled && (
-              <div className="flex items-center gap-3">
-                {readySettleable.length > 0 && (
-                  <button type="button" onClick={toggleAllSel} className="text-xs font-semibold text-brand-700">
-                    {allSelected ? "Clear" : "Select all"}
-                  </button>
-                )}
-                {selectedClaims.length > 0 && (
-                  <span className="text-xs text-ink-600">
-                    fee {formatINR(instantFee)} · you get{" "}
-                    <span className="font-semibold text-emerald-700">{formatINR(instantNet)}</span>
-                  </span>
-                )}
-                <Button size="sm" disabled={selectedClaims.length === 0 || settling} onClick={() => setConfirmOpen(true)}>
-                  <Zap className="h-4 w-4" /> Instant settle
-                </Button>
-              </div>
-            )}
-          </div>
+              </span>
+            }
+            action={
+              instantEnabled && (
+                <div className="flex items-center gap-3">
+                  {readySettleable.length > 0 && (
+                    <button type="button" onClick={toggleAllSel} className="text-xs font-semibold text-brand-700">
+                      {allSelected ? "Clear" : "Select all"}
+                    </button>
+                  )}
+                  {selectedClaims.length > 0 && (
+                    <span className="text-xs text-ink-600">
+                      fee {formatINR(instantFee)} · you get{" "}
+                      <span className="font-semibold text-emerald-700">{formatINR(instantNet)}</span>
+                    </span>
+                  )}
+                  <Button size="sm" disabled={selectedClaims.length === 0 || settling} onClick={() => setConfirmOpen(true)}>
+                    <Zap className="h-4 w-4" /> Instant settle
+                  </Button>
+                </div>
+              )
+            }
+          />
           <DataTable
             columns={settleCols}
             data={settleable}
             loading={loading}
             empty="Nothing awaiting settlement."
           />
-        </div>
+        </Panel>
+        </Reveal>
       )}
 
       <ConfirmDialog
@@ -739,6 +746,7 @@ export default function QrCollectionsPage() {
         onConfirm={runInstantSettle}
       />
 
+      <Reveal distance={16} duration={0.45}>
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Live QR + overflow QR for the rest of a split payment */}
         <div className="space-y-4">
@@ -775,7 +783,7 @@ export default function QrCollectionsPage() {
               </p>
             </>
           ) : (
-            <div className="rounded-2xl border border-ink-100 bg-gradient-to-br from-brand-50 to-accent-50 p-6 text-center">
+            <div className="rounded-2xl border border-ink-100 bg-gradient-to-br from-brand-50 to-accent-50 p-6 text-center shadow-sm">
               <h3 className="font-display text-base font-semibold text-ink-900">Shop collection QR</h3>
               <p className="mt-6 text-sm text-ink-600">
                 {loading
@@ -789,7 +797,7 @@ export default function QrCollectionsPage() {
         </div>
 
         {/* Claim form */}
-        <form onSubmit={submitClaim} className="space-y-4 rounded-2xl border border-ink-100 bg-white p-6">
+        <form onSubmit={submitClaim} className="space-y-4 rounded-2xl border border-ink-100 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white">
               <IndianRupee className="h-4 w-4" />
@@ -933,15 +941,18 @@ export default function QrCollectionsPage() {
           </Button>
         </form>
       </div>
+      </Reveal>
 
-      <DataTable
-        title="My claims"
-        description="Every payment you've claimed on the collection QR and its verification status."
-        columns={cols}
-        data={claims}
-        loading={loading}
-        empty="No claims yet — collect a payment on the QR and claim it here."
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title="My claims"
+          description="Every payment you've claimed on the collection QR and its verification status."
+          columns={cols}
+          data={claims}
+          loading={loading}
+          empty="No claims yet — collect a payment on the QR and claim it here."
+        />
+      </Reveal>
       </>
       )}
     </div>

@@ -15,6 +15,7 @@
     "backfill:pos-company": "tsx scripts/backfill-pos-company.ts",
     "backfill:pos-mirror": "tsx scripts/backfill-pos-mirror.ts",
     "backfill:service-vendor": "tsx scripts/backfill-service-vendor.ts",
+    "backfill:network-services": "tsx scripts/backfill-network-services.ts",
     "audit:pos-classification": "tsx scripts/audit-pos-classification.ts",
     "lint": "next lint",
     "test": "vitest run",

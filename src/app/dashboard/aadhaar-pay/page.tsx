@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Fingerprint, Banknote, Receipt, FileText } from "lucide-react";
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
+import { Reveal } from "@/components/motion";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import {
@@ -52,15 +53,18 @@ export default function AadhaarPayPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <ServicePageHeader
-        icon={Fingerprint}
-        title="Aadhaar Pay (AePS)"
-        description="Cash withdrawal, balance enquiry & mini statement using customer's Aadhaar + biometric."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={Fingerprint}
+          title="Aadhaar Pay (AePS)"
+          description="Cash withdrawal, balance enquiry & mini statement using customer's Aadhaar + biometric."
+        />
+      </Reveal>
 
+      <Reveal distance={16} duration={0.45}>
       <form
         onSubmit={submit}
-        className="rounded-2xl border border-ink-100 bg-white p-6"
+        className="rounded-2xl border border-ink-100 bg-white p-6 shadow-sm"
       >
         <div className="grid gap-3 sm:grid-cols-3">
           {ops.map((o) => {
@@ -72,16 +76,18 @@ export default function AadhaarPayPage() {
                 type="button"
                 onClick={() => setOp(o.id)}
                 className={cn(
-                  "flex items-center gap-3 rounded-2xl border-2 p-4 text-left transition",
+                  "flex items-center gap-3 rounded-2xl border-2 p-4 text-left transition-all duration-200",
                   active
-                    ? "border-brand-500 bg-brand-50"
-                    : "border-ink-100 bg-white hover:border-ink-200"
+                    ? "border-brand-500 bg-brand-50 shadow-soft"
+                    : "border-ink-100 bg-white hover:-translate-y-0.5 hover:border-ink-200 hover:shadow-sm"
                 )}
               >
                 <span
                   className={cn(
                     "grid h-10 w-10 place-items-center rounded-xl",
-                    active ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-700"
+                    active
+                      ? "bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft"
+                      : "bg-ink-100 text-ink-700"
                   )}
                 >
                   <Icon className="h-5 w-5" />
@@ -142,6 +148,7 @@ export default function AadhaarPayPage() {
           </Button>
         </div>
       </form>
+      </Reveal>
 
       <TransactionResult result={result} onClose={() => setResult(null)} />
     </div>

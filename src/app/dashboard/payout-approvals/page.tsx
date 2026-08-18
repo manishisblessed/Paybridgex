@@ -14,7 +14,8 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
-import { Badge } from "@/components/ui/Badge";
+import { StatusPill, type PillTone } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Label, Select } from "@/components/ui/Input";
@@ -60,7 +61,7 @@ type PayoutDetail = Payout & {
   completedAt: string | null;
 };
 
-const STATUS_BADGE: Record<PayoutStatus, "success" | "danger" | "warning" | "brand" | "default"> = {
+const STATUS_TONE: Record<PayoutStatus, PillTone> = {
   SUCCESS: "success",
   FAILED: "danger",
   REJECTED: "danger",
@@ -68,7 +69,7 @@ const STATUS_BADGE: Record<PayoutStatus, "success" | "danger" | "warning" | "bra
   PROCESSING: "brand",
   APPROVED: "brand",
   PENDING_APPROVAL: "warning",
-  DRAFT: "default",
+  DRAFT: "neutral",
 };
 
 const STATUS_LABEL: Record<PayoutStatus, string> = {
@@ -188,7 +189,7 @@ export default function PayoutApprovalsPage() {
     {
       key: "status",
       header: "Status",
-      render: (r) => <Badge variant={STATUS_BADGE[r.status]}>{STATUS_LABEL[r.status]}</Badge>,
+      render: (r) => <StatusPill status={STATUS_LABEL[r.status]} tone={STATUS_TONE[r.status]} />,
     },
     {
       key: "actions" as keyof Payout,
@@ -233,6 +234,7 @@ export default function PayoutApprovalsPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow="Approvals"
         title="Payout approvals"
@@ -263,6 +265,7 @@ export default function PayoutApprovalsPage() {
           </>
         }
       />
+      </Reveal>
 
       {error && (
         <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -271,7 +274,7 @@ export default function PayoutApprovalsPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-ink-100 bg-white/80 p-3 shadow-sm backdrop-blur">
         <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700">
           <ShieldCheck className="h-4 w-4" />
           {pendingCount} pending approval{pendingCount === 1 ? "" : "s"}
@@ -284,13 +287,15 @@ export default function PayoutApprovalsPage() {
         </div>
       </div>
 
-      <DataTable
-        title={fetching ? "Loading…" : `${visible.length} payout${visible.length === 1 ? "" : "s"}`}
-        columns={cols}
-        data={visible}
-        loading={fetching}
-        empty="Nothing here. The queue is clear."
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title={fetching ? "Loading…" : `${visible.length} payout${visible.length === 1 ? "" : "s"}`}
+          columns={cols}
+          data={visible}
+          loading={fetching}
+          empty="Nothing here. The queue is clear."
+        />
+      </Reveal>
 
       {detailId && <DetailDrawer id={detailId} onClose={() => setDetailId(null)} />}
 
@@ -374,7 +379,7 @@ function DetailDrawer({ id, onClose }: { id: string; onClose: () => void }) {
         ) : detail ? (
           <div className="space-y-5 p-5">
             <div className="flex items-center justify-between">
-              <Badge variant={STATUS_BADGE[detail.status]}>{STATUS_LABEL[detail.status]}</Badge>
+              <StatusPill status={STATUS_LABEL[detail.status]} tone={STATUS_TONE[detail.status]} />
               <span className="font-mono text-xs text-ink-500">{detail.bulkpeReferenceId}</span>
             </div>
 

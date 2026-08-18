@@ -9,16 +9,25 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label, Select } from "@/components/ui/Input";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
+import {
+  Panel,
+  StatTile,
+  TablePro,
+  StatusPill,
+  EmptyState,
+  ModalShell,
+} from "@/components/dashboard/ui";
 import { SERVICE_CODES, serviceGroup } from "@/lib/scheme/constants";
 import { BBPS_PRICE_SCOPE_OPTIONS, bbpsProvidersForService } from "@/lib/services/priceScope";
 import {
   ArrowLeft,
   Plus,
   Star,
+  Layers,
   Loader2,
   Trash2,
   Pencil,
-  X,
   Users,
   UserPlus,
   Power,
@@ -138,9 +147,7 @@ export default function SchemeEditorPage() {
 
   if (loading && !scheme) {
     return (
-      <div className="rounded-2xl border border-ink-100 bg-white p-10 text-center text-sm text-ink-500">
-        Loading scheme…
-      </div>
+      <Panel className="p-10 text-center text-sm text-ink-500">Loading scheme…</Panel>
     );
   }
 
@@ -157,112 +164,126 @@ export default function SchemeEditorPage() {
 
   return (
     <div className="space-y-6">
-      <Link href="/dashboard/admin/schemes" className="inline-flex items-center gap-1 text-sm font-medium text-brand-700 hover:text-brand-800">
-        <ArrowLeft className="h-4 w-4" /> Back to schemes
-      </Link>
+      <Reveal distance={14} duration={0.4} className="space-y-4">
+        <Link href="/dashboard/admin/schemes" className="inline-flex items-center gap-1 text-sm font-medium text-brand-700 hover:text-brand-800">
+          <ArrowLeft className="h-4 w-4" /> Back to schemes
+        </Link>
 
-      <PageHeader
-        eyebrow="Scheme Manager"
-        title={scheme.name}
-        description={scheme.description ?? "Per-service charge & commission slabs."}
-        actions={
-          <>
-            {!scheme.isDefault && (
-              <Button variant="outline" onClick={() => patchScheme({ isDefault: true }, "Marked as default scheme.")}>
-                <Star className="h-4 w-4" /> Set default
+        <PageHeader
+          eyebrow="Scheme Manager"
+          title={scheme.name}
+          description={scheme.description ?? "Per-service charge & commission slabs."}
+          actions={
+            <>
+              {!scheme.isDefault && (
+                <Button variant="outline" onClick={() => patchScheme({ isDefault: true }, "Marked as default scheme.")}>
+                  <Star className="h-4 w-4" /> Set default
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => patchScheme({ active: !scheme.active }, scheme.active ? "Scheme deactivated." : "Scheme activated.")}
+              >
+                <Power className="h-4 w-4" /> {scheme.active ? "Deactivate" : "Activate"}
               </Button>
-            )}
-            <Button
-              variant="outline"
-              onClick={() => patchScheme({ active: !scheme.active }, scheme.active ? "Scheme deactivated." : "Scheme activated.")}
-            >
-              <Power className="h-4 w-4" /> {scheme.active ? "Deactivate" : "Activate"}
-            </Button>
-            <Button onClick={() => setSlabModal({ open: true, editing: null })}>
-              <Plus className="h-4 w-4" /> Add slab
-            </Button>
-          </>
-        }
-      />
+              <Button onClick={() => setSlabModal({ open: true, editing: null })}>
+                <Plus className="h-4 w-4" /> Add slab
+              </Button>
+            </>
+          }
+        />
+      </Reveal>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {scheme.isDefault && (
-          <Badge variant="accent">
-            <Star className="h-3 w-3" /> Platform default
-          </Badge>
-        )}
-        <Badge variant={scheme.active ? "success" : "danger"}>{scheme.active ? "Active" : "Inactive"}</Badge>
-        <Badge variant="brand">{slabs.length} slabs</Badge>
-        <Badge variant="default">{assigned.length} users assigned</Badge>
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-3">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Status"
+            value={scheme.active ? "Active" : "Inactive"}
+            icon={Power}
+            tone="dark"
+            hint={
+              scheme.isDefault ? (
+                <span className="inline-flex items-center gap-1">
+                  <Star className="h-3 w-3" /> Platform default
+                </span>
+              ) : undefined
+            }
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Slabs" countTo={slabs.length} icon={Layers} tone="brand" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Users assigned" countTo={assigned.length} icon={Users} tone="violet" />
+        </StaggerItem>
+      </Stagger>
 
       {/* Slab grid grouped by service */}
-      {grouped.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-ink-200 bg-white p-10 text-center">
-          <p className="text-sm font-semibold text-ink-700">No slabs yet</p>
-          <p className="mt-1 text-sm text-ink-500">Add per-service amount ranges with their charge and commission split.</p>
-          <div className="mt-4 flex justify-center">
-            <Button onClick={() => setSlabModal({ open: true, editing: null })}>
-              <Plus className="h-4 w-4" /> Add slab
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {grouped.map(([service, list]) => (
-            <section key={service} className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-ink-100 bg-ink-50/60 px-5 py-3">
-                <div>
-                  <h3 className="font-display text-sm font-semibold text-ink-900">{service.replace(/_/g, " ")}</h3>
-                  <p className="text-xs text-ink-500">{serviceGroup(service)}</p>
-                </div>
-                <Badge variant="brand">{list.length} slabs</Badge>
-              </div>
-              <div className="w-full overflow-x-auto">
-                <table className="w-full min-w-max text-sm">
-                  <thead className="bg-ink-50/40 text-left text-[11px] uppercase tracking-wider text-ink-500">
+      <Reveal distance={16} duration={0.45}>
+        {grouped.length === 0 ? (
+          <EmptyState
+            icon={Layers}
+            title="No slabs yet"
+            message="Add per-service amount ranges with their charge and commission split."
+            cta={
+              <Button onClick={() => setSlabModal({ open: true, editing: null })}>
+                <Plus className="h-4 w-4" /> Add slab
+              </Button>
+            }
+          />
+        ) : (
+          <div className="space-y-6">
+            {grouped.map(([service, list]) => (
+              <TablePro
+                key={service}
+                title={service.replace(/_/g, " ")}
+                description={serviceGroup(service)}
+                action={<Badge variant="brand">{list.length} slabs</Badge>}
+              >
+                <table>
+                  <thead>
                     <tr>
-                      <th className="px-5 py-2.5 font-semibold">Range</th>
-                      <th className="px-5 py-2.5 font-semibold">Provider</th>
-                      <th className="px-5 py-2.5 text-right font-semibold">Charge</th>
-                      <th className="px-5 py-2.5 text-right font-semibold">Vendor / txn</th>
-                      <th className="px-5 py-2.5 text-right font-semibold">Revenue / txn</th>
-                      <th className="px-5 py-2.5 text-right font-semibold">User Commission</th>
-                      <th className="px-5 py-2.5 text-center font-semibold">Status</th>
-                      <th className="px-5 py-2.5" />
+                      <th>Range</th>
+                      <th>Provider</th>
+                      <th className="text-right">Charge</th>
+                      <th className="text-right">Vendor / txn</th>
+                      <th className="text-right">Revenue / txn</th>
+                      <th className="text-right">User Commission</th>
+                      <th className="text-center">Status</th>
+                      <th />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-ink-100 text-ink-800">
+                  <tbody>
                     {list.map((s) => (
-                      <tr key={s.id} className="transition-colors hover:bg-brand-50/40">
-                        <td className="px-5 py-3 font-medium">
+                      <tr key={s.id}>
+                        <td className="font-medium">
                           ₹{s.minAmount.toLocaleString("en-IN")} – ₹{s.maxAmount.toLocaleString("en-IN")}
                         </td>
-                        <td className="px-5 py-3 text-xs">{s.provider ?? "All"}</td>
-                        <td className="px-5 py-3 text-right">
+                        <td className="text-xs">{s.provider ?? "All"}</td>
+                        <td className="text-right">
                           {fmtRate(s.chargeType, s.chargeValue)}
                           <span className={`ml-1.5 inline-block rounded px-1 py-0.5 text-[10px] font-semibold leading-none ${s.chargeGstInclusive ? "bg-amber-100 text-amber-700" : "bg-sky-100 text-sky-700"}`}>
                             {s.chargeGstInclusive ? "incl. GST" : "+ GST"}
                           </span>
                         </td>
-                        <td className="px-5 py-3 text-right">{fmtVendor(s)}</td>
-                        <td className="px-5 py-3 text-right">{fmtRevenue(s)}</td>
-                        <td className="px-5 py-3 text-right font-semibold text-emerald-700">{fmtRate(s.commissionType, s.commissionValue)}</td>
-                        <td className="px-5 py-3 text-center">
-                          <Badge variant={s.active ? "success" : "danger"}>{s.active ? "On" : "Off"}</Badge>
+                        <td className="text-right">{fmtVendor(s)}</td>
+                        <td className="text-right">{fmtRevenue(s)}</td>
+                        <td className="text-right font-semibold text-emerald-700">{fmtRate(s.commissionType, s.commissionValue)}</td>
+                        <td className="text-center">
+                          <StatusPill status={s.active ? "active" : "inactive"}>{s.active ? "On" : "Off"}</StatusPill>
                         </td>
-                        <td className="px-5 py-3 text-right">
+                        <td className="text-right">
                           <div className="flex justify-end gap-1">
                             <button
                               onClick={() => setSlabModal({ open: true, editing: s })}
-                              className="grid h-8 w-8 place-items-center rounded-lg text-brand-600 hover:bg-brand-50"
+                              className="grid h-8 w-8 place-items-center rounded-lg text-brand-700 hover:bg-brand-50 disabled:opacity-30"
                               title="Edit slab"
                             >
                               <Pencil className="h-4 w-4" />
                             </button>
                             <button
                               onClick={() => deleteSlab(s)}
-                              className="grid h-8 w-8 place-items-center rounded-lg text-rose-600 hover:bg-rose-50"
+                              className="grid h-8 w-8 place-items-center rounded-lg text-rose-700 hover:bg-rose-50 disabled:opacity-30"
                               title="Delete slab"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -273,21 +294,23 @@ export default function SchemeEditorPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
+              </TablePro>
+            ))}
+          </div>
+        )}
+      </Reveal>
 
-      <AssignmentPanel
-        schemeId={schemeId}
-        assigned={assigned}
-        onChange={(msg) => {
-          notify(msg, true);
-          load();
-        }}
-        onError={(msg) => notify(msg, false)}
-      />
+      <Reveal distance={16} duration={0.45}>
+        <AssignmentPanel
+          schemeId={schemeId}
+          assigned={assigned}
+          onChange={(msg) => {
+            notify(msg, true);
+            load();
+          }}
+          onError={(msg) => notify(msg, false)}
+        />
+      </Reveal>
 
       {slabModal.open && (
         <SlabModal
@@ -536,18 +559,24 @@ function SlabModal({
     : scopeOptionsAll;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-ink-100 bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 flex items-center justify-between border-b border-ink-100 bg-gradient-to-r from-brand-500 to-sky-500 px-5 py-4 text-white">
-          <h3 className="font-display text-base font-semibold">{isEdit ? "Edit slab" : "Add slab"}</h3>
-          <button onClick={onClose} className="rounded-lg p-1 hover:bg-white/20">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="space-y-4 p-5">
+    <ModalShell
+      open
+      onClose={onClose}
+      size="md"
+      eyebrow="Scheme slab"
+      title={isEdit ? "Edit slab" : "Add slab"}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} {isEdit ? "Save" : "Add slab"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
           {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
           <div>
@@ -707,17 +736,8 @@ function SlabModal({
               assigned to earns — parents up the chain earn scheme-difference margins automatically.
             </p>
           </div>
-        </div>
-        <div className="sticky bottom-0 flex justify-end gap-2 border-t border-ink-100 bg-white px-5 py-4">
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} {isEdit ? "Save" : "Add slab"}
-          </Button>
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -816,9 +836,11 @@ function AssignmentPanel({
   const unassigned = sdList.filter((u) => !assignedIds.has(u.id));
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm">
+    <Panel flush className="overflow-hidden">
       <div className="flex items-center gap-2 border-b border-ink-100 bg-gradient-to-r from-violet-50 to-brand-50 px-5 py-3">
-        <Users className="h-4 w-4 text-violet-600" />
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-brand-500 text-white">
+          <Users className="h-4 w-4" />
+        </span>
         <h3 className="font-display text-sm font-semibold text-ink-900">Assignment</h3>
         <span className="ml-auto text-xs text-ink-400">
           Cascade model — admin assigns to super distributors only. Lower tiers receive derived schemes.
@@ -909,6 +931,6 @@ function AssignmentPanel({
           setAssignAllConfirmOpen(false);
         }}
       />
-    </section>
+    </Panel>
   );
 }

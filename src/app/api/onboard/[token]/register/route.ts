@@ -8,6 +8,7 @@ import { env } from "@/lib/env";
 import { needsSuccessorApproval } from "@/lib/declaration/types";
 import { getRequiredDocTypes, docTypeLabel } from "@/lib/onboarding/requiredDocuments";
 import { generateNextUserCode } from "@/lib/userCode";
+import { defaultServicesForRole } from "@/lib/settings";
 
 const RegisterBody = z.object({
   name: z.string().min(2).max(100),
@@ -316,6 +317,9 @@ export async function POST(
       });
     } else {
       const userCode = await generateNextUserCode(invite.role);
+      // New network users start with only the tier's configured default
+      // services (empty = none); admins grant the rest per user afterwards.
+      const enabledServices = await defaultServicesForRole(invite.role);
       user = await tx.user.create({
         data: {
           name: data.name,
@@ -333,6 +337,7 @@ export async function POST(
           pincode: data.pincode,
           phoneVerifiedAt: invite.phoneVerifiedAt,
           emailVerifiedAt: invite.emailVerifiedAt,
+          enabledServices,
         },
       });
     }

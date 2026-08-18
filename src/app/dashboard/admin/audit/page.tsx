@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
 import { ReportActions } from "@/components/dashboard/ReportActions";
 import { Pagination } from "@/components/ui/Pagination";
-import { Search, Filter, RefreshCw } from "lucide-react";
+import { FilterBar, FilterField } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
+import { Search, RefreshCw } from "lucide-react";
 
 type AuditRow = {
   id: string;
@@ -96,6 +98,7 @@ export default function AdminAuditPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow="Admin"
         title="Audit log"
@@ -123,13 +126,14 @@ export default function AdminAuditPage() {
           </>
         }
       />
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-ink-100 bg-white p-4">
+      </Reveal>
+
+      <FilterBar>
         <div className="relative min-w-[220px] flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search actor, action, target..." className="pl-9" />
         </div>
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-ink-400" />
+        <FilterField>
           <Select value={sev} onChange={(e) => setSev(e.target.value)} className="h-10 w-44">
             <option value="all">All severities</option>
             <option value="security">Security events</option>
@@ -137,10 +141,12 @@ export default function AdminAuditPage() {
             <option value="warn">Warning</option>
             <option value="danger">Danger</option>
           </Select>
-        </div>
-      </div>
+        </FilterField>
+      </FilterBar>
 
-      <DataTable title={`${total} events`} columns={cols} data={events} loading={loading} />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable title={`${total} events`} columns={cols} data={events} loading={loading} />
+      </Reveal>
       <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
     </div>
   );

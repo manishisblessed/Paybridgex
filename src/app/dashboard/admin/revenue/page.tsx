@@ -9,8 +9,28 @@ import { Badge } from "@/components/ui/Badge";
 import { StatSkeleton } from "@/components/ui/Skeleton";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { formatINR, formatNumber } from "@/lib/utils";
-import { RefreshCw, Download } from "lucide-react";
+import {
+  RefreshCw,
+  Download,
+  ArrowLeftRight,
+  IndianRupee,
+  Receipt,
+  TrendingUp,
+  HandCoins,
+  Landmark,
+  Banknote,
+  Zap,
+} from "lucide-react";
 import { downloadCSV, downloadPDF, downloadZIP, type ReportColumn } from "@/lib/reports";
+import {
+  Panel,
+  DarkPanel,
+  StatTile,
+  FilterBar,
+  FilterField,
+  SectionTitle,
+} from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 
 type ServiceRow = {
   service: string;
@@ -102,21 +122,6 @@ type RevenueData = {
 
 const inputCls =
   "rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100";
-
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
-  return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">{label}</p>
-      <p
-        className={`mt-1 text-xl font-bold ${
-          tone === "good" ? "text-emerald-600" : tone === "bad" ? "text-rose-600" : "text-ink-900"
-        }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
 
 const TIER_LABELS: Record<string, string> = {
   RETAILER: "Retailer",
@@ -396,76 +401,75 @@ export default function RevenuePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Company Earnings & Revenue Wallet"
-        description="Company earnings from the MDR margin (service − vendor) credited to the Revenue Wallet, with upline commissions paid out of it — master-admin only."
-        actions={
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="text-xs text-ink-500">
-              From
-              <input
-                type="date"
-                className={`${inputCls} mt-1 block`}
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-              />
-            </label>
-            <label className="text-xs text-ink-500">
-              To
-              <input
-                type="date"
-                className={`${inputCls} mt-1 block`}
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-              />
-            </label>
-            <Button onClick={load} isLoading={loading}>
-              <RefreshCw className="mr-2 h-4 w-4" /> Apply
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          title="Company Earnings & Revenue Wallet"
+          description="Company earnings from the MDR margin (service − vendor) credited to the Revenue Wallet, with upline commissions paid out of it — master-admin only."
+        />
+      </Reveal>
+
+      <FilterBar>
+        <FilterField label="From">
+          <input
+            type="date"
+            className={inputCls}
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+          />
+        </FilterField>
+        <FilterField label="To">
+          <input
+            type="date"
+            className={inputCls}
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+          />
+        </FilterField>
+        <Button onClick={load} isLoading={loading}>
+          <RefreshCw className="mr-2 h-4 w-4" /> Apply
+        </Button>
+        {data && (
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() =>
+                downloadCSV(
+                  `revenue-report-${data.from}-to-${data.to}`,
+                  data.byService,
+                  csvServiceCols
+                )
+              }
+            >
+              <Download className="mr-2 h-4 w-4" /> CSV
             </Button>
-            {data && (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    downloadCSV(
-                      `revenue-report-${data.from}-to-${data.to}`,
-                      data.byService,
-                      csvServiceCols
-                    )
-                  }
-                >
-                  <Download className="mr-2 h-4 w-4" /> CSV
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    downloadPDF(
-                      "Revenue Report",
-                      data.byService,
-                      csvServiceCols,
-                      { subtitle: `${data.from} to ${data.to}` }
-                    )
-                  }
-                >
-                  <Download className="mr-2 h-4 w-4" /> PDF
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    downloadZIP(
-                      `revenue-report-${data.from}-to-${data.to}`,
-                      data.byService,
-                      csvServiceCols
-                    )
-                  }
-                >
-                  <Download className="mr-2 h-4 w-4" /> ZIP
-                </Button>
-              </>
-            )}
+            <Button
+              variant="outline"
+              onClick={() =>
+                downloadPDF(
+                  "Revenue Report",
+                  data.byService,
+                  csvServiceCols,
+                  { subtitle: `${data.from} to ${data.to}` }
+                )
+              }
+            >
+              <Download className="mr-2 h-4 w-4" /> PDF
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() =>
+                downloadZIP(
+                  `revenue-report-${data.from}-to-${data.to}`,
+                  data.byService,
+                  csvServiceCols
+                )
+              }
+            >
+              <Download className="mr-2 h-4 w-4" /> ZIP
+            </Button>
           </div>
-        }
-      />
+        )}
+      </FilterBar>
 
       {error && (
         <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>
@@ -485,66 +489,130 @@ export default function RevenuePage() {
       {data && (
         <>
           {/* Revenue wallet — the actual company earnings account */}
-          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-700 via-emerald-600 to-teal-500 p-6 text-white shadow-lg">
-            <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-white/80">
-                  Revenue Wallet
-                </p>
-                <p className="mt-2 font-display text-3xl font-bold">
-                  {formatINR(data.wallet.balance)}
-                </p>
-                <p className="mt-1 text-xs text-white/70">
-                  {data.wallet.accountName
-                    ? `Company earnings · ${data.wallet.accountName}`
-                    : "No revenue account configured"}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <div className="rounded-xl bg-white/15 p-3 text-right">
-                  <p className="text-[11px] uppercase tracking-wider text-white/80">Margin in (range)</p>
-                  <p className="mt-1 font-display text-xl font-bold">
-                    +{formatINR(data.wallet.creditedInRange)}
+          <Reveal distance={16} duration={0.45}>
+            <DarkPanel className="p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-white/60">
+                    Revenue Wallet
+                  </p>
+                  <p className="mt-2 font-display text-3xl font-bold">
+                    {formatINR(data.wallet.balance)}
+                  </p>
+                  <p className="mt-1 text-xs text-white/60">
+                    {data.wallet.accountName
+                      ? `Company earnings · ${data.wallet.accountName}`
+                      : "No revenue account configured"}
                   </p>
                 </div>
-                <div className="rounded-xl bg-white/15 p-3 text-right">
-                  <p className="text-[11px] uppercase tracking-wider text-white/80">Commission out (range)</p>
-                  <p className="mt-1 font-display text-xl font-bold">
-                    −{formatINR(data.wallet.commissionPaidInRange)}
-                  </p>
+                <div className="flex gap-2">
+                  <div className="rounded-xl bg-white/10 p-3 text-right ring-1 ring-white/15">
+                    <p className="text-[11px] uppercase tracking-wider text-white/60">Margin in (range)</p>
+                    <p className="mt-1 font-display text-xl font-bold text-accent-300">
+                      +{formatINR(data.wallet.creditedInRange)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-white/10 p-3 text-right ring-1 ring-white/15">
+                    <p className="text-[11px] uppercase tracking-wider text-white/60">Commission out (range)</p>
+                    <p className="mt-1 font-display text-xl font-bold text-rose-300">
+                      −{formatINR(data.wallet.commissionPaidInRange)}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
+            </DarkPanel>
+          </Reveal>
 
           {/* Summary stats */}
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <Stat label="Transactions" value={formatNumber(data.totals.txnCount)} />
-            <Stat label="Total Volume" value={formatINR(data.totals.totalVolume)} />
-            <Stat label="Charges Collected" value={formatINR(data.totals.totalCharge)} />
-            <Stat
-              label="Platform Revenue (range)"
-              value={formatINR(data.totals.platformRevenue)}
-              tone={data.totals.platformRevenue >= 0 ? "good" : "bad"}
-            />
-          </div>
+          <Stagger stagger={0.05} className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Transactions"
+                countTo={data.totals.txnCount}
+                icon={ArrowLeftRight}
+                tone="brand"
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Total Volume"
+                countTo={data.totals.totalVolume}
+                prefix="₹"
+                decimals={2}
+                icon={IndianRupee}
+                tone="violet"
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Charges Collected"
+                countTo={data.totals.totalCharge}
+                prefix="₹"
+                decimals={2}
+                icon={Receipt}
+                tone="sky"
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Platform Revenue (range)"
+                countTo={data.totals.platformRevenue}
+                prefix="₹"
+                decimals={2}
+                icon={TrendingUp}
+                tone={data.totals.platformRevenue >= 0 ? "emerald" : "rose"}
+              />
+            </StaggerItem>
+          </Stagger>
 
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <Stat label="Gross Commission" value={formatINR(data.totals.grossCommission)} />
-            <Stat label="TDS Collected (2%)" value={formatINR(data.totals.tdsCollected)} />
-            <Stat label="Net Commission Paid" value={formatINR(data.totals.netCommission)} />
-            <Stat
-              label="Revenue = Charges − GST − Vendor − Comm."
-              value={formatINR(data.totals.platformRevenue)}
-              tone="good"
-            />
-          </div>
+          <Stagger stagger={0.05} className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Gross Commission"
+                countTo={data.totals.grossCommission}
+                prefix="₹"
+                decimals={2}
+                icon={HandCoins}
+                tone="amber"
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="TDS Collected (2%)"
+                countTo={data.totals.tdsCollected}
+                prefix="₹"
+                decimals={2}
+                icon={Landmark}
+                tone="ink"
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Net Commission Paid"
+                countTo={data.totals.netCommission}
+                prefix="₹"
+                decimals={2}
+                icon={Banknote}
+                tone="violet"
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Revenue = Charges − GST − Vendor − Comm."
+                countTo={data.totals.platformRevenue}
+                prefix="₹"
+                decimals={2}
+                icon={TrendingUp}
+                tone="emerald"
+              />
+            </StaggerItem>
+          </Stagger>
 
           {/* Daily revenue trend */}
           {data.byDay.length > 1 && (
-            <div className="rounded-2xl border border-ink-100 bg-white p-5">
-              <p className="mb-4 text-sm font-semibold text-ink-800">Daily platform revenue</p>
+            <Reveal distance={16} duration={0.45}>
+            <Panel>
+              <SectionTitle title="Daily platform revenue" />
               <div className="flex h-40 items-end gap-1 overflow-x-auto">
                 {data.byDay.map((d) => (
                   <div
@@ -573,103 +641,124 @@ export default function RevenuePage() {
                   <span>{data.byDay[data.byDay.length - 1].date}</span>
                 </div>
               )}
-            </div>
+            </Panel>
+            </Reveal>
           )}
 
           {/* Service-wise breakdown */}
-          <div>
-            <p className="mb-3 text-sm font-semibold text-ink-800">
-              Revenue by service
-            </p>
+          <Reveal distance={16} duration={0.45}>
+            <SectionTitle title="Revenue by service" />
             <DataTable columns={serviceColumns} data={data.byService} loading={loading} />
-          </div>
+          </Reveal>
 
           {/* POS company margin by settlement leg (T+1 vs Instant) */}
           {data.posByLeg.length > 0 && (
-            <div>
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-ink-800">
-                  POS company margin by settlement leg
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    downloadCSV(
-                      `pos-margin-by-leg-${data.from}-to-${data.to}`,
-                      data.posByLeg,
-                      csvLegCols
-                    )
-                  }
-                >
-                  <Download className="mr-2 h-4 w-4" /> CSV
-                </Button>
-              </div>
+            <Reveal distance={16} duration={0.45}>
+              <SectionTitle
+                title="POS company margin by settlement leg"
+                action={
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      downloadCSV(
+                        `pos-margin-by-leg-${data.from}-to-${data.to}`,
+                        data.posByLeg,
+                        csvLegCols
+                      )
+                    }
+                  >
+                    <Download className="mr-2 h-4 w-4" /> CSV
+                  </Button>
+                }
+              />
               <div className="mb-3 grid grid-cols-2 gap-4">
-                <Stat label="Instant (T+0) margin" value={formatINR(instantMargin)} tone="good" />
-                <Stat label="T+1 margin" value={formatINR(t1Margin)} tone="good" />
+                <StatTile
+                  label="Instant (T+0) margin"
+                  countTo={instantMargin}
+                  prefix="₹"
+                  decimals={2}
+                  icon={Zap}
+                  tone="emerald"
+                />
+                <StatTile
+                  label="T+1 margin"
+                  countTo={t1Margin}
+                  prefix="₹"
+                  decimals={2}
+                  icon={Banknote}
+                  tone="emerald"
+                />
               </div>
               <DataTable columns={legColumns} data={data.posByLeg} loading={loading} />
-            </div>
+            </Reveal>
           )}
 
           {/* QR company margin by settlement leg (T+1 vs Instant) */}
           {data.qrByLeg.length > 0 && (
-            <div>
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-ink-800">
-                  QR company margin by settlement leg
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    downloadCSV(
-                      `qr-margin-by-leg-${data.from}-to-${data.to}`,
-                      data.qrByLeg,
-                      csvLegCols
-                    )
-                  }
-                >
-                  <Download className="mr-2 h-4 w-4" /> CSV
-                </Button>
-              </div>
+            <Reveal distance={16} duration={0.45}>
+              <SectionTitle
+                title="QR company margin by settlement leg"
+                action={
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      downloadCSV(
+                        `qr-margin-by-leg-${data.from}-to-${data.to}`,
+                        data.qrByLeg,
+                        csvLegCols
+                      )
+                    }
+                  >
+                    <Download className="mr-2 h-4 w-4" /> CSV
+                  </Button>
+                }
+              />
               <div className="mb-3 grid grid-cols-2 gap-4">
-                <Stat label="Instant (T+0) margin" value={formatINR(qrInstantMargin)} tone="good" />
-                <Stat label="T+1 margin" value={formatINR(qrT1Margin)} tone="good" />
+                <StatTile
+                  label="Instant (T+0) margin"
+                  countTo={qrInstantMargin}
+                  prefix="₹"
+                  decimals={2}
+                  icon={Zap}
+                  tone="emerald"
+                />
+                <StatTile
+                  label="T+1 margin"
+                  countTo={qrT1Margin}
+                  prefix="₹"
+                  decimals={2}
+                  icon={Banknote}
+                  tone="emerald"
+                />
               </div>
               <DataTable columns={legColumns} data={data.qrByLeg} loading={loading} />
-            </div>
+            </Reveal>
           )}
 
           {/* Commission by tier */}
-          <div>
-            <p className="mb-3 text-sm font-semibold text-ink-800">
-              Commission by tier
-            </p>
+          <Reveal distance={16} duration={0.45}>
+            <SectionTitle title="Commission by tier" />
             <DataTable columns={tierColumns} data={data.byTier} loading={loading} />
-          </div>
+          </Reveal>
 
           {/* Daily breakdown table */}
           {data.byDay.length > 0 && (
-            <div>
-              <p className="mb-3 text-sm font-semibold text-ink-800">
-                Daily breakdown
-              </p>
+            <Reveal distance={16} duration={0.45}>
+              <SectionTitle title="Daily breakdown" />
               <DataTable columns={dailyColumns} data={data.byDay} loading={loading} />
-            </div>
+            </Reveal>
           )}
 
           {/* Revenue wallet ledger — latest company earnings credits */}
           {data.wallet.recent.length > 0 && (
-            <div>
-              <p className="mb-3 text-sm font-semibold text-ink-800">
-                Revenue wallet ledger (latest 50)
-              </p>
+            <Reveal distance={16} duration={0.45}>
+              <SectionTitle title="Revenue wallet ledger (latest 50)" />
               <DataTable
                 columns={walletColumns}
                 data={data.wallet.recent}
                 loading={loading}
               />
-            </div>
+            </Reveal>
           )}
         </>
       )}

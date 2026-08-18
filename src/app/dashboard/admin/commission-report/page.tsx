@@ -15,8 +15,15 @@ import { Badge } from "@/components/ui/Badge";
 import { StatSkeleton } from "@/components/ui/Skeleton";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { formatINR, formatNumber } from "@/lib/utils";
-import { RefreshCw, Download } from "lucide-react";
+import { RefreshCw, Download, HandCoins, Landmark, Banknote } from "lucide-react";
 import { downloadCSV, downloadPDF, downloadZIP, type ReportColumn } from "@/lib/reports";
+import {
+  StatTile,
+  FilterBar,
+  FilterField,
+  SectionTitle,
+} from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 
 type TierRow = {
   tier: string;
@@ -59,21 +66,6 @@ const TIER_LABELS: Record<string, string> = {
 function todayIST(): string {
   const d = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
   return d.toISOString().slice(0, 10);
-}
-
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "muted" }) {
-  return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">{label}</p>
-      <p
-        className={`mt-1 text-xl font-bold ${
-          tone === "good" ? "text-emerald-600" : tone === "muted" ? "text-ink-500" : "text-ink-900"
-        }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
 }
 
 export default function CommissionReportPage() {
@@ -131,47 +123,46 @@ export default function CommissionReportPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Commission Distribution Report"
-        description="What the company distributes to the network (DT/MD/SD) per transaction — funded from the Revenue Wallet, net of 2% TDS."
-        actions={
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="text-xs text-ink-500">
-              From
-              <input type="date" className={`${inputCls} mt-1 block`} value={from} onChange={(e) => setFrom(e.target.value)} />
-            </label>
-            <label className="text-xs text-ink-500">
-              To
-              <input type="date" className={`${inputCls} mt-1 block`} value={to} onChange={(e) => setTo(e.target.value)} />
-            </label>
-            <Button onClick={load} isLoading={loading}>
-              <RefreshCw className="mr-2 h-4 w-4" /> Apply
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          title="Commission Distribution Report"
+          description="What the company distributes to the network (DT/MD/SD) per transaction — funded from the Revenue Wallet, net of 2% TDS."
+        />
+      </Reveal>
+
+      <FilterBar>
+        <FilterField label="From">
+          <input type="date" className={inputCls} value={from} onChange={(e) => setFrom(e.target.value)} />
+        </FilterField>
+        <FilterField label="To">
+          <input type="date" className={inputCls} value={to} onChange={(e) => setTo(e.target.value)} />
+        </FilterField>
+        <Button onClick={load} isLoading={loading}>
+          <RefreshCw className="mr-2 h-4 w-4" /> Apply
+        </Button>
+        {data && (
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => downloadCSV(`commission-report-${data.from}-to-${data.to}`, data.byTier, csvTierCols)}
+            >
+              <Download className="mr-2 h-4 w-4" /> CSV
             </Button>
-            {data && (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={() => downloadCSV(`commission-report-${data.from}-to-${data.to}`, data.byTier, csvTierCols)}
-                >
-                  <Download className="mr-2 h-4 w-4" /> CSV
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => downloadPDF("Commission Report", data.byTier, csvTierCols, { subtitle: `${data.from} to ${data.to}` })}
-                >
-                  <Download className="mr-2 h-4 w-4" /> PDF
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => downloadZIP(`commission-report-${data.from}-to-${data.to}`, data.byTier, csvTierCols)}
-                >
-                  <Download className="mr-2 h-4 w-4" /> ZIP
-                </Button>
-              </>
-            )}
+            <Button
+              variant="outline"
+              onClick={() => downloadPDF("Commission Report", data.byTier, csvTierCols, { subtitle: `${data.from} to ${data.to}` })}
+            >
+              <Download className="mr-2 h-4 w-4" /> PDF
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => downloadZIP(`commission-report-${data.from}-to-${data.to}`, data.byTier, csvTierCols)}
+            >
+              <Download className="mr-2 h-4 w-4" /> ZIP
+            </Button>
           </div>
-        }
-      />
+        )}
+      </FilterBar>
 
       {error && <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>}
 
@@ -188,22 +179,49 @@ export default function CommissionReportPage() {
 
       {data && (
         <>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-            <Stat label="Gross Commission" value={formatINR(data.totals.grossCommission)} />
-            <Stat label="TDS Withheld (2%)" value={formatINR(data.totals.tdsCollected)} tone="muted" />
-            <Stat label="Net Distributed" value={formatINR(data.totals.netCommission)} tone="good" />
-          </div>
+          <Stagger stagger={0.05} className="grid grid-cols-2 gap-4 md:grid-cols-3">
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Gross Commission"
+                countTo={data.totals.grossCommission}
+                prefix="₹"
+                decimals={2}
+                icon={HandCoins}
+                tone="brand"
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="TDS Withheld (2%)"
+                countTo={data.totals.tdsCollected}
+                prefix="₹"
+                decimals={2}
+                icon={Landmark}
+                tone="ink"
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Net Distributed"
+                countTo={data.totals.netCommission}
+                prefix="₹"
+                decimals={2}
+                icon={Banknote}
+                tone="emerald"
+              />
+            </StaggerItem>
+          </Stagger>
 
-          <div>
-            <p className="mb-3 text-sm font-semibold text-ink-800">Commission by tier</p>
+          <Reveal distance={16} duration={0.45}>
+            <SectionTitle title="Commission by tier" />
             <DataTable columns={tierColumns} data={data.byTier} loading={loading} />
-          </div>
+          </Reveal>
 
           {data.byDay.length > 0 && (
-            <div>
-              <p className="mb-3 text-sm font-semibold text-ink-800">Daily commission distributed</p>
+            <Reveal distance={16} duration={0.45}>
+              <SectionTitle title="Daily commission distributed" />
               <DataTable columns={dailyColumns} data={data.byDay} loading={loading} />
-            </div>
+            </Reveal>
           )}
         </>
       )}

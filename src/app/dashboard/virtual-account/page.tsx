@@ -4,6 +4,8 @@ import { Building2, Copy, Share2 } from "lucide-react";
 import { useState } from "react";
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
 import { Button } from "@/components/ui/Button";
+import { Panel, SectionTitle } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 
 const account = {
   ifsc: "YESB0CMSNOC",
@@ -23,12 +25,15 @@ export default function VirtualAccountPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <ServicePageHeader
-        icon={Building2}
-        title="Virtual Account"
-        description="A unique IFSC + account number that auto-credits your wallet on every NEFT/IMPS deposit."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={Building2}
+          title="Virtual Account"
+          description="A unique IFSC + account number that auto-credits your wallet on every NEFT/IMPS deposit."
+        />
+      </Reveal>
 
+      <Reveal distance={16} duration={0.45}>
       <div className="overflow-hidden rounded-3xl border border-ink-100 bg-gradient-to-br from-brand-700 via-brand-600 to-accent-500 p-6 text-white shadow-glow">
         <p className="text-xs font-semibold uppercase tracking-widest opacity-80">
           Beneficiary
@@ -62,6 +67,7 @@ export default function VirtualAccountPage() {
           ))}
         </div>
       </div>
+      </Reveal>
 
       <div className="mt-6 flex flex-wrap gap-3">
         <Button>
@@ -71,10 +77,9 @@ export default function VirtualAccountPage() {
         <Button variant="outline">Generate QR for collection</Button>
       </div>
 
-      <div className="mt-8 rounded-2xl border border-ink-100 bg-white p-6">
-        <h3 className="font-display text-base font-semibold text-ink-900">
-          How it works
-        </h3>
+      <Reveal distance={16} duration={0.45}>
+      <Panel className="mt-8 p-6">
+        <SectionTitle title="How it works" className="mb-0" />
         <ol className="mt-4 space-y-3 text-sm text-ink-700">
           {[
             "Share the above account number & IFSC with your customer.",
@@ -90,7 +95,8 @@ export default function VirtualAccountPage() {
             </li>
           ))}
         </ol>
-      </div>
+      </Panel>
+      </Reveal>
     </div>
   );
 }

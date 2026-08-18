@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Bus } from "lucide-react";
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
+import { Panel } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { formatINR } from "@/lib/utils";
@@ -35,18 +37,21 @@ export default function BusPage() {
 
   return (
     <div>
-      <ServicePageHeader
-        icon={Bus}
-        title="Bus Booking"
-        description="Book AC sleeper, semi-sleeper and seater buses across India."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={Bus}
+          title="Bus Booking"
+          description="Book AC sleeper, semi-sleeper and seater buses across India."
+        />
+      </Reveal>
 
+      <Reveal distance={16} duration={0.45}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           setSearched(true);
         }}
-        className="grid items-end gap-4 rounded-2xl border border-ink-100 bg-white p-6 lg:grid-cols-12"
+        className="grid items-end gap-4 rounded-2xl border border-ink-100 bg-white p-6 shadow-sm lg:grid-cols-12"
       >
         <div className="lg:col-span-4">
           <Label>From</Label>
@@ -79,16 +84,18 @@ export default function BusPage() {
           </Button>
         </div>
       </form>
+      </Reveal>
 
       {searched && (
-        <div className="mt-6 space-y-3">
+        <Reveal distance={16} duration={0.45} className="mt-6 space-y-3">
           {buses.map((b) => (
-            <div
+            <Panel
               key={b.name}
-              className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-ink-100 bg-white p-5"
+              interactive
+              className="flex flex-wrap items-center justify-between gap-4"
             >
               <div className="flex items-center gap-4">
-                <span className="grid h-12 w-12 place-items-center rounded-xl bg-brand-50 text-brand-700">
+                <span className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
                   <Bus className="h-5 w-5" />
                 </span>
                 <div>
@@ -121,9 +128,9 @@ export default function BusPage() {
                   Select seats
                 </Button>
               </div>
-            </div>
+            </Panel>
           ))}
-        </div>
+        </Reveal>
       )}
     </div>
   );

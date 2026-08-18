@@ -265,7 +265,7 @@ export function BbpsBillForm({
           setError(null);
           setPinOpen(true);
         }}
-        className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-6 sm:grid-cols-2"
+        className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-5 shadow-sm sm:grid-cols-2 sm:p-6"
       >
         <div className="sm:col-span-2">
           <Label htmlFor="biller">Biller / Operator</Label>
@@ -343,14 +343,15 @@ export function BbpsBillForm({
               Fetch bill
             </Button>
           ) : (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
-              {bill.customerName && <p className="font-semibold text-ink-900">{bill.customerName}</p>}
-              {bill.dueDate && <p className="text-xs text-ink-600">Bill due {bill.dueDate}</p>}
-              <p className="mt-2 font-display text-xl font-bold text-emerald-700">
+            <div className="relative overflow-hidden rounded-2xl border border-accent-200/70 bg-gradient-to-br from-brand-50 to-accent-50 p-4 text-sm shadow-sm">
+              <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-accent-400/20 blur-2xl" aria-hidden />
+              {bill.customerName && <p className="relative font-semibold text-ink-900">{bill.customerName}</p>}
+              {bill.dueDate && <p className="relative text-xs text-ink-600">Bill due {bill.dueDate}</p>}
+              <p className="relative mt-2 font-display text-2xl font-bold tracking-tight text-emerald-700">
                 {formatINR(bill.amount)}
               </p>
               {bill.minAmount !== undefined && (
-                <p className="mt-1 text-xs text-ink-600">
+                <p className="relative mt-1 text-xs text-ink-600">
                   Minimum due {formatINR(bill.minAmount)}
                   {bill.maxAmount !== undefined && (
                     <> · Max payable {formatINR(bill.maxAmount)}</>
@@ -379,7 +380,7 @@ export function BbpsBillForm({
                   <button
                     type="button"
                     onClick={() => setAmount(String(bill.minAmount))}
-                    className="rounded-full border border-ink-200 px-3 py-1 text-xs font-medium text-ink-700 hover:border-brand-300 hover:text-brand-700"
+                    className="rounded-full border border-ink-200 bg-white px-3 py-1 text-xs font-medium text-ink-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 hover:shadow-sm"
                   >
                     Minimum due — {formatINR(bill.minAmount)}
                   </button>
@@ -387,14 +388,14 @@ export function BbpsBillForm({
                 <button
                   type="button"
                   onClick={() => setAmount(String(bill.amount))}
-                  className="rounded-full border border-ink-200 px-3 py-1 text-xs font-medium text-ink-700 hover:border-brand-300 hover:text-brand-700"
+                  className="rounded-full border border-ink-200 bg-white px-3 py-1 text-xs font-medium text-ink-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 hover:shadow-sm"
                 >
                   Total due — {formatINR(bill.amount)}
                 </button>
               </div>
             </div>
             {quote && Number(amount) > 0 && (
-              <div className="sm:col-span-2 rounded-xl border border-ink-200 bg-ink-50/50 p-4 text-sm">
+              <div className="sm:col-span-2 rounded-2xl border border-ink-100 bg-ink-50/60 p-4 text-sm shadow-sm">
                 <div className="flex justify-between">
                   <span className="text-ink-600">Bill amount</span>
                   <span className="font-medium text-ink-900">{formatINR(Number(amount))}</span>
@@ -412,7 +413,7 @@ export function BbpsBillForm({
                 <hr className="my-2 border-ink-200" />
                 <div className="flex justify-between font-semibold">
                   <span className="text-ink-700">Total debit from wallet</span>
-                  <span className="text-ink-900">{formatINR(quote.totalDebit)}</span>
+                  <span className="font-display font-bold text-ink-900">{formatINR(quote.totalDebit)}</span>
                 </div>
                 {quote.commission > 0 && (
                   <p className="mt-2 text-xs text-emerald-600">

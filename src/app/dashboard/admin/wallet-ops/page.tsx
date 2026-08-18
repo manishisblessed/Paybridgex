@@ -6,6 +6,18 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import {
+  Panel,
+  StatTile,
+  FilterBar,
+  TablePro,
+  TableEmptyRow,
+  TableSkeletonRows,
+  StatusPill,
+  TabNav,
+  SegmentedNav,
+} from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { formatINR, formatNumber } from "@/lib/utils";
 import {
   RefreshCw,
@@ -25,6 +37,8 @@ import {
   ArrowDownToLine,
   ChevronDown,
   ChevronRight,
+  History,
+  Users,
 } from "lucide-react";
 
 /* ---------------------------------------------------------------- types */
@@ -161,84 +175,82 @@ export default function WalletOpsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin · Money"
-        title="Wallet Operations"
-        description="Platform liability at a glance, user-wise balances, and audited admin credit/debit that executes immediately."
-        actions={
-          <>
-            <Button variant="outline" onClick={() => setMasked((m) => !m)}>
-              {masked ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-              {masked ? "Show amounts" : "Mask amounts"}
-            </Button>
-            <Button variant="outline" onClick={loadCumulative}>
-              <RefreshCw className="h-4 w-4" /> Refresh
-            </Button>
-          </>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin · Money"
+          title="Wallet Operations"
+          description="Platform liability at a glance, user-wise balances, and audited admin credit/debit that executes immediately."
+          actions={
+            <>
+              <Button variant="outline" onClick={() => setMasked((m) => !m)}>
+                {masked ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                {masked ? "Show amounts" : "Mask amounts"}
+              </Button>
+              <Button variant="outline" onClick={loadCumulative}>
+                <RefreshCw className="h-4 w-4" /> Refresh
+              </Button>
+            </>
+          }
+        />
+      </Reveal>
 
       {/* Cumulative liability */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-transparent bg-gradient-to-br from-brand-600 to-violet-600 p-4 text-white shadow-soft">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-white/70">
-            System liability (all wallets)
-          </p>
-          <p className="mt-1 font-display text-2xl font-bold">
-            {money(cumulative?.systemTotal ?? 0)}
-          </p>
-          <p className="text-[11px] text-white/70">
-            across {formatNumber(cumulative?.walletCount ?? 0)} user wallets
-          </p>
-        </div>
-        <MiniStat label="Primary wallets" value={money(cumulative?.primaryTotal ?? 0)} />
-        <MiniStat label="AEPS wallets" value={money(cumulative?.aepsTotal ?? 0)} />
-        <MiniStat label="On hold (in-flight)" value={money(cumulative?.heldTotal ?? 0)} />
-        <MiniStat label="Frozen (liens)" value={money(cumulative?.lienTotal ?? 0)} />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="System liability (all wallets)"
+            value={money(cumulative?.systemTotal ?? 0)}
+            icon={Landmark}
+            tone="dark"
+            hint={`across ${formatNumber(cumulative?.walletCount ?? 0)} user wallets`}
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Primary wallets" value={money(cumulative?.primaryTotal ?? 0)} icon={Wallet} tone="brand" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="AEPS wallets" value={money(cumulative?.aepsTotal ?? 0)} icon={CreditCard} tone="violet" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="On hold (in-flight)" value={money(cumulative?.heldTotal ?? 0)} icon={Lock} tone="amber" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Frozen (liens)" value={money(cumulative?.lienTotal ?? 0)} icon={ShieldAlert} tone="rose" />
+        </StaggerItem>
+      </Stagger>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Stagger stagger={0.05} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {(cumulative?.tiers ?? []).map((t) => (
-          <div key={t.role} className="rounded-2xl border border-ink-100 bg-white p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">
-                {ROLE_LABEL[t.role] ?? t.role}
+          <StaggerItem key={t.role} distance={14} duration={0.35}>
+            <Panel interactive className="p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">
+                  {ROLE_LABEL[t.role] ?? t.role}
+                </p>
+                <Badge>{formatNumber(t.users)}</Badge>
+              </div>
+              <p className="mt-1 font-display text-lg font-bold text-ink-900">{money(t.total)}</p>
+              <p className="text-[11px] text-ink-500">
+                Primary {money(t.primary)} · AEPS {money(t.aeps)}
               </p>
-              <Badge>{formatNumber(t.users)}</Badge>
-            </div>
-            <p className="mt-1 font-display text-lg font-bold text-ink-900">{money(t.total)}</p>
-            <p className="text-[11px] text-ink-500">
-              Primary {money(t.primary)} · AEPS {money(t.aeps)}
-            </p>
-          </div>
+            </Panel>
+          </StaggerItem>
         ))}
-      </div>
+      </Stagger>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-ink-100">
-        {(
-          [
-            ["balances", "User-wise balances"],
-            ["payin", "Live payin"],
-            ["topups", "Wallet top-ups"],
-            ["operate", "Push / Pull"],
-            ["liens", "Liens"],
-            ["history", "Operations history"],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
-              tab === key
-                ? "border-brand-600 text-brand-700"
-                : "border-transparent text-ink-500 hover:text-ink-800"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <TabNav
+        tabs={[
+          { key: "balances", label: "User-wise balances", icon: Wallet },
+          { key: "payin", label: "Live payin", icon: Activity },
+          { key: "topups", label: "Wallet top-ups", icon: ArrowDownToLine },
+          { key: "operate", label: "Push / Pull", icon: ArrowUpCircle },
+          { key: "liens", label: "Liens", icon: Lock },
+          { key: "history", label: "Operations history", icon: History },
+        ]}
+        active={tab}
+        onChange={(key) => setTab(key as typeof tab)}
+      />
 
       {tab === "balances" && <UserBalancesTab money={money} />}
       {tab === "payin" && <PayinTab money={money} />}
@@ -261,15 +273,6 @@ export default function WalletOpsPage() {
         />
       )}
       {tab === "history" && <HistoryTab money={money} onNotice={notify} />}
-    </div>
-  );
-}
-
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-4">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">{label}</p>
-      <p className="mt-1 font-display text-2xl font-bold text-ink-900">{value}</p>
     </div>
   );
 }
@@ -381,19 +384,11 @@ function PayinTab({ money }: { money: (n: number) => string }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1 rounded-xl border border-ink-100 bg-white p-1">
-          {PAYIN_PERIODS.map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setPeriod(key)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                period === key ? "bg-brand-600 text-white" : "text-ink-500 hover:text-ink-800"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <SegmentedNav
+          tabs={PAYIN_PERIODS.map(([key, label]) => ({ key, label }))}
+          active={period}
+          onChange={setPeriod}
+        />
         <div className="ml-auto flex items-center gap-2 text-xs text-ink-400">
           <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
           Live · auto-refreshes every 30s
@@ -404,27 +399,35 @@ function PayinTab({ money }: { money: (n: number) => string }) {
       </div>
 
       {/* Headline cards */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-2xl border border-transparent bg-gradient-to-br from-brand-600 to-violet-600 p-4 text-white shadow-soft">
-          <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-white/80" />
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/70">
-              Business {periodLabel}
-            </p>
-          </div>
-          <p className="mt-1 font-display text-2xl font-bold">{money(data?.totalAmount ?? 0)}</p>
-          <p className="text-[11px] text-white/70">
-            {formatNumber(data?.totalCount ?? 0)} inbound transactions
-          </p>
-        </div>
-        <MiniStat label="All-time business (all rails)" value={money(data?.balance ?? 0)} />
-        <MiniStat
-          label="Avg ticket size"
-          value={money(
-            data && data.totalCount > 0 ? data.totalAmount / data.totalCount : 0
-          )}
-        />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label={`Business ${periodLabel}`}
+            value={money(data?.totalAmount ?? 0)}
+            icon={Activity}
+            tone="dark"
+            hint={`${formatNumber(data?.totalCount ?? 0)} inbound transactions`}
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="All-time business (all rails)"
+            value={money(data?.balance ?? 0)}
+            icon={Landmark}
+            tone="brand"
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Avg ticket size"
+            value={money(
+              data && data.totalCount > 0 ? data.totalAmount / data.totalCount : 0
+            )}
+            icon={CreditCard}
+            tone="sky"
+          />
+        </StaggerItem>
+      </Stagger>
 
       {/* Per-rail business */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -434,7 +437,7 @@ function PayinTab({ money }: { money: (n: number) => string }) {
           const share =
             data && data.totalAmount > 0 ? Math.round((r.amount / data.totalAmount) * 100) : 0;
           return (
-            <div key={r.rail} className="rounded-2xl border border-ink-100 bg-white p-4">
+            <Panel interactive key={r.rail} className="p-4">
               <div className="flex items-center justify-between">
                 <div
                   className={`flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br ${accent} text-white`}
@@ -454,14 +457,16 @@ function PayinTab({ money }: { money: (n: number) => string }) {
                 />
               </div>
               <p className="mt-1 text-[11px] text-ink-400">{share}% of {periodLabel}&rsquo;s volume</p>
-            </div>
+            </Panel>
           );
         })}
       </div>
 
-      <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+      <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 shadow-sm">
         <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-sky-600" />
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-700 text-white shadow-soft">
+            <Activity className="h-4 w-4" />
+          </span>
           <p className="text-sm font-bold text-sky-800">Company payin wallet</p>
         </div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-sky-800">
@@ -504,77 +509,84 @@ function TopupsTab({ money }: { money: (n: number) => string }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1 rounded-xl border border-ink-100 bg-white p-1">
-          {PAYIN_PERIODS.map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setPeriod(key)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                period === key ? "bg-brand-600 text-white" : "text-ink-500 hover:text-ink-800"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <SegmentedNav
+          tabs={PAYIN_PERIODS.map(([key, label]) => ({ key, label }))}
+          active={period}
+          onChange={setPeriod}
+        />
         <Button variant="outline" size="sm" onClick={load} disabled={loading} className="ml-auto">
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
         </Button>
       </div>
 
       {/* Headline */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-2xl border border-transparent bg-gradient-to-br from-amber-500 to-orange-600 p-4 text-white shadow-soft">
-          <div className="flex items-center gap-2">
-            <ArrowDownToLine className="h-4 w-4 text-white/80" />
-            <p className="text-[10px] font-bold uppercase tracking-widest text-white/70">
-              Wallet top-ups {periodLabel}
-            </p>
-          </div>
-          <p className="mt-1 font-display text-2xl font-bold">{money(data?.totalAmount ?? 0)}</p>
-          <p className="text-[11px] text-white/70">{formatNumber(data?.totalCount ?? 0)} top-ups</p>
-        </div>
-        <MiniStat label="Agents topped up" value={formatNumber(data?.byUser.length ?? 0)} />
-        <MiniStat
-          label="Avg top-up"
-          value={money(data && data.totalCount > 0 ? data.totalAmount / data.totalCount : 0)}
-        />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label={`Wallet top-ups ${periodLabel}`}
+            value={money(data?.totalAmount ?? 0)}
+            icon={ArrowDownToLine}
+            tone="amber"
+            hint={`${formatNumber(data?.totalCount ?? 0)} top-ups`}
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Agents topped up"
+            value={formatNumber(data?.byUser.length ?? 0)}
+            icon={Users}
+            tone="brand"
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Avg top-up"
+            value={money(data && data.totalCount > 0 ? data.totalAmount / data.totalCount : 0)}
+            icon={Wallet}
+            tone="emerald"
+          />
+        </StaggerItem>
+      </Stagger>
 
       {/* By user */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-bold text-ink-900">Top-ups {periodLabel} · by user</p>
-          {(data?.rows.length ?? 0) > 0 && (
-            <button
-              onClick={() => setShowTxns((s) => !s)}
-              className="inline-flex items-center gap-1 rounded-lg border border-ink-200 px-2.5 py-1.5 text-xs font-semibold text-ink-600 hover:bg-ink-50"
-            >
-              {showTxns ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              {showTxns ? "Hide transactions" : "Show transactions"}
-            </button>
-          )}
-        </div>
-
-        {loading && !data ? (
-          <p className="mt-3 text-sm text-ink-400">Loading…</p>
-        ) : (data?.byUser.length ?? 0) === 0 ? (
-          <p className="mt-3 text-sm text-ink-400">No wallet top-ups {periodLabel}.</p>
-        ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-400">
-                  <th className="pb-2 font-semibold">User</th>
-                  <th className="pb-2 text-right font-semibold">Top-ups</th>
-                  <th className="pb-2 text-right font-semibold">Amount</th>
-                  <th className="pb-2 text-right font-semibold">Last</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.byUser ?? []).map((u) => (
-                  <tr key={u.userId} className="border-b border-ink-50 last:border-0">
-                    <td className="py-2">
+      <Reveal distance={16} duration={0.45}>
+        <TablePro
+          dense
+          title={`Top-ups ${periodLabel} · by user`}
+          action={
+            (data?.rows.length ?? 0) > 0 ? (
+              <button
+                onClick={() => setShowTxns((s) => !s)}
+                className="inline-flex items-center gap-1 rounded-lg border border-ink-200 px-2.5 py-1.5 text-xs font-semibold text-ink-600 transition hover:bg-ink-50"
+              >
+                {showTxns ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                {showTxns ? "Hide transactions" : "Show transactions"}
+              </button>
+            ) : undefined
+          }
+        >
+          <table>
+            <thead>
+              <tr>
+                <th>User</th>
+                <th className="text-right">Top-ups</th>
+                <th className="text-right">Amount</th>
+                <th className="text-right">Last</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && !data ? (
+                <TableSkeletonRows rows={5} cols={4} />
+              ) : (data?.byUser.length ?? 0) === 0 ? (
+                <TableEmptyRow
+                  colSpan={4}
+                  icon={ArrowDownToLine}
+                  message={`No wallet top-ups ${periodLabel}.`}
+                />
+              ) : (
+                (data?.byUser ?? []).map((u) => (
+                  <tr key={u.userId}>
+                    <td>
                       <div className="flex flex-col">
                         <span className="font-semibold text-ink-900">{u.shopName || u.name}</span>
                         <span className="text-[11px] text-ink-500">
@@ -584,46 +596,46 @@ function TopupsTab({ money }: { money: (n: number) => string }) {
                         </span>
                       </div>
                     </td>
-                    <td className="py-2 text-right text-ink-700">{formatNumber(u.count)}</td>
-                    <td className="py-2 text-right font-semibold text-ink-900">{money(u.amount)}</td>
-                    <td className="py-2 text-right text-[11px] text-ink-500">{fmtPayinTime(u.lastAt)}</td>
+                    <td className="text-right text-ink-700">{formatNumber(u.count)}</td>
+                    <td className="text-right font-semibold text-ink-900">{money(u.amount)}</td>
+                    <td className="text-right text-[11px] text-ink-500">{fmtPayinTime(u.lastAt)}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                ))
+              )}
+            </tbody>
+          </table>
+        </TablePro>
+      </Reveal>
 
-        {showTxns && (data?.rows.length ?? 0) > 0 && (
-          <div className="mt-4 overflow-x-auto rounded-xl border border-ink-100">
-            <table className="w-full text-sm">
-              <thead className="bg-ink-50/60">
-                <tr className="text-left text-[11px] uppercase tracking-wider text-ink-400">
-                  <th className="px-3 py-2 font-semibold">Time</th>
-                  <th className="px-3 py-2 font-semibold">Ref</th>
-                  <th className="px-3 py-2 font-semibold">User</th>
-                  <th className="px-3 py-2 font-semibold">Provider</th>
-                  <th className="px-3 py-2 text-right font-semibold">Amount</th>
+      {showTxns && (data?.rows.length ?? 0) > 0 && (
+        <TablePro dense maxHeight="max-h-[28rem]">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Ref</th>
+                <th>User</th>
+                <th>Provider</th>
+                <th className="text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.rows ?? []).map((t) => (
+                <tr key={t.refId}>
+                  <td className="text-[11px] text-ink-500">{fmtPayinTime(t.createdAt)}</td>
+                  <td className="font-mono text-[11px] text-ink-600">{t.refId}</td>
+                  <td>
+                    <span className="font-medium text-ink-900">{t.shopName || t.name}</span>
+                    {t.userCode ? <span className="ml-1 text-[11px] text-brand-600">{t.userCode}</span> : null}
+                  </td>
+                  <td className="text-[11px] text-ink-500">{t.partner ?? "—"}</td>
+                  <td className="text-right font-semibold text-ink-900">{money(t.amount)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {(data?.rows ?? []).map((t) => (
-                  <tr key={t.refId} className="border-t border-ink-50">
-                    <td className="px-3 py-2 text-[11px] text-ink-500">{fmtPayinTime(t.createdAt)}</td>
-                    <td className="px-3 py-2 font-mono text-[11px] text-ink-600">{t.refId}</td>
-                    <td className="px-3 py-2">
-                      <span className="font-medium text-ink-900">{t.shopName || t.name}</span>
-                      {t.userCode ? <span className="ml-1 text-[11px] text-brand-600">{t.userCode}</span> : null}
-                    </td>
-                    <td className="px-3 py-2 text-[11px] text-ink-500">{t.partner ?? "—"}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-ink-900">{money(t.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </TablePro>
+      )}
     </div>
   );
 }
@@ -691,7 +703,7 @@ function UserBalancesTab({ money }: { money: (n: number) => string }) {
         key: "status",
         header: "Status",
         render: (r) => (
-          <Badge variant={r.status === "ACTIVE" ? "success" : "warning"}>{r.status}</Badge>
+          <StatusPill status={r.status} tone={r.status === "ACTIVE" ? "success" : "warning"} />
         ),
       },
       { key: "primary", header: "Primary", align: "right", render: (r) => money(r.primary) },
@@ -722,7 +734,7 @@ function UserBalancesTab({ money }: { money: (n: number) => string }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <FilterBar>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-ink-400" />
           <input
@@ -753,13 +765,15 @@ function UserBalancesTab({ money }: { money: (n: number) => string }) {
         <span className="ml-auto text-xs text-ink-500">
           Filtered total: <b className="text-ink-800">{money(sums.total)}</b> · {formatNumber(total)} users
         </span>
-      </div>
+      </FilterBar>
 
-      <DataTable
-        columns={columns}
-        data={rows}
-        loading={loading}
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          columns={columns}
+          data={rows}
+          loading={loading}
+        />
+      </Reveal>
 
       {pages > 1 && (
         <div className="flex items-center justify-end gap-2 text-sm">
@@ -873,8 +887,8 @@ function OperateTab({ onDone }: { onDone: (msg: string, ok: boolean) => void }) 
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-5">
-      <div className="space-y-4 rounded-2xl border border-ink-100 bg-white p-5 lg:col-span-3">
+    <Reveal distance={16} duration={0.45} className="grid gap-4 lg:grid-cols-5">
+      <Panel className="space-y-4 lg:col-span-3">
         {/* Target user */}
         <div>
           <label className="text-xs font-bold uppercase tracking-widest text-ink-500">
@@ -1042,12 +1056,14 @@ function OperateTab({ onDone }: { onDone: (msg: string, ok: boolean) => void }) 
           <Wallet className="h-4 w-4" />
           {type === "PUSH" ? "Credit user wallet" : "Debit user wallet"}
         </Button>
-      </div>
+      </Panel>
 
       <div className="space-y-3 lg:col-span-2">
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-amber-600" />
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-soft">
+              <ShieldCheck className="h-4 w-4" />
+            </span>
             <p className="text-sm font-bold text-amber-800">Money-safety rules</p>
           </div>
           <ul className="mt-2 space-y-1.5 text-[13px] leading-relaxed text-amber-800">
@@ -1058,7 +1074,7 @@ function OperateTab({ onDone }: { onDone: (msg: string, ok: boolean) => void }) 
           </ul>
         </div>
       </div>
-    </div>
+    </Reveal>
   );
 }
 
@@ -1150,9 +1166,9 @@ function HistoryTab({
       key: "type",
       header: "Op",
       render: (r) => (
-        <Badge variant={r.type === "PUSH" ? "success" : "danger"}>
+        <StatusPill status={r.type} tone={r.type === "PUSH" ? "success" : "danger"}>
           {r.type} · {r.walletType}
-        </Badge>
+        </StatusPill>
       ),
     },
     { key: "amount", header: "Amount", align: "right", render: (r) => money(r.amount) },
@@ -1166,8 +1182,9 @@ function HistoryTab({
       key: "status",
       header: "Status",
       render: (r) => (
-        <Badge
-          variant={
+        <StatusPill
+          status={r.status}
+          tone={
             r.status === "COMPLETED"
               ? "success"
               : r.status === "PENDING_APPROVAL"
@@ -1176,7 +1193,7 @@ function HistoryTab({
           }
         >
           {r.status.replace(/_/g, " ")}
-        </Badge>
+        </StatusPill>
       ),
     },
     {
@@ -1205,7 +1222,7 @@ function HistoryTab({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <FilterBar>
         <select
           value={status}
           onChange={(e) => {
@@ -1223,13 +1240,15 @@ function HistoryTab({
         <Button variant="outline" size="sm" onClick={load} disabled={loading}>
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
         </Button>
-      </div>
+      </FilterBar>
 
-      <DataTable
-        columns={columns}
-        data={ops}
-        loading={loading}
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          columns={columns}
+          data={ops}
+          loading={loading}
+        />
+      </Reveal>
 
       {pages > 1 && (
         <div className="flex items-center justify-end gap-2 text-sm">
@@ -1455,17 +1474,16 @@ function LiensTab({
       key: "status",
       header: "Status",
       render: (r) => (
-        <Badge
-          variant={
+        <StatusPill
+          status={r.status}
+          tone={
             r.status === "RECOVERED"
               ? "success"
               : r.status === "ACTIVE"
               ? "warning"
               : "danger"
           }
-        >
-          {r.status}
-        </Badge>
+        />
       ),
     },
     {
@@ -1494,8 +1512,8 @@ function LiensTab({
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 lg:grid-cols-5">
-        <div className="space-y-4 rounded-2xl border border-ink-100 bg-white p-5 lg:col-span-3">
+      <Reveal distance={16} duration={0.45} className="grid gap-4 lg:grid-cols-5">
+        <Panel className="space-y-4 lg:col-span-3">
           <div>
             <label className="text-xs font-bold uppercase tracking-widest text-ink-500">
               Target user
@@ -1626,12 +1644,14 @@ function LiensTab({
           >
             <Lock className="h-4 w-4" /> Place lien &amp; recover
           </Button>
-        </div>
+        </Panel>
 
         <div className="space-y-3 lg:col-span-2">
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
             <div className="flex items-center gap-2">
-              <ShieldAlert className="h-4 w-4 text-amber-600" />
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-soft">
+                <ShieldAlert className="h-4 w-4" />
+              </span>
               <p className="text-sm font-bold text-amber-800">How liens work</p>
             </div>
             <ul className="mt-2 space-y-1.5 text-[13px] leading-relaxed text-amber-800">
@@ -1642,11 +1662,11 @@ function LiensTab({
             </ul>
           </div>
         </div>
-      </div>
+      </Reveal>
 
       {/* Liens list */}
       <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
+        <FilterBar>
           <select
             value={status}
             onChange={(e) => { setStatus(e.target.value); setPage(1); }}
@@ -1660,9 +1680,11 @@ function LiensTab({
           <Button variant="outline" size="sm" onClick={loadLiens} disabled={loading}>
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </Button>
-        </div>
+        </FilterBar>
 
-        <DataTable columns={columns} data={liens} loading={loading} />
+        <Reveal distance={16} duration={0.45}>
+          <DataTable columns={columns} data={liens} loading={loading} />
+        </Reveal>
 
         {pages > 1 && (
           <div className="flex items-center justify-end gap-2 text-sm">

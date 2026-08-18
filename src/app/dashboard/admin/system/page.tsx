@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { ReportActions } from "@/components/dashboard/ReportActions";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Database, Zap, FlaskConical } from "lucide-react";
+import { StatTile, StatusPill } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 
 type ServiceRow = {
   service: string;
@@ -48,72 +48,63 @@ export default function AdminSystemPage() {
       key: "live",
       header: "Status",
       render: (r) => (
-        <Badge variant={r.live ? "success" : "warning"}>
-          {r.live ? "Live" : "Mock"}
-        </Badge>
+        <StatusPill status={r.live ? "Live" : "Mock"} tone={r.live ? "success" : "warning"} />
       ),
     },
   ];
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="System health"
-        description="Live status of database, partner integrations, and all payment switches."
-        actions={
-          <Button variant="outline" onClick={fetchHealth} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </Button>
-        }
-      />
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <StatusCard
-          title="Database"
-          status={dbStatus === "up" ? "Healthy" : "Down"}
-          variant={dbStatus === "up" ? "success" : "danger"}
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="System health"
+          description="Live status of database, partner integrations, and all payment switches."
+          actions={
+            <Button variant="outline" onClick={fetchHealth} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </Button>
+          }
         />
-        <StatusCard
-          title="Live Partners"
-          status={`${services.filter((s) => s.live).length} of ${services.length}`}
-          variant={services.some((s) => s.live) ? "success" : "warning"}
-        />
-        <StatusCard
-          title="Mock Partners"
-          status={`${services.filter((s) => !s.live).length}`}
-          variant="default"
-        />
-      </div>
+      </Reveal>
 
-      <DataTable
-        title="Partner integrations" loading={loading}
-        columns={cols}
-        data={services}
-      />
-    </div>
-  );
-}
+      <Stagger stagger={0.05} className="grid gap-4 md:grid-cols-3">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Database"
+            value={dbStatus === "up" ? "Healthy" : "Down"}
+            icon={Database}
+            tone={dbStatus === "up" ? "emerald" : "rose"}
+            loading={loading}
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Live Partners"
+            value={`${services.filter((s) => s.live).length} of ${services.length}`}
+            icon={Zap}
+            tone={services.some((s) => s.live) ? "emerald" : "amber"}
+            loading={loading}
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Mock Partners"
+            countTo={services.filter((s) => !s.live).length}
+            icon={FlaskConical}
+            tone="ink"
+            loading={loading}
+          />
+        </StaggerItem>
+      </Stagger>
 
-function StatusCard({ title, status, variant }: { title: string; status: string; variant: string }) {
-  const colors: Record<string, string> = {
-    success: "border-emerald-200 bg-emerald-50",
-    danger: "border-rose-200 bg-rose-50",
-    warning: "border-amber-200 bg-amber-50",
-    default: "border-ink-100 bg-white",
-  };
-  const textColors: Record<string, string> = {
-    success: "text-emerald-700",
-    danger: "text-rose-700",
-    warning: "text-amber-700",
-    default: "text-ink-700",
-  };
-  return (
-    <div className={`rounded-2xl border p-5 ${colors[variant] ?? colors.default}`}>
-      <p className="text-xs font-bold uppercase tracking-widest text-ink-500">{title}</p>
-      <p className={`mt-1 font-display text-xl font-bold ${textColors[variant] ?? textColors.default}`}>
-        {status}
-      </p>
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title="Partner integrations" loading={loading}
+          columns={cols}
+          data={services}
+        />
+      </Reveal>
     </div>
   );
 }

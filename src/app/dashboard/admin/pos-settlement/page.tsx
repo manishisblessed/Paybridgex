@@ -7,7 +7,9 @@ import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { formatINR } from "@/lib/utils";
-import { CreditCard, RefreshCw, Clock, PlayCircle, DownloadCloud, Zap, Save } from "lucide-react";
+import { RefreshCw, Clock, PlayCircle, DownloadCloud, Zap, Save, CheckCircle2, XCircle, Layers } from "lucide-react";
+import { Panel, DarkPanel, StatTile } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 
 type PosT1 = { enabled: boolean; hour: number; paused: boolean; minAmount: number };
 type PosInstant = { defaultEnabled: boolean; paused: boolean };
@@ -266,34 +268,37 @@ export default function PosSettlementPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="POS Settlement"
-        description="Configure when POS T+1 settlement runs, and trigger ingestion / settlement sweeps on demand. Same Day sends no capture webhooks, so ingestion pulls captured transactions into the queue; the T+1 sweep credits retailers on their capture's next day."
-        actions={
-          <Button variant="outline" onClick={load}>
-            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          title="POS Settlement"
+          description="Configure when POS T+1 settlement runs, and trigger ingestion / settlement sweeps on demand. Same Day sends no capture webhooks, so ingestion pulls captured transactions into the queue; the T+1 sweep credits retailers on their capture's next day."
+          actions={
+            <Button variant="outline" onClick={load}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+            </Button>
+          }
+        />
+      </Reveal>
 
       {/* Instant settlement — prominent, retailer-controlled control */}
-      <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-5 shadow-sm">
+      <Reveal distance={16} duration={0.45}>
+      <DarkPanel>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="max-w-2xl">
-            <h3 className="mb-1 flex items-center gap-2 text-base font-bold text-ink-900">
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-600/10">
-                <Zap className="h-4 w-4 text-brand-600" />
+            <h3 className="mb-1 flex items-center gap-2 font-display text-base font-bold text-white">
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-white/10 text-accent-300 ring-1 ring-white/15">
+                <Zap className="h-4 w-4" />
               </span>
               Instant settlement (retailer-controlled)
             </h3>
-            <p className="text-xs text-ink-500">
-              When <strong>ON</strong>, retailers see an <strong>&quot;Instant settle&quot;</strong> action and can
+            <p className="text-xs text-white/60">
+              When <strong className="text-white/90">ON</strong>, retailers see an <strong className="text-white/90">&quot;Instant settle&quot;</strong> action and can
               hand-pick individual transactions to settle now at the T0 rate. Anything they don&apos;t pick
-              auto-settles on the next-day T+1 sweep. When <strong>OFF</strong>, every transaction simply settles T+1.
+              auto-settles on the next-day T+1 sweep. When <strong className="text-white/90">OFF</strong>, every transaction simply settles T+1.
             </p>
           </div>
           {savingButton && (
-            <span className="flex items-center gap-1.5 text-xs text-ink-400">
+            <span className="flex items-center gap-1.5 text-xs text-white/60">
               <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Saving…
             </span>
           )}
@@ -314,13 +319,18 @@ export default function PosSettlementPage() {
             onChange={(v) => saveButton({ ...instantButton, qrEnabled: v })}
           />
         </div>
-      </div>
+      </DarkPanel>
+      </Reveal>
 
+      <Reveal distance={16} duration={0.45}>
       <div className="grid gap-4 lg:grid-cols-2">
         {/* T+1 time config */}
-        <div className="rounded-2xl border border-ink-100 bg-white p-5">
-          <h3 className="mb-4 flex items-center gap-2 text-sm font-bold text-ink-900">
-            <Clock className="h-4 w-4 text-brand-600" /> T+1 settlement time
+        <Panel>
+          <h3 className="mb-4 flex items-center gap-2 font-display text-sm font-bold text-ink-900">
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
+              <Clock className="h-3.5 w-3.5" />
+            </span>
+            T+1 settlement time
           </h3>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-ink-500">
@@ -383,12 +393,15 @@ export default function PosSettlementPage() {
               <PlayCircle className="mr-2 h-4 w-4" /> Run T+1 sweep now
             </Button>
           </div>
-        </div>
+        </Panel>
 
         {/* Ingestion config + run */}
-        <div className="rounded-2xl border border-ink-100 bg-white p-5">
-          <h3 className="mb-4 flex items-center gap-2 text-sm font-bold text-ink-900">
-            <DownloadCloud className="h-4 w-4 text-brand-600" /> Capture ingestion
+        <Panel>
+          <h3 className="mb-4 flex items-center gap-2 font-display text-sm font-bold text-ink-900">
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-soft">
+              <DownloadCloud className="h-3.5 w-3.5" />
+            </span>
+            Capture ingestion
           </h3>
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-ink-500">
@@ -460,37 +473,48 @@ export default function PosSettlementPage() {
             </div>
             <p className="mt-2 text-[11px] text-ink-400">Leave dates empty to use the configured lookback window.</p>
           </div>
-        </div>
+        </Panel>
       </div>
+      </Reveal>
 
       {/* Summary */}
       {data && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {["PENDING", "SETTLED", "FAILED"].map((st) => {
+        <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {(
+            [
+              { st: "PENDING", icon: Clock, tone: "amber" },
+              { st: "SETTLED", icon: CheckCircle2, tone: "emerald" },
+              { st: "FAILED", icon: XCircle, tone: "rose" },
+            ] as const
+          ).map(({ st, icon, tone }) => {
             const row = data.summary.find((s) => s.status === st);
             return (
-              <div key={st} className="rounded-2xl border border-ink-100 bg-white p-4">
-                <div className="flex items-center justify-between">
-                  <Badge variant={statusVariant(st)}>{st}</Badge>
-                  <CreditCard className="h-4 w-4 text-ink-300" />
-                </div>
-                <p className="mt-2 text-2xl font-bold text-ink-900">{row?.count ?? 0}</p>
-                <p className="text-xs text-ink-400">net {formatINR(row?.totalNet ?? 0)}</p>
-              </div>
+              <StaggerItem key={st} distance={14} duration={0.35}>
+                <StatTile
+                  label={st}
+                  countTo={row?.count ?? 0}
+                  icon={icon}
+                  tone={tone}
+                  hint={`net ${formatINR(row?.totalNet ?? 0)}`}
+                />
+              </StaggerItem>
             );
           })}
-          <div className="rounded-2xl border border-ink-100 bg-white p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">Total entries</p>
-            <p className="mt-2 text-2xl font-bold text-ink-900">{data.pagination.total}</p>
-          </div>
-        </div>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="Total entries" countTo={data.pagination.total} icon={Layers} tone="ink" />
+          </StaggerItem>
+        </Stagger>
       )}
 
       {/* Recent entries */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5">
-        <h3 className="mb-4 text-sm font-bold text-ink-900">Recent settlement entries</h3>
-        <DataTable columns={columns} data={data?.entries ?? []} loading={loading} />
-      </div>
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          columns={columns}
+          data={data?.entries ?? []}
+          loading={loading}
+          title="Recent settlement entries"
+        />
+      </Reveal>
     </div>
   );
 }

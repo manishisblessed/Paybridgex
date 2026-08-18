@@ -2,10 +2,10 @@
 
 import { CreditCard, Store, IndianRupee, Percent } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
-import { StatCard } from "@/components/dashboard/StatCard";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
-import { Badge } from "@/components/ui/Badge";
+import { StatTile, StatusPill } from "@/components/dashboard/ui";
 import { Button } from "@/components/ui/Button";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { formatINR } from "@/lib/utils";
 
 type PgMerchant = {
@@ -54,9 +54,10 @@ export default function AdminPgPage() {
       key: "status",
       header: "Status",
       render: (r) => (
-        <Badge variant={r.status === "Live" ? "success" : r.status === "Pending KYC" ? "warning" : "danger"}>
-          {r.status}
-        </Badge>
+        <StatusPill
+          status={r.status}
+          tone={r.status === "Live" ? "success" : r.status === "Pending KYC" ? "warning" : "danger"}
+        />
       )
     },
     { key: "onboarded", header: "Onboarded" }
@@ -72,9 +73,10 @@ export default function AdminPgPage() {
       key: "status",
       header: "Status",
       render: (r) => (
-        <Badge variant={r.status === "Success" ? "success" : r.status === "Pending" ? "warning" : r.status === "Refunded" ? "brand" : "danger"}>
-          {r.status}
-        </Badge>
+        <StatusPill
+          status={r.status}
+          tone={r.status === "Success" ? "success" : r.status === "Pending" ? "warning" : r.status === "Refunded" ? "brand" : "danger"}
+        />
       )
     },
     { key: "settlement", header: "Settlement" },
@@ -83,37 +85,51 @@ export default function AdminPgPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="Payment Gateway"
-        description="Merchant onboarding, MDR & scheme configuration, transaction monitoring and settlement control for the PG vertical."
-        actions={
-          <Button>
-            <Store className="h-4 w-4" /> Onboard merchant
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="Payment Gateway"
+          description="Merchant onboarding, MDR & scheme configuration, transaction monitoring and settlement control for the PG vertical."
+          actions={
+            <Button>
+              <Store className="h-4 w-4" /> Onboard merchant
+            </Button>
+          }
+        />
+      </Reveal>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Live Merchants" value="0" icon={Store} accent="brand" />
-        <StatCard label="GMV (30d)" value={formatINR(0)} icon={IndianRupee} accent="emerald" />
-        <StatCard label="MDR Revenue (30d)" value={formatINR(0)} icon={Percent} accent="violet" />
-        <StatCard label="Success Rate" value="—" icon={CreditCard} accent="accent" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Live Merchants" countTo={0} icon={Store} tone="brand" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="GMV (30d)" value={formatINR(0)} icon={IndianRupee} tone="emerald" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="MDR Revenue (30d)" value={formatINR(0)} icon={Percent} tone="violet" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Success Rate" value="—" icon={CreditCard} tone="sky" />
+        </StaggerItem>
+      </Stagger>
 
-      <DataTable
-        title="Merchant master"
-        description="All PG merchants with KYC status, enabled modes and MDR schemes."
-        columns={merchantCols}
-        data={merchants}
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title="Merchant master"
+          description="All PG merchants with KYC status, enabled modes and MDR schemes."
+          columns={merchantCols}
+          data={merchants}
+        />
+      </Reveal>
 
-      <DataTable
-        title="Live transaction feed"
-        description="Latest orders across all merchants, with settlement state."
-        columns={txnCols}
-        data={transactions}
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title="Live transaction feed"
+          description="Latest orders across all merchants, with settlement state."
+          columns={txnCols}
+          data={transactions}
+        />
+      </Reveal>
     </div>
   );
 }

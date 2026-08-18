@@ -8,6 +8,8 @@ import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Panel, FilterBar, TabNav, StatusPill } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { formatINR, formatNumber } from "@/lib/utils";
 import {
   RefreshCw,
@@ -205,40 +207,33 @@ export default function NetworkManagerPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin · Network"
-        title="Network Manager"
-        description="Every tier of the distribution chain with wallet snapshots, scheme assignment, limits and settlement controls per user."
-        actions={
-          <Button variant="outline" onClick={load} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </Button>
-        }
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin · Network"
+          title="Network Manager"
+          description="Every tier of the distribution chain with wallet snapshots, scheme assignment, limits and settlement controls per user."
+          actions={
+            <Button variant="outline" onClick={load} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </Button>
+          }
+        />
+      </Reveal>
+
+      <TabNav
+        tabs={TIERS.map(([key, label]) => ({
+          key,
+          label,
+          count: tierCounts[key] ?? 0,
+        }))}
+        active={tier}
+        onChange={(key) => {
+          setTier(key);
+          setPage(1);
+        }}
       />
 
-      <div className="flex gap-2 overflow-x-auto border-b border-ink-100">
-        {TIERS.map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => {
-              setTier(key);
-              setPage(1);
-            }}
-            className={`-mb-px flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
-              tier === key
-                ? "border-brand-600 text-brand-700"
-                : "border-transparent text-ink-500 hover:text-ink-800"
-            }`}
-          >
-            {label}
-            <Badge variant={tier === key ? "brand" : "default"}>
-              {formatNumber(tierCounts[key] ?? 0)}
-            </Badge>
-          </button>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
+      <FilterBar>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-ink-400" />
           <input
@@ -276,7 +271,7 @@ export default function NetworkManagerPage() {
           <option value="due">Re-KYC due</option>
           <option value="exempt">Re-KYC exempt</option>
         </select>
-      </div>
+      </FilterBar>
 
       <BulkServicesPanel
         tier={tier}
@@ -287,11 +282,15 @@ export default function NetworkManagerPage() {
         }}
       />
 
-      <DataTable
-        columns={columns}
-        data={rows}
-        loading={loading}
-      />
+      <DefaultServicesPanel tier={tier} onDone={notify} />
+
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          columns={columns}
+          data={rows}
+          loading={loading}
+        />
+      </Reveal>
 
       {pages > 1 && (
         <div className="flex items-center justify-end gap-2 text-sm">
@@ -372,13 +371,15 @@ function BulkServicesPanel({
   };
 
   return (
-    <div className="rounded-2xl border border-ink-100 bg-white">
+    <Panel flush>
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center justify-between px-5 py-3.5 text-left"
       >
-        <span className="flex items-center gap-2 text-sm font-semibold text-ink-800">
-          <Power className="h-4 w-4 text-brand-600" />
+        <span className="flex items-center gap-2.5 text-sm font-semibold text-ink-800">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
+            <Power className="h-4 w-4" />
+          </span>
           Bulk service toggle — entire {tier.replace(/_/g, " ").toLowerCase()} tier
         </span>
         <Badge>{open ? "collapse" : "expand"}</Badge>
@@ -462,7 +463,121 @@ function BulkServicesPanel({
           setConfirmAction(null);
         }}
       />
-    </div>
+    </Panel>
+  );
+}
+
+/* -------------------------------- default services for NEW tier signups */
+
+function DefaultServicesPanel({
+  tier,
+  onDone,
+}: {
+  tier: string;
+  onDone: (msg: string, ok: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [services, setServices] = useState<ServiceOption[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    fetch("/api/admin/network/default-services")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        setServices((d.services ?? []).map((s: ServiceOption) => ({ key: s.key, name: s.name })));
+        const forTier: string[] = d.defaults?.[tier] ?? [];
+        setSelectedKeys(new Set(forTier));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [open, tier]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/network/default-services", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: tier, serviceKeys: Array.from(selectedKeys) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Save failed");
+      onDone(
+        `Default services for new ${tier.replace(/_/g, " ").toLowerCase()}s saved (${selectedKeys.size} selected).`,
+        true
+      );
+    } catch (e) {
+      onDone(e instanceof Error ? e.message : "Save failed", false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Panel flush>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between px-5 py-3.5 text-left"
+      >
+        <span className="flex items-center gap-2.5 text-sm font-semibold text-ink-800">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent-500 to-emerald-600 text-white shadow-soft">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          Default services for new {tier.replace(/_/g, " ").toLowerCase()} signups
+        </span>
+        <Badge>{open ? "collapse" : "expand"}</Badge>
+      </button>
+      {open && (
+        <div className="border-t border-ink-100 p-5">
+          <p className="mb-3 text-xs text-ink-500">
+            Newly created / onboarded {tier.replace(/_/g, " ").toLowerCase()}s start with exactly
+            these services enabled. Leave empty to start them with no services (enable manually per
+            user). This does not change existing users.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {services.map((s) => {
+              const on = selectedKeys.has(s.key);
+              return (
+                <button
+                  key={s.key}
+                  onClick={() =>
+                    setSelectedKeys((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(s.key)) next.delete(s.key);
+                      else next.add(s.key);
+                      return next;
+                    })
+                  }
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    on
+                      ? "border-brand-300 bg-brand-50 text-brand-700"
+                      : "border-ink-200 text-ink-500 hover:border-ink-300"
+                  }`}
+                >
+                  {s.name}
+                </button>
+              );
+            })}
+            {services.length === 0 && (
+              <p className="text-xs text-ink-400">
+                {loading ? "Loading service catalog…" : "No services available."}
+              </p>
+            )}
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <Button size="sm" disabled={saving || loading} onClick={save}>
+              {saving ? "Saving…" : "Save defaults"}
+            </Button>
+            <span className="text-xs text-ink-400">{selectedKeys.size} selected</span>
+          </div>
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -575,7 +690,7 @@ function UserDrawer({
       onClick={onClose}
     >
       <div
-        className="relative h-full w-full max-w-md overflow-y-auto bg-white shadow-2xl animate-fade-up"
+        className="relative h-full w-full max-w-md overflow-y-auto rounded-l-3xl border-l border-ink-100 bg-white shadow-2xl animate-fade-up"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Sticky in-drawer notice — always visible over drawer content */}
@@ -1501,19 +1616,19 @@ function TransferParentSection({
                       <span className="font-medium text-ink-800">
                         {t.oldParent?.name ?? "—"} → {t.newParent?.name ?? "—"}
                       </span>
-                      <span
-                        className={`shrink-0 font-semibold ${
+                      <StatusPill
+                        status={t.status.replace(/_/g, " ")}
+                        tone={
                           t.status === "APPROVED"
-                            ? "text-emerald-600"
+                            ? "success"
                             : t.status === "REJECTED"
-                            ? "text-rose-600"
+                            ? "danger"
                             : t.status === "PENDING_DECLARATION"
-                            ? "text-amber-600"
-                            : "text-ink-400"
-                        }`}
-                      >
-                        {t.status.replace(/_/g, " ")}
-                      </span>
+                            ? "warning"
+                            : "neutral"
+                        }
+                        className="shrink-0"
+                      />
                     </div>
                     <p className="mt-0.5 text-ink-500">
                       {new Date(t.approvedAt ?? t.createdAt).toLocaleString("en-IN", {
@@ -1699,7 +1814,9 @@ function Section({
   return (
     <div className="mt-5">
       <div className="mb-2 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-brand-600" />
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
+          <Icon className="h-3.5 w-3.5" />
+        </span>
         <h3 className="text-xs font-bold uppercase tracking-widest text-ink-500">{title}</h3>
       </div>
       {children}

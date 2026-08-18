@@ -326,7 +326,7 @@ export function RechargekitCCForm() {
     <>
       <form
         onSubmit={handleSubmit}
-        className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-6 sm:grid-cols-2"
+        className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-5 shadow-sm sm:grid-cols-2 sm:p-6"
       >
         {/* Operator selector */}
         <div className="sm:col-span-2">
@@ -351,7 +351,7 @@ export function RechargekitCCForm() {
               type="button"
               onClick={() => loadOperators(true)}
               disabled={loadingOps}
-              className="flex h-10 w-10 items-center justify-center rounded-lg border border-ink-200 text-ink-500 transition hover:bg-ink-50 hover:text-ink-700 disabled:opacity-50"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-ink-200 bg-white text-ink-500 transition-all duration-150 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 disabled:opacity-50"
               title="Refresh operator list"
             >
               <RefreshCw className={`h-4 w-4 ${loadingOps ? "animate-spin" : ""}`} />
@@ -457,7 +457,7 @@ export function RechargekitCCForm() {
 
         {/* Charge preview */}
         {quote && Number(amount) > 0 && (
-          <div className="sm:col-span-2 rounded-xl border border-ink-200 bg-ink-50/50 p-4 text-sm">
+          <div className="sm:col-span-2 rounded-2xl border border-ink-100 bg-ink-50/60 p-4 text-sm shadow-sm">
             <div className="flex justify-between">
               <span className="text-ink-600">Payment amount</span>
               <span className="font-medium text-ink-900">
@@ -481,7 +481,7 @@ export function RechargekitCCForm() {
             <hr className="my-2 border-ink-200" />
             <div className="flex justify-between font-semibold">
               <span className="text-ink-700">Total debit from wallet</span>
-              <span className="text-ink-900">{formatINR(quote.totalDebit)}</span>
+              <span className="font-display font-bold text-ink-900">{formatINR(quote.totalDebit)}</span>
             </div>
             {quote.commission > 0 && (
               <p className="mt-2 text-xs text-emerald-600">

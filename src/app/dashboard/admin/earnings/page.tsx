@@ -29,13 +29,19 @@ import {
   X,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
-import { StatCard } from "@/components/dashboard/StatCard";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { formatINR } from "@/lib/utils";
 import { type ReportColumn } from "@/lib/reports";
 import { ReportActions } from "@/components/dashboard/ReportActions";
+import {
+  StatTile,
+  FilterBar,
+  FilterField,
+  TabNav,
+} from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 
 // ── API contract (mirrors src/lib/admin/earningsReport.ts) ──
 
@@ -359,77 +365,88 @@ export default function AdminEarningsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Platform Earnings"
-        title="Per-Transaction Earnings"
-        description="What the company earns on every capture across all rails (POS / PG / QR / UPI), and the commission distributed to DT / MD / SD per transaction. Net earning = company MDR margin − commission distributed."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Platform Earnings"
+          title="Per-Transaction Earnings"
+          description="What the company earns on every capture across all rails (POS / PG / QR / UPI), and the commission distributed to DT / MD / SD per transaction. Net earning = company MDR margin − commission distributed."
+        />
+      </Reveal>
 
       {/* Summary cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-        <StatCard label="Transactions" value={summary ? summary.totalTransactions.toLocaleString("en-IN") : "..."} icon={ArrowLeftRight} accent="brand" />
-        <StatCard label="Total Volume" value={summary ? formatINR(summary.totalVolume) : "..."} icon={IndianRupee} accent="violet" />
-        <StatCard label="MDR Collected" value={summary ? formatINR(summary.totalMdr) : "..."} icon={Scissors} accent="accent" />
-        <StatCard label="Settled to Merchants" value={summary ? formatINR(summary.totalSettled) : "..."} icon={Banknote} accent="violet" />
-        <StatCard label="Commission Distributed" value={summary ? formatINR(summary.totalCommission) : "..."} icon={HandCoins} accent="brand" />
-        <StatCard label="TDS Withheld (2%)" value={summary ? formatINR(summary.totalTds) : "..."} icon={Landmark} accent="accent" />
-        <StatCard label="Platform Net Earning" value={summary ? formatINR(summary.totalPlatformEarning) : "..."} icon={TrendingUp} accent="emerald" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Transactions" countTo={summary?.totalTransactions ?? 0} icon={ArrowLeftRight} tone="brand" loading={!summary} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Total Volume" countTo={summary?.totalVolume ?? 0} prefix="₹" decimals={2} icon={IndianRupee} tone="violet" loading={!summary} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="MDR Collected" countTo={summary?.totalMdr ?? 0} prefix="₹" decimals={2} icon={Scissors} tone="amber" loading={!summary} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Settled to Merchants" countTo={summary?.totalSettled ?? 0} prefix="₹" decimals={2} icon={Banknote} tone="sky" loading={!summary} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Commission Distributed" countTo={summary?.totalCommission ?? 0} prefix="₹" decimals={2} icon={HandCoins} tone="rose" loading={!summary} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="TDS Withheld (2%)" countTo={summary?.totalTds ?? 0} prefix="₹" decimals={2} icon={Landmark} tone="ink" loading={!summary} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Platform Net Earning" countTo={summary?.totalPlatformEarning ?? 0} prefix="₹" decimals={2} icon={TrendingUp} tone="dark" loading={!summary} />
+        </StaggerItem>
+      </Stagger>
 
       {/* Filters */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">From</label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-              className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">To</label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-              className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Rail</label>
-            <select
-              value={railFilter}
-              onChange={(e) => { setRailFilter(e.target.value as typeof railFilter); setPage(1); }}
-              className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-            >
-              <option value="">All rails</option>
-              <option value="POS">POS</option>
-              <option value="PG">Payment Gateway</option>
-              <option value="QR">QR</option>
-              <option value="UPI">UPI Collect</option>
-            </select>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => mutate()} title="Refresh">
-            <RefreshCw className="h-4 w-4" /> Refresh
-          </Button>
+      <FilterBar>
+        <FilterField label="From">
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+            className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+          />
+        </FilterField>
+        <FilterField label="To">
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+            className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+          />
+        </FilterField>
+        <FilterField label="Rail">
+          <select
+            value={railFilter}
+            onChange={(e) => { setRailFilter(e.target.value as typeof railFilter); setPage(1); }}
+            className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+          >
+            <option value="">All rails</option>
+            <option value="POS">POS</option>
+            <option value="PG">Payment Gateway</option>
+            <option value="QR">QR</option>
+            <option value="UPI">UPI Collect</option>
+          </select>
+        </FilterField>
+        <Button variant="outline" size="sm" onClick={() => mutate()} title="Refresh">
+          <RefreshCw className="h-4 w-4" /> Refresh
+        </Button>
 
-          <div className="ml-auto flex flex-wrap gap-2">
-            <ReportActions<ReportRow>
-              filename={`platform-earnings-${dateFrom}-to-${dateTo}`}
-              title="Platform Earnings Report"
-              subtitle={reportSubtitle}
-              columns={exportCols}
-              rows={rows}
-              fetchRows={fetchAllRows}
-            />
-          </div>
+        <div className="ml-auto flex flex-wrap gap-2">
+          <ReportActions<ReportRow>
+            filename={`platform-earnings-${dateFrom}-to-${dateTo}`}
+            title="Platform Earnings Report"
+            subtitle={reportSubtitle}
+            columns={exportCols}
+            rows={rows}
+            fetchRows={fetchAllRows}
+          />
         </div>
 
         {retailerLabel && (
-          <div className="mt-3 flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+          <div className="flex w-full items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 ring-1 ring-brand-200/70">
               Showing: {retailerLabel}
               <button onClick={clearDrill} className="rounded-full hover:bg-brand-100" aria-label="Clear filter">
                 <X className="h-3.5 w-3.5" />
@@ -437,27 +454,17 @@ export default function AdminEarningsPage() {
             </span>
           </div>
         )}
-      </div>
+      </FilterBar>
 
       {/* View toggle */}
-      <div className="flex gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
-        {([
-          { id: "transactions", label: "Per Transaction", icon: Receipt },
-          { id: "rollup", label: "By Merchant", icon: Users },
-        ] as const).map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setView(id)}
-            className={
-              view === id
-                ? "flex-1 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-ink-900 shadow-sm"
-                : "flex-1 rounded-lg px-4 py-2 text-sm font-semibold text-ink-500 transition-colors hover:text-ink-700"
-            }
-          >
-            <span className="flex items-center justify-center gap-2"><Icon className="h-4 w-4" /> {label}</span>
-          </button>
-        ))}
-      </div>
+      <TabNav
+        tabs={[
+          { key: "transactions", label: "Per Transaction", icon: Receipt },
+          { key: "rollup", label: "By Merchant", icon: Users },
+        ]}
+        active={view}
+        onChange={(key) => setView(key as View)}
+      />
 
       {data?.truncated && (
         <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
@@ -473,6 +480,7 @@ export default function AdminEarningsPage() {
         </div>
       ) : view === "transactions" ? (
         <>
+          <Reveal distance={16} duration={0.45}>
           <DataTable
             title="Platform earnings — per transaction"
             description={
@@ -487,6 +495,7 @@ export default function AdminEarningsPage() {
             loading={isLoading}
             empty="No commission-bearing transactions for the selected filters."
           />
+          </Reveal>
           {pagination && pagination.totalPages > 1 && (
             <Paginator
               page={pagination.page}
@@ -499,6 +508,7 @@ export default function AdminEarningsPage() {
           )}
         </>
       ) : (
+        <Reveal distance={16} duration={0.45}>
         <DataTable
           title="Earnings rollup — by merchant"
           description={
@@ -513,6 +523,7 @@ export default function AdminEarningsPage() {
           loading={isLoading}
           empty="No activity for the selected filters."
         />
+        </Reveal>
       )}
     </div>
   );

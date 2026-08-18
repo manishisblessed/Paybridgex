@@ -14,8 +14,9 @@ import {
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
 import { CreditCardBillForm } from "@/components/dashboard/CreditCardBillForm";
 import { BbpsBillForm } from "@/components/dashboard/BbpsBillForm";
+import { TabNav } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
-import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -37,46 +38,35 @@ export default function Bbps1Page() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <ServicePageHeader
-        icon={Receipt}
-        title="BBPS-Bharat BillPay"
-        description="Bill payments powered by Bharat BillPay — pay credit card bills, electricity, water, gas, education, insurance, and broadband via BBPS."
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={Receipt}
+          title="BBPS-Bharat BillPay"
+          description="Bill payments powered by Bharat BillPay — pay credit card bills, electricity, water, gas, education, insurance, and broadband via BBPS."
+        />
+      </Reveal>
+
+      <TabNav
+        className="mb-6"
+        tabs={TABS.map((t) => ({ key: t.key, label: t.label, icon: t.icon }))}
+        active={tab}
+        onChange={(k) => setTab(k as TabKey)}
       />
 
-      <div className="mb-6 flex gap-2 overflow-x-auto rounded-xl border border-ink-100 bg-ink-50 p-1">
-        {TABS.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              className={cn(
-                "flex items-center gap-2 whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-medium transition-all",
-                tab === t.key
-                  ? "bg-white text-brand-700 shadow-sm"
-                  : "text-ink-500 hover:text-ink-900"
-              )}
-            >
-              <Icon className="h-4 w-4" />
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {active.form === "cc" ? (
-        <CreditCardBillForm route={SERVICE_KEYS.BBPS_SAMEDAY} />
-      ) : (
-        <BbpsBillForm
-          key={active.key}
-          category={active.category as "ELECTRICITY" | "WATER" | "GAS" | "EDUCATION" | "INSURANCE" | "BROADBAND"}
-          serviceTitle={active.label}
-          consumerLabel={active.consumer}
-          refPrefix={active.ref}
-          route={SERVICE_KEYS.BBPS_SAMEDAY}
-        />
-      )}
+      <Reveal distance={16} duration={0.45}>
+        {active.form === "cc" ? (
+          <CreditCardBillForm route={SERVICE_KEYS.BBPS_SAMEDAY} />
+        ) : (
+          <BbpsBillForm
+            key={active.key}
+            category={active.category as "ELECTRICITY" | "WATER" | "GAS" | "EDUCATION" | "INSURANCE" | "BROADBAND"}
+            serviceTitle={active.label}
+            consumerLabel={active.consumer}
+            refPrefix={active.ref}
+            route={SERVICE_KEYS.BBPS_SAMEDAY}
+          />
+        )}
+      </Reveal>
     </div>
   );
 }

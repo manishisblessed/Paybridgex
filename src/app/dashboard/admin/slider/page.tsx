@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label, Select } from "@/components/ui/Input";
+import { Panel, StatusPill, EmptyState } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import {
   RefreshCw,
   Plus,
@@ -238,26 +239,28 @@ export default function AdminSliderPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="Slider & Pop-up Manager"
-        description="Manage colorful dashboard banners (carousel) and pop-up announcements. Schedule them, target specific roles, and reorder — every change is audit logged."
-        actions={
-          <>
-            <Button variant="outline" onClick={fetchSliders} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-            </Button>
-            <Button onClick={() => openCreate("SLIDE")}>
-              <Plus className="h-4 w-4" /> New slider
-            </Button>
-          </>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="Slider & Pop-up Manager"
+          description="Manage colorful dashboard banners (carousel) and pop-up announcements. Schedule them, target specific roles, and reorder — every change is audit logged."
+          actions={
+            <>
+              <Button variant="outline" onClick={fetchSliders} disabled={loading}>
+                <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+              </Button>
+              <Button onClick={() => openCreate("SLIDE")}>
+                <Plus className="h-4 w-4" /> New slider
+              </Button>
+            </>
+          }
+        />
+      </Reveal>
 
       {loading ? (
-        <div className="rounded-2xl border border-ink-100 bg-white p-10 text-center text-sm text-ink-500">
+        <Panel className="p-10 text-center text-sm text-ink-500">
           Loading sliders…
-        </div>
+        </Panel>
       ) : (
         <div className="space-y-10">
           <SliderSection
@@ -338,7 +341,7 @@ function SliderSection({
   onMove: (index: number, dir: -1 | 1) => void;
 }) {
   return (
-    <section>
+    <Reveal as="section" distance={16} duration={0.45}>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br ${gradient} text-white shadow-soft`}>
@@ -355,9 +358,16 @@ function SliderSection({
       </div>
 
       {items.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-ink-200 bg-white p-8 text-center text-sm text-ink-500">
-          No {heading.toLowerCase()} yet.
-        </div>
+        <EmptyState
+          compact
+          icon={Images}
+          message={`No ${heading.toLowerCase()} yet.`}
+          cta={
+            <Button variant="outline" size="sm" onClick={onAdd}>
+              <Plus className="h-4 w-4" /> Add
+            </Button>
+          }
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {items.map((s, i) => (
@@ -375,7 +385,7 @@ function SliderSection({
           ))}
         </div>
       )}
-    </section>
+    </Reveal>
   );
 }
 
@@ -406,13 +416,21 @@ function SliderCard({
           .join(", ");
 
   return (
-    <div className={`group relative overflow-hidden rounded-2xl border bg-white shadow-sm transition-all ${s.active ? "border-transparent ring-2 ring-brand-200" : "border-ink-100 opacity-90"}`}>
+    <Panel
+      interactive
+      flush
+      className={`group relative overflow-hidden ${s.active ? "border-transparent ring-2 ring-brand-200" : "opacity-90"}`}
+    >
       <div className="relative aspect-[16/7] w-full overflow-hidden bg-ink-100">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={s.imageUrl} alt={s.title} className="h-full w-full object-contain" />
         <div className="absolute right-2 top-2 flex gap-1">
           <span className="rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-ink-700 shadow">#{s.sortOrder}</span>
-          <Badge variant={s.active ? "success" : "danger"}>{s.active ? "LIVE" : "OFF"}</Badge>
+          <StatusPill
+            status={s.active ? "LIVE" : "OFF"}
+            tone={s.active ? "success" : "danger"}
+            className="bg-white/90 shadow"
+          />
         </div>
       </div>
 
@@ -441,7 +459,7 @@ function SliderCard({
               type="button"
               onClick={onUp}
               disabled={first}
-              className="grid h-8 w-8 place-items-center rounded-lg border border-ink-200 text-ink-600 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded-lg text-ink-600 transition hover:bg-brand-50 hover:text-brand-700 disabled:opacity-30"
               aria-label="Move up"
             >
               <ArrowUp className="h-4 w-4" />
@@ -450,7 +468,7 @@ function SliderCard({
               type="button"
               onClick={onDown}
               disabled={last}
-              className="grid h-8 w-8 place-items-center rounded-lg border border-ink-200 text-ink-600 transition hover:border-brand-300 hover:text-brand-700 disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded-lg text-ink-600 transition hover:bg-brand-50 hover:text-brand-700 disabled:opacity-30"
               aria-label="Move down"
             >
               <ArrowDown className="h-4 w-4" />
@@ -461,14 +479,14 @@ function SliderCard({
             <button
               type="button"
               onClick={onToggle}
-              className="rounded-lg border border-ink-200 px-2.5 py-1.5 text-xs font-semibold text-ink-700 transition hover:border-brand-300 hover:text-brand-700"
+              className="rounded-lg border border-ink-200 px-2.5 py-1.5 text-xs font-semibold text-ink-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
             >
               {s.active ? "Disable" : "Enable"}
             </button>
             <button
               type="button"
               onClick={onEdit}
-              className="grid h-8 w-8 place-items-center rounded-lg border border-ink-200 text-ink-600 transition hover:border-brand-300 hover:text-brand-700"
+              className="grid h-8 w-8 place-items-center rounded-lg text-brand-700 transition hover:bg-brand-50 disabled:opacity-30"
               aria-label="Edit"
             >
               <Pencil className="h-4 w-4" />
@@ -476,7 +494,7 @@ function SliderCard({
             <button
               type="button"
               onClick={onDelete}
-              className="grid h-8 w-8 place-items-center rounded-lg border border-ink-200 text-rose-500 transition hover:border-rose-300 hover:bg-rose-50"
+              className="grid h-8 w-8 place-items-center rounded-lg text-rose-700 transition hover:bg-rose-50 disabled:opacity-30"
               aria-label="Delete"
             >
               <Trash2 className="h-4 w-4" />
@@ -484,7 +502,7 @@ function SliderCard({
           </div>
         </div>
       </div>
-    </div>
+    </Panel>
   );
 }
 
@@ -597,23 +615,26 @@ function SliderForm({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-ink-900/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex justify-end bg-[#0b1030]/50 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="h-full w-full max-w-lg overflow-y-auto bg-white shadow-2xl"
+        className="h-full w-full max-w-lg overflow-y-auto bg-white shadow-2xl sm:rounded-l-3xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-ink-100 bg-white/95 px-6 py-4 backdrop-blur">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-700">
-              {form.id ? "Edit" : "New"} {form.kind === "SLIDE" ? "Slider" : "Pop-up"}
-            </p>
-            <h2 className="font-display text-lg font-bold text-ink-900">
-              {form.kind === "SLIDE" ? "Carousel banner" : "Pop-up announcement"}
-            </h2>
+        <div className="sticky top-0 z-10 border-b border-ink-100 bg-white/95 backdrop-blur">
+          <div className="h-1 w-full bg-gradient-to-r from-brand-500 via-brand-400 to-accent-500" aria-hidden />
+          <div className="flex items-center justify-between px-6 py-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-700">
+                {form.id ? "Edit" : "New"} {form.kind === "SLIDE" ? "Slider" : "Pop-up"}
+              </p>
+              <h2 className="font-display text-lg font-bold text-ink-900">
+                {form.kind === "SLIDE" ? "Carousel banner" : "Pop-up announcement"}
+              </h2>
+            </div>
+            <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg text-ink-500 transition hover:bg-ink-100">
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg text-ink-500 hover:bg-ink-100">
-            <X className="h-5 w-5" />
-          </button>
         </div>
 
         <form onSubmit={submit} className="space-y-5 p-6">
@@ -738,7 +759,7 @@ function SliderForm({
             </div>
           </div>
 
-          <label className="flex items-center justify-between rounded-xl border border-ink-200 px-4 py-3">
+          <label className="flex cursor-pointer items-center justify-between rounded-xl border border-ink-200 px-4 py-3 transition-colors hover:border-brand-300 hover:bg-brand-50/40">
             <span className="text-sm font-medium text-ink-800">Active</span>
             <input
               type="checkbox"

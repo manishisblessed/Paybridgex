@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { Panel, SectionTitle, SegmentedNav } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { formatNumber } from "@/lib/utils";
 import { RefreshCw, ScanSearch } from "lucide-react";
 
@@ -152,38 +154,37 @@ export default function IdentityToolkitPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Identity Toolkit"
-        description="On-demand verification suite — PAN, GST, bank account, and company CIN checks with a full audit history."
-        actions={
-          <Button variant="outline" onClick={load}>
-            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          title="Identity Toolkit"
+          description="On-demand verification suite — PAN, GST, bank account, and company CIN checks with a full audit history."
+          actions={
+            <Button variant="outline" onClick={load}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+            </Button>
+          }
+        />
+      </Reveal>
 
       {/* Run a check */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5">
-        <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink-800">
-          <ScanSearch className="h-4 w-4 text-brand-600" /> Run a verification
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {CHECK_TYPES.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => {
-                setCheckType(t.key);
-                setInputs({});
-                setResult(null);
-              }}
-              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
-                checkType === t.key ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+      <Reveal distance={16} duration={0.45}>
+      <Panel>
+        <SectionTitle
+          title={
+            <span className="flex items-center gap-2">
+              <ScanSearch className="h-4 w-4 text-brand-600" /> Run a verification
+            </span>
+          }
+        />
+        <SegmentedNav
+          tabs={CHECK_TYPES.map((t) => ({ key: t.key, label: t.label }))}
+          active={checkType}
+          onChange={(key) => {
+            setCheckType(key);
+            setInputs({});
+            setResult(null);
+          }}
+        />
 
         <div className="mt-4 flex flex-wrap items-end gap-3">
           {activeType.fields.map((f) => (
@@ -216,45 +217,45 @@ export default function IdentityToolkitPage() {
             )}
           </div>
         )}
-      </div>
+      </Panel>
+      </Reveal>
 
       {/* History */}
-      <div className="flex items-center gap-2">
-        {["all", ...CHECK_TYPES.map((t) => t.key)].map((t) => (
-          <button
-            key={t}
-            onClick={() => {
+      <Reveal distance={16} duration={0.45}>
+        <div className="space-y-6">
+          <SegmentedNav
+            tabs={["all", ...CHECK_TYPES.map((t) => t.key)].map((t) => ({
+              key: t,
+              label: t === "all" ? "All history" : t.replace(/_/g, " "),
+            }))}
+            active={typeFilter}
+            onChange={(t) => {
               setTypeFilter(t);
               setPage(1);
             }}
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-              typeFilter === t ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200"
-            }`}
-          >
-            {t === "all" ? "All history" : t.replace(/_/g, " ")}
-          </button>
-        ))}
-      </div>
+          />
 
-      <DataTable
-        columns={columns}
-        data={rows}
-        loading={loading}
-      />
+          <DataTable
+            columns={columns}
+            data={rows}
+            loading={loading}
+          />
 
-      {pages > 1 && (
-        <div className="flex items-center justify-between text-sm text-ink-500">
-          <span>Page {page} of {pages} · {formatNumber(total)} checks</span>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
-            </Button>
-            <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
-              Next
-            </Button>
-          </div>
+          {pages > 1 && (
+            <div className="flex items-center justify-between text-sm text-ink-500">
+              <span>Page {page} of {pages} · {formatNumber(total)} checks</span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                  Previous
+                </Button>
+                <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </Reveal>
     </div>
   );
 }

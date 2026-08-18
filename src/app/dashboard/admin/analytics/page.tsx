@@ -8,7 +8,23 @@ import { Badge } from "@/components/ui/Badge";
 import { StatSkeleton } from "@/components/ui/Skeleton";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { formatINR, formatNumber } from "@/lib/utils";
-import { RefreshCw, Download } from "lucide-react";
+import {
+  RefreshCw,
+  Download,
+  ArrowLeftRight,
+  CheckCircle2,
+  XCircle,
+  Gauge,
+  IndianRupee,
+} from "lucide-react";
+import {
+  Panel,
+  StatTile,
+  FilterBar,
+  FilterField,
+  SectionTitle,
+} from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 
 type ServiceRow = {
   service: string;
@@ -39,21 +55,6 @@ type Analytics = {
 
 const inputCls =
   "rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100";
-
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
-  return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">{label}</p>
-      <p
-        className={`mt-1 text-xl font-bold ${
-          tone === "good" ? "text-emerald-600" : tone === "bad" ? "text-rose-600" : "text-ink-900"
-        }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
 
 export default function AnalyticsPage() {
   const [data, setData] = useState<Analytics | null>(null);
@@ -134,37 +135,38 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Business Analytics"
-        description="Service-wise transaction performance, daily volume trend, and top performers — read-only reporting."
-        actions={
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="text-xs text-ink-500">
-              From
-              <input type="date" className={`${inputCls} mt-1 block`} value={from} onChange={(e) => setFrom(e.target.value)} />
-            </label>
-            <label className="text-xs text-ink-500">
-              To
-              <input type="date" className={`${inputCls} mt-1 block`} value={to} onChange={(e) => setTo(e.target.value)} />
-            </label>
-            <Button onClick={load} isLoading={loading}>
-              <RefreshCw className="mr-2 h-4 w-4" /> Apply
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => window.open(`/api/admin/analytics?${params()}&format=csv`, "_blank")}
-            >
-              <Download className="mr-2 h-4 w-4" /> CSV
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => window.open(`/api/admin/analytics?${params()}&format=zip`, "_blank")}
-            >
-              <Download className="mr-2 h-4 w-4" /> ZIP
-            </Button>
-          </div>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          title="Business Analytics"
+          description="Service-wise transaction performance, daily volume trend, and top performers — read-only reporting."
+        />
+      </Reveal>
+
+      <FilterBar>
+        <FilterField label="From">
+          <input type="date" className={inputCls} value={from} onChange={(e) => setFrom(e.target.value)} />
+        </FilterField>
+        <FilterField label="To">
+          <input type="date" className={inputCls} value={to} onChange={(e) => setTo(e.target.value)} />
+        </FilterField>
+        <Button onClick={load} isLoading={loading}>
+          <RefreshCw className="mr-2 h-4 w-4" /> Apply
+        </Button>
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={() => window.open(`/api/admin/analytics?${params()}&format=csv`, "_blank")}
+          >
+            <Download className="mr-2 h-4 w-4" /> CSV
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => window.open(`/api/admin/analytics?${params()}&format=zip`, "_blank")}
+          >
+            <Download className="mr-2 h-4 w-4" /> ZIP
+          </Button>
+        </div>
+      </FilterBar>
 
       {error && (
         <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>
@@ -183,17 +185,55 @@ export default function AnalyticsPage() {
 
       {data && (
         <>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-            <Stat label="Transactions" value={formatNumber(data.totals.transactions)} />
-            <Stat label="Successful" value={formatNumber(data.totals.success)} tone="good" />
-            <Stat label="Failed" value={formatNumber(data.totals.failed)} tone={data.totals.failed > 0 ? "bad" : undefined} />
-            <Stat label="Success rate" value={`${data.totals.successRate}%`} tone={data.totals.successRate >= 95 ? "good" : undefined} />
-            <Stat label="Volume (success)" value={formatINR(data.totals.volume)} />
-          </div>
+          <Stagger stagger={0.05} className="grid grid-cols-2 gap-4 md:grid-cols-5">
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Transactions"
+                countTo={data.totals.transactions}
+                icon={ArrowLeftRight}
+                tone="brand"
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Successful"
+                countTo={data.totals.success}
+                icon={CheckCircle2}
+                tone="emerald"
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Failed"
+                countTo={data.totals.failed}
+                icon={XCircle}
+                tone={data.totals.failed > 0 ? "rose" : "ink"}
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Success rate"
+                value={`${data.totals.successRate}%`}
+                icon={Gauge}
+                tone={data.totals.successRate >= 95 ? "emerald" : "amber"}
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Volume (success)"
+                countTo={data.totals.volume}
+                prefix="₹"
+                decimals={2}
+                icon={IndianRupee}
+                tone="violet"
+              />
+            </StaggerItem>
+          </Stagger>
 
           {/* Daily volume trend — CSS bars */}
-          <div className="rounded-2xl border border-ink-100 bg-white p-5">
-            <p className="mb-4 text-sm font-semibold text-ink-800">Daily success volume</p>
+          <Reveal distance={16} duration={0.45}>
+          <Panel>
+            <SectionTitle title="Daily success volume" />
             {data.daily.length === 0 ? (
               <p className="text-sm text-ink-400">No successful transactions in this range.</p>
             ) : (
@@ -217,25 +257,26 @@ export default function AnalyticsPage() {
                 <span>{data.daily[data.daily.length - 1].day}</span>
               </div>
             )}
-          </div>
+          </Panel>
+          </Reveal>
 
-          <div>
-            <p className="mb-3 text-sm font-semibold text-ink-800">Service-wise report</p>
+          <Reveal distance={16} duration={0.45}>
+            <SectionTitle title="Service-wise report" />
             <DataTable
               columns={serviceColumns}
               data={data.services}
               loading={loading}
             />
-          </div>
+          </Reveal>
 
-          <div>
-            <p className="mb-3 text-sm font-semibold text-ink-800">Top 10 users by volume</p>
+          <Reveal distance={16} duration={0.45}>
+            <SectionTitle title="Top 10 users by volume" />
             <DataTable
               columns={topUserColumns}
               data={data.topUsers}
               loading={loading}
             />
-          </div>
+          </Reveal>
         </>
       )}
     </div>

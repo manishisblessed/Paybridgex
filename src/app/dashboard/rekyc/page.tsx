@@ -16,6 +16,7 @@ import {
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
+import { Reveal } from "@/components/motion";
 
 type Method = "aadhaar_otp" | "face_match" | "aadhaar_otp+face";
 
@@ -212,11 +213,13 @@ export default function ReKycPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Security"
-        title="Monthly identity re-verification"
-        description="A quick monthly check that confirms only you are operating this account. Your transactions resume the moment it's complete."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Security"
+          title="Monthly identity re-verification"
+          description="A quick monthly check that confirms only you are operating this account. Your transactions resume the moment it's complete."
+        />
+      </Reveal>
 
       <div className="mx-auto w-full max-w-lg">
         <AnimatePresence mode="wait">

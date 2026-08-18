@@ -37,8 +37,15 @@ import {
   Zap,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
-import { StatCard } from "@/components/dashboard/StatCard";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
+import {
+  Panel,
+  StatTile,
+  StatusPill,
+  EmptyState,
+  ModalShell,
+} from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { ReportActions } from "@/components/dashboard/ReportActions";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -313,6 +320,7 @@ export default function PayoutPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow="Payouts"
         title="Send a payout"
@@ -348,13 +356,20 @@ export default function PayoutPage() {
           </>
         }
       />
+      </Reveal>
 
       {/* Wallet snapshot — always visible */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Spendable" value={balances ? formatINR(balances.spendable) : "—"} icon={Wallet} accent="emerald" />
-        <StatCard label="Wallet balance" value={balances ? formatINR(balances.walletBalance) : "—"} icon={Landmark} accent="brand" />
-        <StatCard label="On hold" value={balances ? formatINR(balances.heldBalance) : "—"} icon={Lock} accent="violet" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-3">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Spendable" value={balances ? formatINR(balances.spendable) : "—"} icon={Wallet} tone="emerald" loading={fetching && !balances} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Wallet balance" value={balances ? formatINR(balances.walletBalance) : "—"} icon={Landmark} tone="brand" loading={fetching && !balances} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="On hold" value={balances ? formatINR(balances.heldBalance) : "—"} icon={Lock} tone="violet" loading={fetching && !balances} />
+        </StaggerItem>
+      </Stagger>
 
       {/* Error banner */}
       <AnimatePresence>
@@ -504,51 +519,39 @@ export default function PayoutPage() {
       </AnimatePresence>
 
       {/* No-account modal shown when user tries to start a payout with no verified beneficiaries */}
-      <AnimatePresence>
-        {showNoAccountModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 grid place-items-center bg-ink-900/50 px-4 backdrop-blur"
-            onClick={() => setShowNoAccountModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-md rounded-3xl bg-white p-6 shadow-glow"
-              onClick={(e) => e.stopPropagation()}
+      <ModalShell
+        open={showNoAccountModal}
+        onClose={() => setShowNoAccountModal(false)}
+        size="sm"
+        eyebrow="Payouts"
+        title="No verified bank account yet"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowNoAccountModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setShowNoAccountModal(false);
+                setView("add-beneficiary");
+              }}
             >
-              <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-amber-600">
-                <AlertTriangle className="h-7 w-7" />
-              </div>
-              <h3 className="mt-4 text-center font-display text-lg font-bold text-ink-900">
-                No verified bank account yet
-              </h3>
-              <p className="mt-1 text-center text-sm text-ink-500">
-                You need to add and verify a bank account before sending a payout. A one-time
-                penny-drop verification fee of {fee ? inr2(fee.total) : "₹4 + GST"} applies.
-              </p>
-              <div className="mt-5 flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => setShowNoAccountModal(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  className="flex-1"
-                  onClick={() => {
-                    setShowNoAccountModal(false);
-                    setView("add-beneficiary");
-                  }}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add account
-                </Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              <Plus className="h-4 w-4" />
+              Add account
+            </Button>
+          </>
+        }
+      >
+        <div className="flex items-start gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600">
+            <AlertTriangle className="h-5 w-5" />
+          </div>
+          <p className="text-sm text-ink-600">
+            You need to add and verify a bank account before sending a payout. A one-time
+            penny-drop verification fee of {fee ? inr2(fee.total) : "₹4 + GST"} applies.
+          </p>
+        </div>
+      </ModalShell>
     </div>
   );
 }
@@ -662,27 +665,26 @@ function BeneficiaryList({
 
   if (loading && beneficiaries.length === 0) {
     return (
-      <div className="rounded-2xl border border-ink-100 bg-white p-8 text-center text-sm text-ink-500 shadow-sm">
+      <Panel flush className="p-8 text-center text-sm text-ink-500">
         <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
         Loading saved accounts…
-      </div>
+      </Panel>
     );
   }
 
   if (beneficiaries.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-ink-200 bg-white p-8 text-center shadow-sm">
-        <div className="mx-auto grid h-10 w-10 place-items-center rounded-xl bg-ink-100 text-ink-500">
-          <CreditCard className="h-5 w-5" />
-        </div>
-        <p className="mt-2 text-sm font-medium text-ink-800">No saved bank accounts yet</p>
-        <p className="text-xs text-ink-500">Add one to start sending payouts — verification takes a few seconds.</p>
-      </div>
+      <EmptyState
+        icon={CreditCard}
+        title="No saved bank accounts yet"
+        message="Add one to start sending payouts — verification takes a few seconds."
+        compact
+      />
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm">
+    <Panel flush className="overflow-hidden">
       <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
         <h3 className="inline-flex items-center gap-2 font-display text-base font-semibold text-ink-900">
           <ShieldCheck className="h-5 w-5 text-emerald-600" />
@@ -725,10 +727,7 @@ function BeneficiaryList({
             </div>
             <div className="flex items-center gap-2">
               {b.isVerified ? (
-                <Badge variant="success">
-                  <BadgeCheck className="h-3 w-3" />
-                  Verified
-                </Badge>
+                <StatusPill status="Verified" />
               ) : (
                 <Button
                   variant="outline"
@@ -753,7 +752,7 @@ function BeneficiaryList({
                   await onDelete(b.id);
                 }}
                 aria-label="Delete beneficiary"
-                className="rounded-lg p-1.5 text-ink-400 hover:bg-rose-50 hover:text-rose-600"
+                className="grid h-8 w-8 place-items-center rounded-lg text-rose-700 hover:bg-rose-50 disabled:opacity-30"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -761,7 +760,7 @@ function BeneficiaryList({
           </li>
         ))}
       </ul>
-    </div>
+    </Panel>
   );
 }
 
@@ -892,7 +891,7 @@ function ProcessPayoutWizard({
 
   if (step === "select-account") {
     return (
-      <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm">
+      <Panel flush className="overflow-hidden">
         <div className="border-b border-ink-100 px-5 py-4">
           <h3 className="inline-flex items-center gap-2 font-display text-base font-semibold text-ink-900">
             <CreditCard className="h-5 w-5 text-brand-700" />
@@ -924,13 +923,13 @@ function ProcessPayoutWizard({
             </li>
           ))}
         </ul>
-      </div>
+      </Panel>
     );
   }
 
   if (step === "enter-amount" && selected) {
     return (
-      <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm">
+      <Panel flush className="overflow-hidden">
         <div className="border-b border-ink-100 px-5 py-4">
           <h3 className="inline-flex items-center gap-2 font-display text-base font-semibold text-ink-900">
             <IndianRupee className="h-5 w-5 text-brand-700" />
@@ -1018,13 +1017,13 @@ function ProcessPayoutWizard({
             </Button>
           </div>
         </div>
-      </div>
+      </Panel>
     );
   }
 
   if (step === "confirm" && selected) {
     return (
-      <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm">
+      <Panel flush className="overflow-hidden">
         <div className="border-b border-ink-100 px-5 py-4">
           <h3 className="inline-flex items-center gap-2 font-display text-base font-semibold text-ink-900">
             <CheckCircle2 className="h-5 w-5 text-brand-700" />
@@ -1069,7 +1068,7 @@ function ProcessPayoutWizard({
           onConfirm={submitWithPin}
           onCancel={() => !submitting && setPinOpen(false)}
         />
-      </div>
+      </Panel>
     );
   }
 
@@ -1473,7 +1472,7 @@ function AddBeneficiaryPanel({
         className="grid grid-cols-1 gap-6 lg:grid-cols-3"
       >
         {/* Form */}
-        <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm lg:col-span-2">
+        <Panel flush className="overflow-hidden lg:col-span-2">
           <div className="border-b border-ink-100 bg-gradient-to-r from-emerald-50/60 to-teal-50/60 px-5 py-4">
             <h3 className="inline-flex items-center gap-2 font-display text-base font-semibold text-ink-900">
               <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-soft">
@@ -1594,17 +1593,17 @@ function AddBeneficiaryPanel({
               Verify & add account{fee ? ` (${inr2(fee.total)})` : ""}
             </Button>
           </div>
-        </div>
+        </Panel>
 
         {/* Live card preview + info */}
         <div className="space-y-4">
           <motion.div
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
-            className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-ink-900 via-ink-800 to-ink-900 p-5 text-white shadow-glow"
+            className="relative overflow-hidden rounded-2xl bg-[#0b1030] p-5 text-white shadow-glow"
           >
-            <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-emerald-400/20 blur-3xl" />
-            <div className="absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-brand-400/25 blur-3xl" />
+            <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-accent-400/20 blur-3xl" />
+            <div className="absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-brand-500/30 blur-3xl" />
             <div className="relative">
               <div className="mb-6 flex items-center justify-between">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-white/60">Bank account</span>
@@ -1626,7 +1625,7 @@ function AddBeneficiaryPanel({
             </div>
           </motion.div>
 
-          <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-sm">
+          <div className="rounded-2xl border border-ink-100 bg-gradient-to-br from-brand-50 to-accent-50 p-5 shadow-sm">
             <h4 className="mb-3 text-[11px] font-bold uppercase tracking-widest text-ink-500">How it works</h4>
             <div className="space-y-3">
               {[
@@ -1636,7 +1635,7 @@ function AddBeneficiaryPanel({
                 { icon: Sparkles, text: "Account verified & ready for payouts" },
               ].map((s, i) => (
                 <div key={i} className="flex items-center gap-3">
-                  <div className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-50 text-emerald-600">
+                  <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white text-emerald-600 shadow-sm">
                     <s.icon className="h-3.5 w-3.5" />
                   </div>
                   <p className="text-sm text-ink-700">{s.text}</p>

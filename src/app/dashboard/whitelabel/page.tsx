@@ -5,7 +5,8 @@ import { Globe, Palette, Headphones, Save, AlertCircle, CheckCircle2, Rocket } f
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
-import { Badge } from "@/components/ui/Badge";
+import { Panel, StatusPill } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 
 type Profile = {
   brandName: string;
@@ -124,30 +125,32 @@ export default function WhitelabelPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Platform"
-        title="White-label portal"
-        description="Run Paybridgex under your own brand, domain and colors."
-        actions={
-          <div className="flex items-center gap-2">
-            {profile.status === "LIVE" ? (
-              <Badge variant="success">Live</Badge>
-            ) : profile.status === "SUSPENDED" ? (
-              <Badge variant="danger">Suspended</Badge>
-            ) : (
-              <Badge variant="default">Draft</Badge>
-            )}
-            <Button variant="secondary" onClick={() => save()} disabled={!canSave}>
-              <Save className="h-4 w-4" /> {saving ? "Saving…" : "Save draft"}
-            </Button>
-            {profile.status !== "LIVE" && (
-              <Button onClick={() => save(true)} disabled={!canGoLive}>
-                <Rocket className="h-4 w-4" /> Go live
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Platform"
+          title="White-label portal"
+          description="Run Paybridgex under your own brand, domain and colors."
+          actions={
+            <div className="flex items-center gap-2">
+              {profile.status === "LIVE" ? (
+                <StatusPill status="Live" />
+              ) : profile.status === "SUSPENDED" ? (
+                <StatusPill status="Suspended" />
+              ) : (
+                <StatusPill status="Draft" />
+              )}
+              <Button variant="secondary" onClick={() => save()} disabled={!canSave}>
+                <Save className="h-4 w-4" /> {saving ? "Saving…" : "Save draft"}
               </Button>
-            )}
-          </div>
-        }
-      />
+              {profile.status !== "LIVE" && (
+                <Button onClick={() => save(true)} disabled={!canGoLive}>
+                  <Rocket className="h-4 w-4" /> Go live
+                </Button>
+              )}
+            </div>
+          }
+        />
+      </Reveal>
 
       {error && (
         <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -161,7 +164,7 @@ export default function WhitelabelPage() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
+        <Reveal distance={16} duration={0.45} className="space-y-4 lg:col-span-2">
           <Card title="Brand identity" icon={<Palette className="h-5 w-5" />}>
             <div className="grid gap-5 md:grid-cols-2">
               <div>
@@ -236,10 +239,10 @@ export default function WhitelabelPage() {
               </div>
             </div>
           </Card>
-        </div>
+        </Reveal>
 
-        <div className="space-y-4">
-          <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
+        <Reveal distance={16} duration={0.45} delay={0.08} className="space-y-4">
+          <Panel flush className="overflow-hidden">
             <div className="border-b border-ink-100 p-4">
               <p className="text-xs font-bold uppercase tracking-widest text-ink-500">Live preview</p>
               <p className="mt-1 text-sm font-semibold text-ink-900">{previewHost}</p>
@@ -255,12 +258,12 @@ export default function WhitelabelPage() {
                 Login
               </button>
             </div>
-          </div>
+          </Panel>
 
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 shadow-sm">
             <strong>Powered by Paybridgex.</strong> Footer attribution required on all white-labels.
           </div>
-        </div>
+        </Reveal>
       </div>
     </div>
   );
@@ -268,12 +271,12 @@ export default function WhitelabelPage() {
 
 function Card({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-5">
+    <Panel>
       <div className="mb-4 flex items-center gap-2">
-        <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-50 text-brand-700">{icon}</span>
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">{icon}</span>
         <h3 className="font-display text-base font-semibold text-ink-900">{title}</h3>
       </div>
       {children}
-    </div>
+    </Panel>
   );
 }

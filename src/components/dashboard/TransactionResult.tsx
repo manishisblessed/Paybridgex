@@ -2,7 +2,9 @@
 
 import { CheckCircle2, X, Copy, Download } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
+import { CountUp } from "@/components/motion";
 import { useAuth } from "@/lib/useAuth";
 
 /** Branding line shown on every payment result/receipt. */
@@ -53,6 +55,7 @@ export function TransactionResult({
   const [copied, setCopied] = useState(false);
   const { session } = useAuth();
   const userCode = session?.userCode;
+  const reduce = useReducedMotion();
 
   useEffect(() => {
     if (!result) setCopied(false);
@@ -77,13 +80,35 @@ export function TransactionResult({
     setTimeout(() => setCopied(false), 1500);
   }
 
+  /** Fade-and-rise entrance for the detail rows; static when motion is reduced. */
+  const rowAnim = (i: number) =>
+    reduce
+      ? {}
+      : {
+          initial: { opacity: 0, y: 8 },
+          animate: { opacity: 1, y: 0 },
+          transition: { duration: 0.3, delay: 0.2 + i * 0.06 },
+        };
+
   return (
-    <div
+    <motion.div
+      initial={reduce ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.2 }}
       className="fixed inset-0 z-50 grid place-items-center bg-ink-900/50 px-4 py-8 backdrop-blur"
       role="dialog"
       aria-modal
     >
-      <div className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-glow">
+      <motion.div
+        initial={reduce ? false : { opacity: 0, y: 18, scale: 0.94 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={
+          reduce
+            ? { duration: 0.15 }
+            : { type: "spring", stiffness: 300, damping: 26 }
+        }
+        className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-glow"
+      >
         <button
           type="button"
           onClick={onClose}
@@ -93,22 +118,51 @@ export function TransactionResult({
           <X className="h-4 w-4" />
         </button>
 
-        <div className="relative overflow-hidden bg-gradient-to-br from-accent-500 via-accent-600 to-accent-700 px-6 py-8 text-center text-white">
+        <div className="relative overflow-hidden bg-[#0b1030] px-6 py-8 text-center text-white">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent-500 via-accent-600 to-accent-700 opacity-90" aria-hidden />
           <div className="pointer-events-none absolute -left-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" aria-hidden />
+          <div className="pointer-events-none absolute -bottom-12 -right-8 h-28 w-28 rounded-full bg-brand-400/25 blur-2xl" aria-hidden />
+          <span className="pointer-events-none absolute left-8 top-7 h-1 w-1 rounded-full bg-white/50" aria-hidden />
+          <span className="pointer-events-none absolute right-12 top-11 h-1.5 w-1.5 rounded-full bg-white/40" aria-hidden />
+          <span className="pointer-events-none absolute bottom-9 left-14 h-1 w-1 rounded-full bg-white/40" aria-hidden />
+          <span className="pointer-events-none absolute bottom-14 right-8 h-1 w-1 rounded-full bg-white/30" aria-hidden />
           <span className="relative mx-auto grid h-16 w-16 place-items-center rounded-full bg-white/20 backdrop-blur">
-            <CheckCircle2 className="h-9 w-9" />
+            {!reduce && (
+              <motion.span
+                initial={{ scale: 0.7, opacity: 0.8 }}
+                animate={{ scale: 1.7, opacity: 0 }}
+                transition={{ duration: 1.1, delay: 0.4, ease: "easeOut" }}
+                className="absolute inset-0 rounded-full border-2 border-white/50"
+                aria-hidden
+              />
+            )}
+            <motion.span
+              initial={reduce ? false : { scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={
+                reduce
+                  ? { duration: 0 }
+                  : { type: "spring", stiffness: 380, damping: 18, delay: 0.15 }
+              }
+              className="grid place-items-center"
+            >
+              <CheckCircle2 className="h-9 w-9" />
+            </motion.span>
           </span>
           <p className="relative mt-4 font-display text-lg font-semibold">
             Transaction successful
           </p>
-          <p className="relative mt-1 font-display text-3xl font-bold">
-            ₹{result.amount.toLocaleString("en-IN")}
+          <p className="relative mt-1 font-display text-3xl font-bold tracking-tight">
+            <CountUp value={result.amount} prefix="₹" duration={0.9} />
           </p>
           <p className="relative text-xs text-white/80">{result.service}</p>
         </div>
 
         <div className="space-y-3 p-6">
-          <div className="flex items-center justify-between rounded-xl bg-ink-50 px-4 py-3">
+          <motion.div
+            {...rowAnim(0)}
+            className="flex items-center justify-between rounded-xl bg-ink-50 px-4 py-3"
+          >
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-500">
                 Reference ID
@@ -125,30 +179,31 @@ export function TransactionResult({
               <Copy className="h-3 w-3" />
               {copied ? "Copied" : "Copy"}
             </button>
-          </div>
+          </motion.div>
 
           {result.customer && (
-            <div className="rounded-xl bg-ink-50 px-4 py-3">
+            <motion.div {...rowAnim(1)} className="rounded-xl bg-ink-50 px-4 py-3">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-500">
                 Customer
               </p>
               <p className="text-sm font-medium text-ink-900">
                 {result.customer}
               </p>
-            </div>
+            </motion.div>
           )}
 
           {result.meta &&
-            Object.entries(result.meta).map(([k, v]) => (
-              <div
+            Object.entries(result.meta).map(([k, v], i) => (
+              <motion.div
                 key={k}
+                {...rowAnim(2 + i)}
                 className="flex items-center justify-between rounded-xl bg-ink-50 px-4 py-3"
               >
                 <span className="text-xs font-semibold uppercase tracking-widest text-ink-500">
                   {k}
                 </span>
                 <span className="text-sm font-medium text-ink-900">{v}</span>
-              </div>
+              </motion.div>
             ))}
 
           <p className="pt-1 text-center text-xs font-semibold text-accent-600">
@@ -165,7 +220,7 @@ export function TransactionResult({
             </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

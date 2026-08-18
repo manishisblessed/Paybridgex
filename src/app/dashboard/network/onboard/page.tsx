@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Send, CheckCircle2, Link2, Copy } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
+import { Panel } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { type Role } from "@/lib/auth";
@@ -71,6 +73,7 @@ export default function OnboardInvitePage() {
 
   if (done) {
     return (
+      <Reveal distance={14} duration={0.4}>
       <div className="mx-auto max-w-xl rounded-3xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-10 text-center shadow-soft">
         <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-500 text-white shadow-glow">
           <CheckCircle2 className="h-8 w-8" />
@@ -110,29 +113,33 @@ export default function OnboardInvitePage() {
           </Button>
         </div>
       </div>
+      </Reveal>
     );
   }
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Invite"
-        title={`Invite a ${childLabel}`}
-        description={`Send an onboarding link via email and SMS. The ${childLabel.toLowerCase()} will complete their own registration and KYC.`}
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Invite"
+          title={`Invite a ${childLabel}`}
+          description={`Send an onboarding link via email and SMS. The ${childLabel.toLowerCase()} will complete their own registration and KYC.`}
+        />
+      </Reveal>
 
       {error && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       )}
 
-      <form
-        className="mx-auto max-w-lg rounded-2xl border border-ink-100 bg-white p-6 shadow-soft"
-        onSubmit={handleSubmit}
-      >
-        <div className="mb-6 flex items-center gap-3 rounded-xl bg-brand-50 px-4 py-3">
-          <Link2 className="h-5 w-5 text-brand-600" />
+      <Reveal distance={16} duration={0.45}>
+      <Panel flush className="mx-auto max-w-lg p-6 shadow-soft">
+      <form onSubmit={handleSubmit}>
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-brand-100 bg-brand-50/70 px-4 py-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
+            <Link2 className="h-4 w-4" />
+          </span>
           <p className="text-sm text-brand-900">
             An onboarding link will be sent to the invitee. They&apos;ll register themselves — you won&apos;t need to enter their personal details.
           </p>
@@ -181,6 +188,8 @@ export default function OnboardInvitePage() {
           </Button>
         </div>
       </form>
+      </Panel>
+      </Reveal>
     </div>
   );
 }

@@ -8,10 +8,13 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { formatINR, formatNumber } from "@/lib/utils";
 import {
-  RefreshCw, ReceiptText, Plus, Upload, History, Search, IndianRupee,
+  RefreshCw, ReceiptText, Plus, Upload, Search, IndianRupee,
   CreditCard, AlertCircle, CheckCircle2, XCircle, Loader2, Percent, Pencil, Clock, Gift,
+  type LucideIcon,
 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
+import { Panel, StatTile, SectionTitle, TabNav, SegmentedNav } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AssignUserPicker, type PickerUser } from "@/components/ui/AssignUserPicker";
 
@@ -87,29 +90,6 @@ const inputCls =
 
 const labelCls = "mb-1.5 block text-xs font-semibold text-ink-500";
 
-function Stat({ label, value, icon: Icon, tone }: { label: string; value: string; icon: React.ElementType; tone?: "good" | "bad" | "brand" }) {
-  const colors = {
-    good: "text-emerald-600 bg-emerald-50",
-    bad: "text-rose-600 bg-rose-50",
-    brand: "text-brand-600 bg-brand-50",
-  };
-  return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-4">
-      <div className="flex items-center gap-2">
-        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${tone ? colors[tone] : "bg-ink-50 text-ink-500"}`}>
-          <Icon className="h-4 w-4" />
-        </div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">{label}</p>
-      </div>
-      <p className={`mt-2 text-xl font-bold ${
-        tone === "good" ? "text-emerald-600" : tone === "bad" ? "text-rose-600" : tone === "brand" ? "text-brand-600" : "text-ink-900"
-      }`}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
 export default function PosRentalPage() {
   const [tab, setTab] = useState<Tab>("plans");
   const [data, setData] = useState<Overview | null>(null);
@@ -177,7 +157,7 @@ export default function PosRentalPage() {
 
   const s = data?.summary;
 
-  const tabs: Array<{ key: Tab; label: string; icon: React.ElementType }> = [
+  const tabs: Array<{ key: Tab; label: string; icon: LucideIcon }> = [
     { key: "plans", label: "Rental Plans", icon: CreditCard },
     { key: "subscriptions", label: "Subscriptions", icon: ReceiptText },
     { key: "invoices", label: `Invoices (${data?.summary.periodKey ?? ""})`, icon: IndianRupee },
@@ -186,6 +166,7 @@ export default function PosRentalPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         title="POS Rental & Billing"
         description="Create rental plans, assign machine subscriptions with GST & commission, track monthly invoices, and manage inventory."
@@ -234,43 +215,43 @@ export default function PosRentalPage() {
           </div>
         }
       />
+      </Reveal>
 
       {s && (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-7">
-          <Stat
-            label={`Cycle ${s.periodKey}`}
-            value={data?.config.enabled ? "AUTO ON" : "AUTO OFF"}
-            icon={RefreshCw}
-            tone={data?.config.enabled ? "good" : "bad"}
-          />
-          <Stat label="Active Subs" value={formatNumber(s.activeSubscriptions)} icon={CreditCard} tone="brand" />
-          <Stat label="Rent Collected" value={formatINR(s.paidAmount)} icon={IndianRupee} tone="good" />
-          <Stat label="GST Collected" value={formatINR(s.paidGst ?? 0)} icon={Percent} tone="good" />
-          <Stat label="Commission Paid" value={formatINR(s.paidCommission ?? 0)} icon={IndianRupee} />
-          <Stat label="Failed Invoices" value={String(s.failedCount)} icon={XCircle} tone={s.failedCount > 0 ? "bad" : undefined} />
-          <Stat label="Failed Amount" value={formatINR(s.failedAmount)} icon={AlertCircle} tone={s.failedAmount > 0 ? "bad" : undefined} />
-        </div>
+        <Stagger stagger={0.05} className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-7">
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label={`Cycle ${s.periodKey}`}
+              value={data?.config.enabled ? "AUTO ON" : "AUTO OFF"}
+              icon={RefreshCw}
+              tone={data?.config.enabled ? "emerald" : "rose"}
+            />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="Active Subs" countTo={s.activeSubscriptions} icon={CreditCard} tone="dark" />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="Rent Collected" value={formatINR(s.paidAmount)} icon={IndianRupee} tone="emerald" />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="GST Collected" value={formatINR(s.paidGst ?? 0)} icon={Percent} tone="brand" />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="Commission Paid" value={formatINR(s.paidCommission ?? 0)} icon={IndianRupee} tone="violet" />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="Failed Invoices" countTo={s.failedCount} icon={XCircle} tone={s.failedCount > 0 ? "rose" : "ink"} />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="Failed Amount" value={formatINR(s.failedAmount)} icon={AlertCircle} tone={s.failedAmount > 0 ? "rose" : "ink"} />
+          </StaggerItem>
+        </Stagger>
       )}
 
       <WaiverCard waiver={data?.waiver} busy={busy} act={act} />
 
       {/* Tabs */}
-      <div className="flex gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
-        {tabs.map(({ key, label, icon: TabIcon }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-all ${
-              tab === key
-                ? "bg-white text-ink-900 shadow-sm ring-1 ring-ink-100"
-                : "text-ink-500 hover:text-ink-700"
-            }`}
-          >
-            <TabIcon className="h-4 w-4" />
-            <span className="hidden sm:inline">{label}</span>
-          </button>
-        ))}
-      </div>
+      <TabNav tabs={tabs} active={tab} onChange={(key) => setTab(key as Tab)} />
 
       {tab === "plans" && <PlansTab plans={data?.plans ?? []} loading={loading} busy={busy} act={act} />}
       {tab === "subscriptions" && (
@@ -331,10 +312,10 @@ function WaiverCard({
   const dirty = editing && parsed > 0 && parsed !== waiver.thresholdPerMachine;
 
   return (
-    <div className={`rounded-2xl border p-5 transition-colors ${enabled ? "border-emerald-200 bg-emerald-50/40" : "border-ink-100 bg-white"}`}>
+    <Panel className={`transition-colors ${enabled ? "border-emerald-200 bg-emerald-50/40" : ""}`}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-start gap-3">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${enabled ? "bg-emerald-100 text-emerald-600" : "bg-ink-100 text-ink-500"}`}>
+          <div className={`grid h-10 w-10 place-items-center rounded-xl shadow-soft ${enabled ? "bg-gradient-to-br from-emerald-500 to-emerald-700 text-white" : "bg-ink-100 text-ink-500"}`}>
             <Gift className="h-5 w-5" />
           </div>
           <div>
@@ -396,7 +377,7 @@ function WaiverCard({
           </Button>
         </div>
       </div>
-    </div>
+    </Panel>
   );
 }
 
@@ -466,15 +447,12 @@ function PlansTab({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-ink-100 bg-white p-6">
-        <div className="mb-4">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-            <Plus className="h-4 w-4 text-brand-600" /> Create New Rental Plan
-          </h3>
-          <p className="mt-1 text-xs text-ink-400">
-            Define a reusable plan with monthly rent, one-time setup fee, and refundable deposit.
-          </p>
-        </div>
+      <Reveal distance={16} duration={0.45}>
+      <Panel className="p-6">
+        <SectionTitle
+          title="Create New Rental Plan"
+          description="Define a reusable plan with monthly rent, one-time setup fee, and refundable deposit."
+        />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <div>
@@ -540,11 +518,14 @@ function PlansTab({
             </span>
           )}
         </div>
-      </div>
+      </Panel>
+      </Reveal>
 
-      <DataTable columns={columns} data={plans} loading={loading}
-        title="All Rental Plans"
-        description={`${plans.length} plan${plans.length === 1 ? "" : "s"} configured`} />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable columns={columns} data={plans} loading={loading}
+          title="All Rental Plans"
+          description={`${plans.length} plan${plans.length === 1 ? "" : "s"} configured`} />
+      </Reveal>
 
       {/* Edit Plan Modal */}
       <Modal
@@ -813,15 +794,12 @@ function SubscriptionsTab({
   return (
     <div className="space-y-4">
       {/* Assign subscription panel */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-6">
-        <div className="mb-4">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-            <Plus className="h-4 w-4 text-brand-600" /> Assign Subscription
-          </h3>
-          <p className="mt-1 text-xs text-ink-400">
-            Search any user, pick machines from their fleet, set a plan and rate — the rent auto-debits from their wallet every billing cycle.
-          </p>
-        </div>
+      <Reveal distance={16} duration={0.45}>
+      <Panel className="p-6">
+        <SectionTitle
+          title="Assign Subscription"
+          description="Search any user, pick machines from their fleet, set a plan and rate — the rent auto-debits from their wallet every billing cycle."
+        />
 
         {/* Step 1: Select any user */}
         <div className="mb-4">
@@ -973,33 +951,36 @@ function SubscriptionsTab({
             </div>
           </div>
         )}
-      </div>
+      </Panel>
+      </Reveal>
 
       {/* Active totals */}
-      <div className="flex flex-wrap gap-4 rounded-2xl border border-ink-100 bg-white p-4">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+      <Panel flush className="flex flex-wrap gap-6 p-4">
+        <div className="flex items-center gap-2.5">
+          <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-soft">
             <CheckCircle2 className="h-4 w-4" />
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Active</p>
-            <p className="text-sm font-bold text-ink-900">{formatNumber(activeCount)} subscription{activeCount !== 1 ? "s" : ""}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-400">Active</p>
+            <p className="font-display text-sm font-bold text-ink-900">{formatNumber(activeCount)} subscription{activeCount !== 1 ? "s" : ""}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+        <div className="flex items-center gap-2.5">
+          <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
             <IndianRupee className="h-4 w-4" />
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Monthly Revenue</p>
-            <p className="text-sm font-bold text-ink-900">{formatINR(activeMonthlyRent)}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-ink-400">Monthly Revenue</p>
+            <p className="font-display text-sm font-bold text-ink-900">{formatINR(activeMonthlyRent)}</p>
           </div>
         </div>
-      </div>
+      </Panel>
 
-      <DataTable columns={columns} data={subs} loading={loading}
-        title="All Subscriptions"
-        description={`${formatNumber(total)} subscription${total === 1 ? "" : "s"} total`} />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable columns={columns} data={subs} loading={loading}
+          title="All Subscriptions"
+          description={`${formatNumber(total)} subscription${total === 1 ? "" : "s"} total`} />
+      </Reveal>
 
       {pages > 1 && (
         <div className="flex items-center justify-between text-sm text-ink-500">
@@ -1133,9 +1114,11 @@ function InvoicesTab({
 
   return (
     <>
-      <DataTable columns={columns} data={invoices} loading={loading}
-        title="Monthly Invoices"
-        description="Current billing period — shows rent, GST, total debited, and commission paid." />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable columns={columns} data={invoices} loading={loading}
+          title="Monthly Invoices"
+          description="Current billing period — shows rent, GST, total debited, and commission paid." />
+      </Reveal>
 
       <ConfirmDialog
         open={waiveTarget !== null}
@@ -1298,31 +1281,22 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
   return (
     <div className="space-y-4">
       {/* Mode toggle */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-              <Plus className="h-4 w-4 text-brand-600" /> Add Machines to Inventory
-            </h3>
-            <p className="mt-1 text-xs text-ink-400">
-              Add 1 or 100+ machines at once. Use the table for manual entry or paste CSV for bulk.
-            </p>
-          </div>
-          <div className="flex gap-1 rounded-lg border border-ink-200 bg-ink-50 p-0.5">
-            <button
-              onClick={() => setMode("table")}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${mode === "table" ? "bg-white text-ink-900 shadow-sm" : "text-ink-500 hover:text-ink-700"}`}
-            >
-              Table Entry
-            </button>
-            <button
-              onClick={() => setMode("csv")}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${mode === "csv" ? "bg-white text-ink-900 shadow-sm" : "text-ink-500 hover:text-ink-700"}`}
-            >
-              Paste CSV
-            </button>
-          </div>
-        </div>
+      <Reveal distance={16} duration={0.45}>
+      <Panel className="p-6">
+        <SectionTitle
+          title="Add Machines to Inventory"
+          description="Add 1 or 100+ machines at once. Use the table for manual entry or paste CSV for bulk."
+          action={
+            <SegmentedNav
+              tabs={[
+                { key: "table", label: "Table Entry" },
+                { key: "csv", label: "Paste CSV" },
+              ]}
+              active={mode}
+              onChange={(key) => setMode(key as IntakeMode)}
+            />
+          }
+        />
 
         {mode === "table" ? (
           <>
@@ -1476,18 +1450,16 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
             </div>
           </>
         )}
-      </div>
+      </Panel>
+      </Reveal>
 
       {/* Tracking */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-6">
-        <div className="mb-4">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-            <History className="h-4 w-4 text-brand-600" /> Machine Tracking & Timeline
-          </h3>
-          <p className="mt-1 text-xs text-ink-400">
-            Look up a machine by serial, TID, or ID to see its assignment history and subscription details.
-          </p>
-        </div>
+      <Reveal distance={16} duration={0.45}>
+      <Panel className="p-6">
+        <SectionTitle
+          title="Machine Tracking & Timeline"
+          description="Look up a machine by serial, TID, or ID to see its assignment history and subscription details."
+        />
         <div className="flex gap-2">
           <div className="relative max-w-md flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
@@ -1560,7 +1532,8 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
             </div>
           </div>
         )}
-      </div>
+      </Panel>
+      </Reveal>
     </div>
   );
 }

@@ -14,7 +14,18 @@ import {
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Sparkline } from "@/components/dashboard/Sparkline";
 import { ReportActions } from "@/components/dashboard/ReportActions";
-import { Badge } from "@/components/ui/Badge";
+import {
+  Panel,
+  StatTile,
+  FilterBar,
+  FilterField,
+  TablePro,
+  TableEmptyRow,
+  TableSkeletonRows,
+  StatusPill,
+  type StatTone,
+  type PillTone,
+} from "@/components/dashboard/ui";
 import { Button } from "@/components/ui/Button";
 import { Input, Select, Label } from "@/components/ui/Input";
 import { REPORTS } from "@/lib/reports/registry";
@@ -43,6 +54,12 @@ const ACCENT_HEX: Record<Accent, string> = {
   emerald: "#059669",
   violet: "#7c3aed",
 };
+const ACCENT_STAT_TONE: Record<Accent, StatTone> = {
+  brand: "brand",
+  accent: "emerald",
+  emerald: "emerald",
+  violet: "violet",
+};
 
 const ACRONYMS = new Set(["AEPS", "DMT", "UPI", "DTH", "PAN", "GST", "IMPS", "NEFT", "RTGS", "POS", "QR", "PG", "BBPS", "ID"]);
 function humanize(code: string): string {
@@ -65,6 +82,16 @@ function badgeVariant(raw: string): "success" | "warning" | "danger" | "brand" |
   if (["WITHDRAW", "FUND_TRANSFER_OUT", "FEE", "ADJUSTMENT", "PAYOUT"].includes(v)) return "accent";
   return "default";
 }
+
+/** StatusPill tone for each badgeVariant (accent is emerald-toned, like success). */
+const PILL_TONE: Record<ReturnType<typeof badgeVariant>, PillTone> = {
+  success: "success",
+  warning: "warning",
+  danger: "danger",
+  brand: "brand",
+  accent: "success",
+  default: "neutral",
+};
 
 /** Coloured wordmark/monogram tile used when no logo image is available. */
 function BrandBadge({ name }: { name: string }) {
@@ -129,7 +156,11 @@ function displayCell(value: unknown, format?: ReportColumnDef["format"]) {
     case "datetime":
       return <span className="whitespace-nowrap text-ink-600">{toDateTimeStr(value)}</span>;
     case "badge":
-      return <Badge variant={badgeVariant(String(value))}>{humanize(String(value))}</Badge>;
+      return (
+        <StatusPill status={String(value)} tone={PILL_TONE[badgeVariant(String(value))]}>
+          {humanize(String(value))}
+        </StatusPill>
+      );
     case "mono":
       return <span className="font-mono text-xs">{String(value)}</span>;
     default:
@@ -321,18 +352,22 @@ export function ReportView({ type }: { type: ReportType }) {
       {/* KPI cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {(data?.summary ?? []).map((s) => (
-          <div key={s.label} className="rounded-2xl border border-ink-100 bg-white p-5 shadow-sm">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">{s.label}</p>
-            <p className={`mt-1 font-display text-2xl font-bold ${ACCENT_TEXT[s.accent ?? config.accent]}`}>
-              {loading && !data ? "—" : s.value}
-            </p>
-          </div>
+          <StatTile
+            key={s.label}
+            label={s.label}
+            tone={ACCENT_STAT_TONE[s.accent ?? config.accent]}
+            value={
+              <span className={ACCENT_TEXT[s.accent ?? config.accent]}>
+                {loading && !data ? "—" : s.value}
+              </span>
+            }
+          />
         ))}
       </div>
 
       {/* Trend sparkline */}
       {data?.trend && data.trend.values.length > 1 && (
-        <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-sm">
+        <Panel>
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold uppercase tracking-widest text-ink-500">{data.trend.label}</p>
             <span className={`h-2.5 w-2.5 rounded-full bg-gradient-to-br ${ACCENT_BG[config.accent]}`} />
@@ -340,66 +375,66 @@ export function ReportView({ type }: { type: ReportType }) {
           <div className="mt-3">
             <Sparkline values={data.trend.values} color={data.trend.color || ACCENT_HEX[config.accent]} height={70} />
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
+      <FilterBar className="items-end p-4" hideIcon>
         {f.dateRange && (
           <>
-            <div>
+            <FilterField>
               <Label htmlFor="from">From</Label>
               <Input id="from" type="date" value={from} max={to || undefined} onChange={(e) => { setFrom(e.target.value); setPage(1); }} className="w-44" />
-            </div>
-            <div>
+            </FilterField>
+            <FilterField>
               <Label htmlFor="to">To</Label>
               <Input id="to" type="date" value={to} min={from || undefined} onChange={(e) => { setTo(e.target.value); setPage(1); }} className="w-44" />
-            </div>
+            </FilterField>
           </>
         )}
 
         {f.status && (
-          <div>
+          <FilterField>
             <Label htmlFor="status">{f.status.label}</Label>
             <Select id="status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="w-44">
               <option value="">All</option>
               {f.status.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </Select>
-          </div>
+          </FilterField>
         )}
 
         {f.service && (
-          <div>
+          <FilterField>
             <Label htmlFor="service">{f.service.label}</Label>
             <Select id="service" value={service} onChange={(e) => { setService(e.target.value); setPage(1); }} className="w-48">
               <option value="">All</option>
               {f.service.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </Select>
-          </div>
+          </FilterField>
         )}
 
         {f.mode && (
-          <div>
+          <FilterField>
             <Label htmlFor="mode">{f.mode.label}</Label>
             <Select id="mode" value={mode} onChange={(e) => { setMode(e.target.value); setPage(1); }} className="w-40">
               <option value="">All</option>
               {f.mode.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </Select>
-          </div>
+          </FilterField>
         )}
 
         {f.search && (
-          <div className="min-w-[220px] flex-1">
+          <FilterField className="min-w-[220px] flex-1">
             <Label htmlFor="q">Search</Label>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
               <Input id="q" value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder={f.search} className="pl-9" />
             </div>
-          </div>
+          </FilterField>
         )}
 
         <Button variant="outline" onClick={resetFilters}>Reset</Button>
-      </div>
+      </FilterBar>
 
       {/* Note / errors */}
       {error && (
@@ -416,98 +451,82 @@ export function ReportView({ type }: { type: ReportType }) {
       )}
 
       {/* Table */}
-      <div className="min-w-0 overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 px-5 py-4">
-          <h3 className="font-display text-base font-semibold text-ink-900">
-            {loading ? "Loading…" : `${totalRecords.toLocaleString("en-IN")} record${totalRecords === 1 ? "" : "s"}`}
-          </h3>
+      <TablePro
+        title={loading ? "Loading…" : `${totalRecords.toLocaleString("en-IN")} record${totalRecords === 1 ? "" : "s"}`}
+        action={
           <div className="flex items-center gap-2">
             <Label htmlFor="pageSize" className="mb-0 text-xs text-ink-500">Rows</Label>
             <Select id="pageSize" value={String(pageSize)} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} className="h-9 w-20">
               {[20, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
             </Select>
           </div>
-        </div>
-
-        <div className="w-full overflow-x-auto">
-          <table className="w-full min-w-max text-sm">
-            <thead className="bg-ink-50/80 text-left text-[11px] uppercase tracking-wider text-ink-500">
-              <tr>
-                {config.columns.map((c) => (
-                  <th key={c.key} className={`whitespace-nowrap px-5 py-3 font-semibold ${c.align === "right" ? "text-right" : ""}`}>
-                    {c.header}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ink-100 text-ink-800">
-              {loading ? (
-                Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i}>
-                    {config.columns.map((c) => (
-                      <td key={c.key} className="px-5 py-3.5">
-                        <div className="h-3 w-20 animate-pulse rounded bg-ink-100" />
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : rows.length === 0 ? (
-                <tr>
-                  <td colSpan={config.columns.length} className="px-5 py-14 text-center text-sm text-ink-500">
-                    No records match your filters.
-                  </td>
-                </tr>
-              ) : (
-                rows.map((row, i) => (
-                  <tr key={i} className="transition-colors hover:bg-brand-50/40">
-                    {config.columns.map((c) => (
-                      <td key={c.key} className={`whitespace-nowrap px-5 py-3 ${c.align === "right" ? "text-right" : ""}`}>
-                        {displayCell(row[c.key], c.format)}
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              )}
-            </tbody>
-            {!loading && rows.length > 0 && hasTotals && (
-              <tfoot>
-                <tr className="border-t-2 border-ink-200 bg-ink-50/60 font-semibold text-ink-900">
-                  {config.columns.map((c, idx) => {
-                    const tv = totals[c.key];
-                    return (
-                      <td key={c.key} className={`whitespace-nowrap px-5 py-3 ${c.align === "right" ? "text-right" : ""}`}>
-                        {tv === undefined
-                          ? idx === 0 && !("service" in totals || "date" in totals || "tid" in totals)
-                            ? "Total"
-                            : ""
-                          : c.format === "money" || c.format === "int" || c.format === "percent"
-                            ? displayCell(tv, c.format)
-                            : <span className="text-ink-700">{String(tv)}</span>}
-                      </td>
-                    );
-                  })}
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {!loading && totalRecords > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 px-5 py-3 text-sm text-ink-600">
-            <span>Showing {startIdx.toLocaleString("en-IN")}–{endIdx.toLocaleString("en-IN")} of {totalRecords.toLocaleString("en-IN")}</span>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
-                <ChevronLeft className="h-4 w-4" /> Prev
-              </Button>
-              <span className="px-2 text-xs">Page {page} of {totalPages}</span>
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
-                Next <ChevronRight className="h-4 w-4" />
-              </Button>
+        }
+        footer={
+          !loading && totalRecords > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-ink-600">
+              <span>Showing {startIdx.toLocaleString("en-IN")}–{endIdx.toLocaleString("en-IN")} of {totalRecords.toLocaleString("en-IN")}</span>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+                  <ChevronLeft className="h-4 w-4" /> Prev
+                </Button>
+                <span className="px-2 text-xs">Page {page} of {totalPages}</span>
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+                  Next <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          ) : undefined
+        }
+      >
+        <table>
+          <thead>
+            <tr>
+              {config.columns.map((c) => (
+                <th key={c.key} className={c.align === "right" ? "text-right" : undefined}>
+                  {c.header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <TableSkeletonRows rows={6} cols={config.columns.length} />
+            ) : rows.length === 0 ? (
+              <TableEmptyRow colSpan={config.columns.length} message="No records match your filters." />
+            ) : (
+              rows.map((row, i) => (
+                <tr key={i}>
+                  {config.columns.map((c) => (
+                    <td key={c.key} className={c.align === "right" ? "text-right" : undefined}>
+                      {displayCell(row[c.key], c.format)}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+          {!loading && rows.length > 0 && hasTotals && (
+            <tfoot>
+              <tr className="border-t-2 border-ink-200 bg-ink-50/60 font-semibold text-ink-900">
+                {config.columns.map((c, idx) => {
+                  const tv = totals[c.key];
+                  return (
+                    <td key={c.key} className={`whitespace-nowrap px-5 py-3 ${c.align === "right" ? "text-right" : ""}`}>
+                      {tv === undefined
+                        ? idx === 0 && !("service" in totals || "date" in totals || "tid" in totals)
+                          ? "Total"
+                          : ""
+                        : c.format === "money" || c.format === "int" || c.format === "percent"
+                          ? displayCell(tv, c.format)
+                          : <span className="text-ink-700">{String(tv)}</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </TablePro>
     </div>
   );
 }

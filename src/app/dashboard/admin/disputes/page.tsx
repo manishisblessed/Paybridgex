@@ -10,11 +10,25 @@ import {
   CheckCircle2,
   XCircle,
   PauseCircle,
+  Inbox,
+  Flame,
+  Layers,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import {
+  Panel,
+  DarkPanel,
+  TablePro,
+  TableEmptyRow,
+  TableSkeletonRows,
+  StatusPill,
+  SectionTitle,
+  TabNav,
+  type PillTone,
+} from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 
 type DisputeRow = {
   id: string;
@@ -45,17 +59,17 @@ type DisputeDetail = DisputeRow & {
   }>;
 };
 
-const STATUS_BADGE: Record<string, "default" | "success" | "warning" | "danger" | "brand" | "accent"> = {
+const STATUS_PILL: Record<string, PillTone> = {
   OPEN: "brand",
   UNDER_REVIEW: "warning",
-  AWAITING_USER: "accent",
+  AWAITING_USER: "violet",
   RESOLVED: "success",
   REJECTED: "danger",
 };
 
-const PRIORITY_BADGE: Record<string, "default" | "warning" | "danger"> = {
-  LOW: "default",
-  NORMAL: "default",
+const PRIORITY_PILL: Record<string, PillTone> = {
+  LOW: "neutral",
+  NORMAL: "neutral",
   HIGH: "warning",
   URGENT: "danger",
 };
@@ -65,12 +79,13 @@ function SlaCell({ d }: { d: DisputeRow }) {
     return <span className="text-xs text-ink-400">Closed</span>;
   }
   if (d.slaBreachedAt) {
-    return <Badge variant="danger">SLA breached</Badge>;
+    return <StatusPill status="SLA breached" tone="danger" />;
   }
   const msLeft = new Date(d.slaDueAt).getTime() - Date.now();
   const hours = Math.floor(msLeft / 3600_000);
-  if (msLeft <= 0) return <Badge variant="danger">Overdue</Badge>;
-  if (hours < 4) return <Badge variant="warning">{hours < 1 ? "< 1h left" : `${hours}h left`}</Badge>;
+  if (msLeft <= 0) return <StatusPill status="Overdue" tone="danger" />;
+  if (hours < 4)
+    return <StatusPill status={hours < 1 ? "< 1h left" : `${hours}h left`} tone="warning" />;
   return <span className="text-xs text-ink-500">{hours}h left</span>;
 }
 
@@ -179,16 +194,18 @@ export default function AdminDisputesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="Disputes & Support"
-        description="Support queue with SLA tracking. Breaches are auto-escalated and alerted to ops every 30 minutes."
-        actions={
-          <Button variant="outline" onClick={fetchList} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="Disputes & Support"
+          description="Support queue with SLA tracking. Breaches are auto-escalated and alerted to ops every 30 minutes."
+          actions={
+            <Button variant="outline" onClick={fetchList} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            </Button>
+          }
+        />
+      </Reveal>
 
       {error && (
         <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -199,57 +216,44 @@ export default function AdminDisputesPage() {
 
       {!detail ? (
         <>
-          <div className="flex gap-2">
-            {(
-              [
-                { id: "active", label: "Active queue" },
-                { id: "breached", label: "SLA breached" },
-                { id: "all", label: "All tickets" },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setFilter(t.id)}
-                className={`rounded-xl border-2 px-4 py-2 text-sm font-semibold transition ${
-                  filter === t.id
-                    ? "border-brand-500 bg-brand-50 text-brand-700"
-                    : "border-ink-100 bg-white text-ink-700 hover:border-ink-200"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+          <TabNav
+            tabs={[
+              { key: "active", label: "Active queue", icon: Inbox },
+              { key: "breached", label: "SLA breached", icon: Flame },
+              { key: "all", label: "All tickets", icon: Layers },
+            ]}
+            active={filter}
+            onChange={(k) => setFilter(k as typeof filter)}
+          />
 
-          <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-ink-50/60 text-left text-xs uppercase tracking-wider text-ink-500">
+          <Reveal distance={16} duration={0.45}>
+            <TablePro>
+              <table>
+                <thead>
                   <tr>
-                    <th className="px-5 py-3 font-semibold">Ticket</th>
-                    <th className="px-5 py-3 font-semibold">Raised by</th>
-                    <th className="px-5 py-3 font-semibold">Priority</th>
-                    <th className="px-5 py-3 font-semibold">Status</th>
-                    <th className="px-5 py-3 font-semibold">SLA</th>
-                    <th className="px-5 py-3 font-semibold">Raised</th>
+                    <th>Ticket</th>
+                    <th>Raised by</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>SLA</th>
+                    <th>Raised</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-ink-100 text-ink-800">
+                <tbody>
                   {disputes.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-5 py-12 text-center text-sm text-ink-500">
-                        {loading ? "Loading…" : "Queue is clear."}
-                      </td>
-                    </tr>
+                    loading ? (
+                      <TableSkeletonRows rows={5} cols={6} />
+                    ) : (
+                      <TableEmptyRow colSpan={6} icon={Inbox} message="Queue is clear." />
+                    )
                   ) : (
                     disputes.map((d) => (
                       <tr
                         key={d.id}
                         onClick={() => openDetail(d.id)}
-                        className="cursor-pointer hover:bg-ink-50/40"
+                        className="cursor-pointer"
                       >
-                        <td className="px-5 py-3">
+                        <td>
                           <div className="font-mono text-xs text-ink-500">{d.ticketNo}</div>
                           <div className="max-w-[260px] truncate font-medium text-ink-900">{d.subject}</div>
                           <div className="text-xs text-ink-500">
@@ -257,22 +261,24 @@ export default function AdminDisputesPage() {
                             {d.txnRefId && <> · {d.txnRefId}</>}
                           </div>
                         </td>
-                        <td className="px-5 py-3">
+                        <td>
                           <div className="font-medium">{d.raisedBy?.name ?? "—"}</div>
                           <div className="text-xs text-ink-500">
                             {d.raisedBy?.role?.replace(/_/g, " ")} · {d.raisedBy?.phone}
                           </div>
                         </td>
-                        <td className="px-5 py-3">
-                          <Badge variant={PRIORITY_BADGE[d.priority] ?? "default"}>{d.priority}</Badge>
+                        <td>
+                          <StatusPill status={d.priority} tone={PRIORITY_PILL[d.priority] ?? "neutral"} />
                         </td>
-                        <td className="px-5 py-3">
-                          <Badge variant={STATUS_BADGE[d.status] ?? "default"}>{d.status.replace(/_/g, " ")}</Badge>
+                        <td>
+                          <StatusPill status={d.status} tone={STATUS_PILL[d.status] ?? "neutral"}>
+                            {d.status.replace(/_/g, " ")}
+                          </StatusPill>
                         </td>
-                        <td className="px-5 py-3">
+                        <td>
                           <SlaCell d={d} />
                         </td>
-                        <td className="px-5 py-3 whitespace-nowrap text-xs text-ink-500">
+                        <td className="text-xs text-ink-500">
                           {new Date(d.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
                         </td>
                       </tr>
@@ -280,8 +286,8 @@ export default function AdminDisputesPage() {
                   )}
                 </tbody>
               </table>
-            </div>
-          </div>
+            </TablePro>
+          </Reveal>
         </>
       ) : (
         <div className="space-y-4">
@@ -295,12 +301,14 @@ export default function AdminDisputesPage() {
 
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-4">
-              <div className="rounded-2xl border border-ink-100 bg-white p-5">
+              <Panel>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono text-xs text-ink-500">{detail.ticketNo}</span>
-                  <Badge variant={STATUS_BADGE[detail.status] ?? "default"}>{detail.status.replace(/_/g, " ")}</Badge>
-                  <Badge variant={PRIORITY_BADGE[detail.priority] ?? "default"}>{detail.priority}</Badge>
-                  {detail.slaBreachedAt && <Badge variant="danger">SLA breached</Badge>}
+                  <StatusPill status={detail.status} tone={STATUS_PILL[detail.status] ?? "neutral"}>
+                    {detail.status.replace(/_/g, " ")}
+                  </StatusPill>
+                  <StatusPill status={detail.priority} tone={PRIORITY_PILL[detail.priority] ?? "neutral"} />
+                  {detail.slaBreachedAt && <StatusPill status="SLA breached" tone="danger" />}
                   {!closed && (
                     <span className="flex items-center gap-1 text-xs text-ink-500">
                       <Clock className="h-3 w-3" />
@@ -330,10 +338,10 @@ export default function AdminDisputesPage() {
                     <p className="mt-1 whitespace-pre-wrap">{detail.resolution}</p>
                   </div>
                 )}
-              </div>
+              </Panel>
 
-              <div className="rounded-2xl border border-ink-100 bg-white p-5">
-                <p className="text-sm font-semibold text-ink-900">Conversation</p>
+              <Panel>
+                <SectionTitle title="Conversation" />
                 <ul className="mt-3 space-y-3">
                   {detail.messages.length === 0 && (
                     <li className="text-xs text-ink-500">No replies yet.</li>
@@ -365,12 +373,12 @@ export default function AdminDisputesPage() {
                     {busy === "reply" ? "Sending…" : "Send"}
                   </Button>
                 </form>
-              </div>
+              </Panel>
             </div>
 
             <div className="space-y-4">
-              <div className="rounded-2xl border border-ink-100 bg-white p-5">
-                <p className="text-sm font-semibold text-ink-900">Actions</p>
+              <Panel>
+                <SectionTitle title="Actions" className="mb-0" />
                 {closed ? (
                   <p className="mt-2 text-xs text-ink-500">
                     Ticket is closed. A user reply will reopen it automatically.
@@ -405,16 +413,16 @@ export default function AdminDisputesPage() {
                     </div>
                   </>
                 )}
-              </div>
+              </Panel>
 
-              <div className="rounded-2xl border border-ink-100 bg-ink-50/60 p-4 text-xs text-ink-600">
-                <p className="font-semibold text-ink-800">SLA policy</p>
+              <DarkPanel className="text-xs text-white/70">
+                <p className="font-semibold text-white">SLA policy</p>
                 <p className="mt-1">Urgent 4h · High 24h · Normal 48h · Low 72h.</p>
                 <p className="mt-1">
                   Breaches escalate priority one level and alert ops. &quot;Await user reply&quot; pauses the clock; it
                   restarts when the user responds.
                 </p>
-              </div>
+              </DarkPanel>
             </div>
           </div>
         </div>

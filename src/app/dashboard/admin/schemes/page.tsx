@@ -18,6 +18,17 @@ import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { AssignUserPicker, type PickerUser } from "@/components/ui/AssignUserPicker";
+import { Reveal } from "@/components/motion";
+import {
+  Panel,
+  FilterBar,
+  FilterField,
+  TablePro,
+  StatusPill,
+  SectionTitle,
+  EmptyState,
+  ModalShell,
+} from "@/components/dashboard/ui";
 import { SERVICE_FAMILIES, familyOf, type ServiceFamily } from "@/lib/scheme/constants";
 import { bbpsServicesForProvider } from "@/lib/services/priceScope";
 import {
@@ -28,7 +39,6 @@ import {
   Users,
   ChevronDown,
   Loader2,
-  X,
   Pencil,
   Trash2,
   Power,
@@ -310,59 +320,60 @@ export default function SchemeManagementPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="Scheme Management"
-        description="Create and manage schemes with charges, MDR rates, and commission values. Assign any scheme directly to any user. Commissions apply only to PG/POS/QR transactions."
-        actions={
-          <>
-            <Button variant="outline" onClick={load} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-            </Button>
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" /> New scheme
-            </Button>
-          </>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="Scheme Management"
+          description="Create and manage schemes with charges, MDR rates, and commission values. Assign any scheme directly to any user. Commissions apply only to PG/POS/QR transactions."
+          actions={
+            <>
+              <Button variant="outline" onClick={load} disabled={loading}>
+                <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+              </Button>
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" /> New scheme
+              </Button>
+            </>
+          }
+        />
+      </Reveal>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="w-full max-w-xs">
+      <FilterBar>
+        <FilterField label="Search" className="w-full max-w-xs">
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search schemes…" />
-        </div>
-        <Select
-          className="w-32"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as "active" | "all")}
-        >
-          <option value="active">Active</option>
-          <option value="all">All</option>
-        </Select>
-      </div>
+        </FilterField>
+        <FilterField label="Status">
+          <Select
+            className="w-32"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as "active" | "all")}
+          >
+            <option value="active">Active</option>
+            <option value="all">All</option>
+          </Select>
+        </FilterField>
+      </FilterBar>
 
-      <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <Layers className="h-4 w-4 text-brand-600" />
-          <h2 className="font-display text-sm font-semibold uppercase tracking-widest text-ink-600">
-            Schemes ({visibleSchemes.length})
-          </h2>
-        </div>
-        {loading && schemes.length === 0 ? (
-          <div className="rounded-2xl border border-ink-100 bg-white p-10 text-center text-sm text-ink-500">
-            Loading schemes…
-          </div>
-        ) : visibleSchemes.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-ink-200 bg-white p-10 text-center text-sm text-ink-500">
-            No schemes found. Create one to configure charges and MDR.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {visibleSchemes.map((s) => (
-              <SchemeCard key={s.id} scheme={s} meta={meta} notify={notify} onChanged={load} />
-            ))}
-          </div>
-        )}
-      </section>
+      <Reveal distance={16} duration={0.45}>
+        <section className="space-y-3">
+          <SectionTitle title={`Schemes (${visibleSchemes.length})`} className="mb-0" />
+          {loading && schemes.length === 0 ? (
+            <Panel className="p-10 text-center text-sm text-ink-500">Loading schemes…</Panel>
+          ) : visibleSchemes.length === 0 ? (
+            <EmptyState
+              icon={Layers}
+              title="No schemes found"
+              message="Create one to configure charges and MDR."
+            />
+          ) : (
+            <div className="space-y-3">
+              {visibleSchemes.map((s) => (
+                <SchemeCard key={s.id} scheme={s} meta={meta} notify={notify} onChanged={load} />
+              ))}
+            </div>
+          )}
+        </section>
+      </Reveal>
 
       {createOpen && (
         <CreateSchemeModal
@@ -506,7 +517,7 @@ function SchemeCard({
   }, [slabs]);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm">
+    <Panel flush className="overflow-hidden">
       {/* Card header */}
       <div className="flex flex-wrap items-center gap-3 px-5 py-4">
         <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-sky-500 text-white">
@@ -520,7 +531,7 @@ function SchemeCard({
                 <Star className="h-3 w-3" /> Default
               </Badge>
             )}
-            <Badge variant={scheme.active ? "success" : "danger"}>{scheme.active ? "active" : "inactive"}</Badge>
+            <StatusPill status={scheme.active ? "active" : "inactive"} />
             <Badge variant="brand">{scheme.slabCount} slabs</Badge>
             <Badge variant="warning">{scheme.mdrSlabCount} MDR</Badge>
             <Badge variant="default">
@@ -617,27 +628,27 @@ function SchemeCard({
                         {family.label} ({list.length})
                       </h4>
                     </div>
-                    <div className="overflow-x-auto rounded-xl border border-ink-100 bg-white">
-                      <table className="w-full min-w-max text-sm">
-                        <thead className="bg-ink-50/60 text-left text-[11px] uppercase tracking-wider text-ink-500">
+                    <TablePro dense>
+                      <table>
+                        <thead>
                           <tr>
-                            <th className="px-4 py-2 font-semibold">Service</th>
-                            <th className="px-4 py-2 font-semibold">Provider</th>
-                            <th className="px-4 py-2 font-semibold">Slab</th>
-                            <th className="px-4 py-2 text-right font-semibold">Charge</th>
-                            <th className="px-4 py-2 text-right font-semibold">Vendor</th>
-                            <th className="px-4 py-2 text-right font-semibold text-brand-600">Revenue</th>
-                            <th className="px-4 py-2 text-center font-semibold">Status</th>
-                            <th className="px-4 py-2" />
+                            <th>Service</th>
+                            <th>Provider</th>
+                            <th>Slab</th>
+                            <th className="text-right">Charge</th>
+                            <th className="text-right">Vendor</th>
+                            <th className="text-right text-brand-600">Revenue</th>
+                            <th className="text-center">Status</th>
+                            <th />
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-ink-100 text-ink-800">
+                        <tbody>
                           {list.map((s) => (
-                            <tr key={s.id} className="hover:bg-brand-50/30">
-                              <td className="px-4 py-2.5 font-medium">{s.service.replace(/_/g, " ")}</td>
-                              <td className="px-4 py-2.5 text-xs">{s.provider ?? "All"}</td>
-                              <td className="px-4 py-2.5">{fmtBand(s.minAmount, s.maxAmount)}</td>
-                              <td className="px-4 py-2.5 text-right">
+                            <tr key={s.id}>
+                              <td className="font-medium">{s.service.replace(/_/g, " ")}</td>
+                              <td className="text-xs">{s.provider ?? "All"}</td>
+                              <td>{fmtBand(s.minAmount, s.maxAmount)}</td>
+                              <td className="text-right">
                                 {fmtRate(s.chargeType, s.chargeValue)}
                                 <span className={`ml-1.5 inline-block rounded px-1 py-0.5 text-[10px] font-semibold leading-none ${s.chargeGstInclusive ? "bg-amber-100 text-amber-700" : "bg-sky-100 text-sky-700"}`}>
                                   {s.chargeGstInclusive ? "incl. GST" : "+ GST"}
@@ -651,30 +662,30 @@ function SchemeCard({
                                 const rev = flat ? Math.max(chargeExGst - (s.vendorCharge ?? 0), 0) : null;
                                 return (
                                   <>
-                                    <td className="px-4 py-2.5 text-right text-xs text-amber-600">
+                                    <td className="text-right text-xs text-amber-600">
                                       {s.vendorCharge > 0 ? `₹${s.vendorCharge.toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "—"}
                                     </td>
-                                    <td className="px-4 py-2.5 text-right text-xs font-semibold text-brand-700">
+                                    <td className="text-right text-xs font-semibold text-brand-700">
                                       {rev != null ? `₹${rev.toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "—"}
                                     </td>
                                   </>
                                 );
                               })()}
-                              <td className="px-4 py-2.5 text-center">
-                                <Badge variant={s.active ? "success" : "danger"}>{s.active ? "On" : "Off"}</Badge>
+                              <td className="text-center">
+                                <StatusPill status={s.active ? "active" : "inactive"}>{s.active ? "On" : "Off"}</StatusPill>
                               </td>
-                              <td className="px-4 py-2.5 text-right">
+                              <td className="text-right">
                                 <div className="flex justify-end gap-1">
                                   <button
                                     onClick={() => setSlabModal({ family, editing: s })}
-                                    className="grid h-7 w-7 place-items-center rounded-lg text-brand-600 hover:bg-brand-50"
+                                    className="grid h-8 w-8 place-items-center rounded-lg text-brand-700 hover:bg-brand-50 disabled:opacity-30"
                                     title="Edit slab"
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
                                   </button>
                                   <button
                                     onClick={() => deleteSlab(s)}
-                                    className="grid h-7 w-7 place-items-center rounded-lg text-rose-600 hover:bg-rose-50"
+                                    className="grid h-8 w-8 place-items-center rounded-lg text-rose-700 hover:bg-rose-50 disabled:opacity-30"
                                     title="Delete slab"
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
@@ -685,7 +696,7 @@ function SchemeCard({
                           ))}
                         </tbody>
                       </table>
-                    </div>
+                    </TablePro>
                   </div>
                 );
               })}
@@ -697,28 +708,28 @@ function SchemeCard({
                     <Store className="h-4 w-4 text-orange-600" />
                     <h4 className="text-sm font-semibold text-orange-600">POS MDR ({mdrSlabs.length})</h4>
                   </div>
-                  <div className="overflow-x-auto rounded-xl border border-ink-100 bg-white">
-                    <table className="w-full min-w-max text-sm">
-                      <thead className="bg-ink-50/60 text-left text-[11px] uppercase tracking-wider text-ink-500">
+                  <TablePro dense>
+                    <table>
+                      <thead>
                         <tr>
-                          <th className="px-4 py-2 font-semibold">Company</th>
-                          <th className="px-4 py-2 font-semibold">Mode</th>
-                          <th className="px-4 py-2 font-semibold">Card</th>
-                          <th className="px-4 py-2 font-semibold">Brand</th>
-                          <th className="px-4 py-2 text-right font-semibold">Service (T+1)</th>
-                          <th className="px-4 py-2 text-right font-semibold">Vendor (T+1)</th>
-                          <th className="px-4 py-2 text-right font-semibold">Margin (T+1)</th>
-                          <th className="px-4 py-2 text-right font-semibold text-sky-600">Service (T+0)</th>
-                          <th className="px-4 py-2 text-right font-semibold text-sky-600">Vendor (T+0)</th>
-                          <th className="px-4 py-2 text-right font-semibold text-sky-600">Margin (Instant)</th>
-                          <th className="px-4 py-2 text-right font-semibold">DIST</th>
-                          <th className="px-4 py-2 text-right font-semibold">M.DIST</th>
-                          <th className="px-4 py-2 text-right font-semibold">S.DIST</th>
-                          <th className="px-4 py-2 text-center font-semibold">Status</th>
-                          <th className="px-4 py-2" />
+                          <th>Company</th>
+                          <th>Mode</th>
+                          <th>Card</th>
+                          <th>Brand</th>
+                          <th className="text-right">Service (T+1)</th>
+                          <th className="text-right">Vendor (T+1)</th>
+                          <th className="text-right">Margin (T+1)</th>
+                          <th className="text-right text-sky-600">Service (T+0)</th>
+                          <th className="text-right text-sky-600">Vendor (T+0)</th>
+                          <th className="text-right text-sky-600">Margin (Instant)</th>
+                          <th className="text-right">DIST</th>
+                          <th className="text-right">M.DIST</th>
+                          <th className="text-right">S.DIST</th>
+                          <th className="text-center">Status</th>
+                          <th />
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-ink-100 text-ink-800">
+                      <tbody>
                         {mdrSlabs.map((s) => {
                           // Instant (T+0) settlement uses the dedicated T0 rate,
                           // falling back to the T+1 value when unset — mirroring
@@ -731,51 +742,51 @@ function SchemeCard({
                           const marginT1 = Math.max(0, s.mdrValue - s.vendorCharge);
                           const marginT0 = Math.max(0, t0Mdr - t0Vendor);
                           return (
-                          <tr key={s.id} className="hover:bg-orange-50/30">
-                            <td className="px-4 py-2.5 font-medium">{s.company ?? "All"}</td>
-                            <td className="px-4 py-2.5">{s.paymentMode === "*" ? "Any" : s.paymentMode}</td>
-                            <td className="px-4 py-2.5">{s.cardType ?? "Any"}</td>
-                            <td className="px-4 py-2.5">{s.brandType ?? "Any"}</td>
-                            <td className="px-4 py-2.5 text-right font-semibold">{fmtRate(s.mdrType, s.mdrValue)}</td>
-                            <td className="px-4 py-2.5 text-right text-ink-500">{fmtRate(s.mdrType, s.vendorCharge)}</td>
-                            <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">
+                          <tr key={s.id}>
+                            <td className="font-medium">{s.company ?? "All"}</td>
+                            <td>{s.paymentMode === "*" ? "Any" : s.paymentMode}</td>
+                            <td>{s.cardType ?? "Any"}</td>
+                            <td>{s.brandType ?? "Any"}</td>
+                            <td className="text-right font-semibold">{fmtRate(s.mdrType, s.mdrValue)}</td>
+                            <td className="text-right text-ink-500">{fmtRate(s.mdrType, s.vendorCharge)}</td>
+                            <td className="text-right font-semibold text-emerald-600">
                               {fmtRate(s.mdrType, marginT1)}
                             </td>
                             <td
-                              className="px-4 py-2.5 text-right"
+                              className="text-right"
                               title={t0MdrInherited ? "Inherited from T+1 (no distinct instant rate set)" : "Explicit instant (T+0) rate"}
                             >
                               {fmtRate(s.mdrType, t0Mdr)}
                               {t0MdrInherited && <span className="ml-1 text-[10px] text-ink-400">(T+1)</span>}
                             </td>
                             <td
-                              className="px-4 py-2.5 text-right text-ink-500"
+                              className="text-right text-ink-500"
                               title={t0VendorInherited ? "Inherited from T+1 (no distinct instant vendor set)" : "Explicit instant (T+0) vendor"}
                             >
                               {fmtRate(s.mdrType, t0Vendor)}
                               {t0VendorInherited && <span className="ml-1 text-[10px] text-ink-400">(T+1)</span>}
                             </td>
-                            <td className="px-4 py-2.5 text-right font-semibold text-sky-600">
+                            <td className="text-right font-semibold text-sky-600">
                               {fmtRate(s.mdrType, marginT0)}
                             </td>
-                            <td className="px-4 py-2.5 text-right">{fmtRate(s.commissionType, s.commissionDistributor)}</td>
-                            <td className="px-4 py-2.5 text-right">{fmtRate(s.commissionType, s.commissionMaster)}</td>
-                            <td className="px-4 py-2.5 text-right">{fmtRate(s.commissionType, s.commissionSuperDistributor)}</td>
-                            <td className="px-4 py-2.5 text-center">
-                              <Badge variant={s.active ? "success" : "danger"}>{s.active ? "On" : "Off"}</Badge>
+                            <td className="text-right">{fmtRate(s.commissionType, s.commissionDistributor)}</td>
+                            <td className="text-right">{fmtRate(s.commissionType, s.commissionMaster)}</td>
+                            <td className="text-right">{fmtRate(s.commissionType, s.commissionSuperDistributor)}</td>
+                            <td className="text-center">
+                              <StatusPill status={s.active ? "active" : "inactive"}>{s.active ? "On" : "Off"}</StatusPill>
                             </td>
-                            <td className="px-4 py-2.5 text-right">
+                            <td className="text-right">
                               <div className="flex justify-end gap-1">
                                 <button
                                   onClick={() => setMdrModal({ editing: s })}
-                                  className="grid h-7 w-7 place-items-center rounded-lg text-brand-600 hover:bg-brand-50"
+                                  className="grid h-8 w-8 place-items-center rounded-lg text-brand-700 hover:bg-brand-50 disabled:opacity-30"
                                   title="Edit MDR rate"
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
                                 </button>
                                 <button
                                   onClick={() => deleteMdrSlab(s)}
-                                  className="grid h-7 w-7 place-items-center rounded-lg text-rose-600 hover:bg-rose-50"
+                                  className="grid h-8 w-8 place-items-center rounded-lg text-rose-700 hover:bg-rose-50 disabled:opacity-30"
                                   title="Delete MDR rate"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
@@ -787,7 +798,7 @@ function SchemeCard({
                         })}
                       </tbody>
                     </table>
-                  </div>
+                  </TablePro>
                 </div>
               )}
 
@@ -800,30 +811,30 @@ function SchemeCard({
                       Assigned Users ({assignedUsers.length})
                     </h4>
                   </div>
-                  <div className="overflow-x-auto rounded-xl border border-ink-100 bg-white">
-                    <table className="w-full min-w-max text-sm">
-                      <thead className="bg-ink-50/60 text-left text-[11px] uppercase tracking-wider text-ink-500">
+                  <TablePro dense>
+                    <table>
+                      <thead>
                         <tr>
-                          <th className="px-4 py-2 font-semibold">Name</th>
-                          <th className="px-4 py-2 font-semibold">Email</th>
-                          <th className="px-4 py-2 font-semibold">Role</th>
-                          <th className="px-4 py-2 font-semibold">User ID</th>
+                          <th>Name</th>
+                          <th>Email</th>
+                          <th>Role</th>
+                          <th>User ID</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-ink-100 text-ink-800">
+                      <tbody>
                         {assignedUsers.map((u) => (
-                          <tr key={u.id} className="hover:bg-violet-50/30">
-                            <td className="px-4 py-2.5 font-medium">{u.name}</td>
-                            <td className="px-4 py-2.5 text-ink-600">{u.email}</td>
-                            <td className="px-4 py-2.5">
+                          <tr key={u.id}>
+                            <td className="font-medium">{u.name}</td>
+                            <td className="text-ink-600">{u.email}</td>
+                            <td>
                               <Badge variant="brand">{u.role.replace(/_/g, " ")}</Badge>
                             </td>
-                            <td className="px-4 py-2.5 font-mono text-xs text-ink-400">{u.id}</td>
+                            <td className="font-mono text-xs text-ink-400">{u.id}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                  </div>
+                  </TablePro>
                 </div>
               )}
             </>
@@ -888,7 +899,7 @@ function SchemeCard({
         confirmLabel="Delete"
         onConfirm={deleteScheme}
       />
-    </div>
+    </Panel>
   );
 }
 
@@ -1087,21 +1098,30 @@ function SlabModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-ink-100 bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-ink-100 bg-white px-5 py-4">
-          <h3 className="flex items-center gap-2 font-display text-base font-semibold text-ink-900">
-            <Icon className={`h-5 w-5 ${cfg.className}`} />
-            {isEdit ? `Edit ${family.label} slab` : `Add ${family.label} slab`}
-          </h3>
-          <button onClick={onClose} className="rounded-lg p-1 text-ink-500 hover:bg-ink-50">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="space-y-4 p-5">
+    <ModalShell
+      open
+      onClose={onClose}
+      size="md"
+      eyebrow={family.label}
+      title={
+        <span className="flex items-center gap-2">
+          <Icon className={`h-5 w-5 ${cfg.className}`} />
+          {isEdit ? `Edit ${family.label} slab` : `Add ${family.label} slab`}
+        </span>
+      }
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={saving || providerMissing || belowMin || noCard}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Save configuration
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
           {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
           <div className="grid grid-cols-2 gap-3">
@@ -1248,18 +1268,8 @@ function SlabModal({
             The charge is locked to the provider&apos;s rate card: it can never be below the minimum, and company revenue
             = charge − vendor cost. Services earn no commission. Percent values are entered as human percent (0.5 = 0.5%).
           </p>
-        </div>
-        <div className="sticky bottom-0 flex justify-end gap-2 border-t border-ink-100 bg-white px-5 py-4">
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={saving || providerMissing || belowMin || noCard}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Save configuration
-          </Button>
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -1541,21 +1551,29 @@ function MdrRateModal({
   const posInvalid = belowMinT1 || belowMinT0 || overAllocT1 || overAllocT0;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-ink-100 bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-ink-100 bg-white px-5 py-4">
-          <h3 className="flex items-center gap-2 font-display text-base font-semibold text-ink-900">
-            <Store className="h-5 w-5 text-orange-600" />
-            {isEdit ? `Edit ${serviceKind} MDR rate` : `Add ${serviceKind} MDR rate`}
-          </h3>
-          <button onClick={onClose} className="rounded-lg p-1 text-ink-500 hover:bg-ink-50">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="space-y-4 p-5">
+    <ModalShell
+      open
+      onClose={onClose}
+      size="md"
+      eyebrow="MDR"
+      title={
+        <span className="flex items-center gap-2">
+          <Store className="h-5 w-5 text-orange-600" />
+          {isEdit ? `Edit ${serviceKind} MDR rate` : `Add ${serviceKind} MDR rate`}
+        </span>
+      }
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={saving || (isLockedRail && posLock.missing) || (isPos ? posInvalid : belowCost)}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Save configuration
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
           {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
           {!isEdit && (
@@ -1924,17 +1942,8 @@ function MdrRateModal({
               The transacting retailer earns no commission.
             </p>
           </div>
-        </div>
-        <div className="sticky bottom-0 flex justify-end gap-2 border-t border-ink-100 bg-white px-5 py-4">
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={saving || (isLockedRail && posLock.missing) || (isPos ? posInvalid : belowCost)}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Save configuration
-          </Button>
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -2038,23 +2047,18 @@ function AssignModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-ink-100 bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-ink-100 bg-white px-5 py-4">
-          <h3 className="flex items-center gap-2 font-display text-base font-semibold text-ink-900">
-            <Users className="h-5 w-5 text-violet-600" /> Assign scheme
-          </h3>
-          <button onClick={onClose} className="rounded-lg p-1 text-ink-500 hover:bg-ink-50">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="space-y-4 p-5">
-          <p className="text-xs text-ink-400">
-            Pick a role, then select the user to assign this scheme. The user will receive the charges and commission defined in this scheme.
-          </p>
+    <ModalShell
+      open
+      onClose={onClose}
+      size="md"
+      title={
+        <span className="flex items-center gap-2">
+          <Users className="h-5 w-5 text-violet-600" /> Assign scheme
+        </span>
+      }
+      subtitle="Pick a role, then select the user to assign this scheme. The user will receive the charges and commission defined in this scheme."
+    >
+      <div className="space-y-4">
 
           {/* Available users */}
           <div>
@@ -2111,9 +2115,8 @@ function AssignModal({
               </ul>
             )}
           </div>
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -2151,34 +2154,34 @@ function CreateSchemeModal({ onClose, onSaved }: { onClose: () => void; onSaved:
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-ink-100 bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
-          <h3 className="font-display text-base font-semibold text-ink-900">Create scheme</h3>
-          <button onClick={onClose} className="rounded-lg p-1 text-ink-500 hover:bg-ink-50">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="space-y-4 p-5">
-          {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
-          <div>
-            <Label>Name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Gold Super-Distributor Plan" />
-          </div>
-          <div>
-            <Label>Description (optional)</Label>
-            <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short note" />
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 border-t border-ink-100 px-5 py-4">
+    <ModalShell
+      open
+      onClose={onClose}
+      size="sm"
+      eyebrow="Schemes"
+      title="Create scheme"
+      footer={
+        <>
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button onClick={submit} disabled={saving}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create
           </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
+        <div>
+          <Label>Name</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Gold Super-Distributor Plan" />
+        </div>
+        <div>
+          <Label>Description (optional)</Label>
+          <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short note" />
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }

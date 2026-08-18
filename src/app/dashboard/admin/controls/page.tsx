@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { RefreshCw, SlidersHorizontal, Save } from "lucide-react";
+import { Panel } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 
 /**
  * Platform Controls — generic editor over the PlatformSetting store.
@@ -127,39 +129,48 @@ export default function PlatformControlsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Platform Controls"
-        description="Runtime-changeable operational knobs — caps, thresholds, and engine switches. Changes apply instantly, no deploy needed. Master Admin only."
-        actions={
-          <Button variant="outline" onClick={load}>
-            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          title="Platform Controls"
+          description="Runtime-changeable operational knobs — caps, thresholds, and engine switches. Changes apply instantly, no deploy needed. Master Admin only."
+          actions={
+            <Button variant="outline" onClick={load}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+            </Button>
+          }
+        />
+      </Reveal>
 
       {loading && !settings && <p className="text-sm text-ink-400">Loading settings…</p>}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <Stagger stagger={0.05} className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {settings &&
           Object.keys(settings).map((key) => {
             const meta = LABELS[key] ?? { title: key, description: "" };
             const draft = drafts[key] ?? {};
             return (
-              <div key={key} className="rounded-2xl border border-ink-100 bg-white p-5">
-                <div className="mb-1 flex items-center gap-2">
-                  <SlidersHorizontal className="h-4 w-4 text-brand-600" />
-                  <h3 className="text-sm font-bold text-ink-900">{meta.title}</h3>
+              <StaggerItem key={key} distance={14} duration={0.35}>
+              <Panel className="h-full">
+                <div className="mb-1 flex items-center gap-2.5">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
+                    <SlidersHorizontal className="h-4 w-4" />
+                  </span>
+                  <h3 className="font-display text-sm font-bold text-ink-900">{meta.title}</h3>
                 </div>
                 <p className="mb-4 text-xs text-ink-400">{meta.description}</p>
 
-                <div className="space-y-3">
+                <div className="space-y-1.5">
                   {Object.entries(draft).map(([field, value]) => {
                     const label = FIELD_LABELS[field] ?? field;
                     if (typeof value === "boolean") {
                       return (
-                        <label key={field} className="flex items-center gap-2 text-sm text-ink-700">
+                        <label
+                          key={field}
+                          className="flex cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm text-ink-700 transition-colors hover:bg-ink-50"
+                        >
                           <input
                             type="checkbox"
+                            className="h-4 w-4 accent-brand-600"
                             checked={value}
                             onChange={(e) => setField(key, field, e.target.checked)}
                           />
@@ -169,11 +180,14 @@ export default function PlatformControlsPage() {
                     }
                     if (typeof value === "number") {
                       return (
-                        <label key={field} className="block text-xs text-ink-500">
+                        <label
+                          key={field}
+                          className="block rounded-xl px-2.5 py-2 text-[11px] font-semibold uppercase tracking-wider text-ink-400 transition-colors hover:bg-ink-50"
+                        >
                           {label}
                           <input
                             type="number"
-                            className={`${inputCls} mt-1 block w-48`}
+                            className={`${inputCls} mt-1 block w-48 font-normal normal-case tracking-normal`}
                             value={value}
                             onChange={(e) => setField(key, field, Number(e.target.value))}
                           />
@@ -193,10 +207,11 @@ export default function PlatformControlsPage() {
                   <Save className="mr-1.5 h-3.5 w-3.5" />
                   {savingKey === key ? "Saving…" : isDirty(key) ? "Save changes" : "Saved"}
                 </Button>
-              </div>
+              </Panel>
+              </StaggerItem>
             );
           })}
-      </div>
+      </Stagger>
     </div>
   );
 }

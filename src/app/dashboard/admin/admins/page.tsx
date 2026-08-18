@@ -20,11 +20,12 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
+import { StatTile, StatusPill, TabNav } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { ASSIGNABLE_ADMIN_TABS } from "@/lib/roles";
 import { generateRandomPassword } from "@/lib/utils";
 
@@ -209,11 +210,11 @@ export default function ManageAdminsPage() {
       render: (r) => (
         <div className="flex flex-wrap gap-1">
           {r.allowedTabs.length === 0 || r.allowedTabs.length >= ASSIGNABLE_ADMIN_TABS.length ? (
-            <Badge variant="success">All access</Badge>
+            <StatusPill status="All access" tone="success" />
           ) : (
-            <Badge variant="default">
+            <StatusPill status="scoped" tone="brand">
               {r.allowedTabs.length} of {ASSIGNABLE_ADMIN_TABS.length} tabs
-            </Badge>
+            </StatusPill>
           )}
         </div>
       )
@@ -222,9 +223,9 @@ export default function ManageAdminsPage() {
       key: "status",
       header: "Status",
       render: (r) => (
-        <Badge variant={r.status === "ACTIVE" ? "success" : r.status === "SUSPENDED" ? "danger" : "default"}>
+        <StatusPill status={r.status}>
           {r.status === "ACTIVE" ? "Active" : r.status === "SUSPENDED" ? "Suspended" : r.status}
-        </Badge>
+        </StatusPill>
       )
     },
     {
@@ -308,7 +309,7 @@ export default function ManageAdminsPage() {
       header: "Permissions",
       render: () => (
         <div className="flex flex-wrap gap-1">
-          <Badge variant="success">All access</Badge>
+          <StatusPill status="All access" tone="success" />
         </div>
       )
     },
@@ -316,9 +317,9 @@ export default function ManageAdminsPage() {
       key: "status",
       header: "Status",
       render: (r) => (
-        <Badge variant={r.status === "ACTIVE" ? "success" : r.status === "SUSPENDED" ? "danger" : "default"}>
+        <StatusPill status={r.status}>
           {r.status === "ACTIVE" ? "Active" : r.status === "SUSPENDED" ? "Suspended" : r.status}
-        </Badge>
+        </StatusPill>
       )
     },
     {
@@ -377,56 +378,47 @@ export default function ManageAdminsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Master Admin"
-        title="Manage Admins"
-        description="Create and manage admin accounts. Master admins have full platform access; regular admins can be scoped to specific tabs."
-        actions={
-          tab === "admins" ? (
-            <Button onClick={() => setShowNew(true)}>
-              <Plus className="h-4 w-4" /> Create admin
-            </Button>
-          ) : (
-            <Button onClick={() => setShowNewMaster(true)}>
-              <Plus className="h-4 w-4" /> Add master admin
-            </Button>
-          )
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Master Admin"
+          title="Manage Admins"
+          description="Create and manage admin accounts. Master admins have full platform access; regular admins can be scoped to specific tabs."
+          actions={
+            tab === "admins" ? (
+              <Button onClick={() => setShowNew(true)}>
+                <Plus className="h-4 w-4" /> Create admin
+              </Button>
+            ) : (
+              <Button onClick={() => setShowNewMaster(true)}>
+                <Plus className="h-4 w-4" /> Add master admin
+              </Button>
+            )
+          }
+        />
+      </Reveal>
 
-      {/* Tab switcher */}
-      <div className="flex gap-1 rounded-xl border border-ink-100 bg-white p-1 w-fit">
-        <button
-          onClick={() => setTab("admins")}
-          className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-            tab === "admins"
-              ? "bg-brand-600 text-white shadow-sm"
-              : "text-ink-600 hover:bg-ink-50"
-          }`}
-        >
-          Admins ({rows.length})
-        </button>
-        <button
-          onClick={() => setTab("master-admins")}
-          className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-            tab === "master-admins"
-              ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-sm"
-              : "text-ink-600 hover:bg-ink-50"
-          }`}
-        >
-          <span className="flex items-center gap-1.5">
-            <Star className="h-3.5 w-3.5" /> Master Admins ({masterRows.length})
-          </span>
-        </button>
-      </div>
+      <TabNav
+        tabs={[
+          { key: "admins", label: "Admins", icon: Crown, count: rows.length },
+          { key: "master-admins", label: "Master Admins", icon: Star, count: masterRows.length },
+        ]}
+        active={tab}
+        onChange={(key) => setTab(key as "admins" | "master-admins")}
+      />
 
       {tab === "admins" ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Stat label="Total admins" value={stats.total} tone="brand" />
-            <Stat label="Active" value={stats.active} tone="success" />
-            <Stat label="Suspended" value={stats.suspended} tone="warning" />
-          </div>
+          <Stagger stagger={0.05} className="grid gap-3 sm:grid-cols-3">
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile label="Total admins" countTo={stats.total} icon={Crown} tone="violet" loading={loading} />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile label="Active" countTo={stats.active} icon={ShieldCheck} tone="emerald" loading={loading} />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile label="Suspended" countTo={stats.suspended} icon={ShieldOff} tone="amber" loading={loading} />
+            </StaggerItem>
+          </Stagger>
 
           {showNew && (
             <NewAdminForm
@@ -450,21 +442,27 @@ export default function ManageAdminsPage() {
             />
           )}
 
-          <DataTable
-            title={`${rows.length} admin${rows.length !== 1 ? "s" : ""}`}
-            description="Admins log in at /admin and see only the tabs you have assigned."
-            columns={cols}
-            data={rows}
-            loading={loading}
-            empty="No admins created yet. Click 'Create admin' to get started."
-          />
+          <Reveal distance={16} duration={0.45}>
+            <DataTable
+              title={`${rows.length} admin${rows.length !== 1 ? "s" : ""}`}
+              description="Admins log in at /admin and see only the tabs you have assigned."
+              columns={cols}
+              data={rows}
+              loading={loading}
+              empty="No admins created yet. Click 'Create admin' to get started."
+            />
+          </Reveal>
         </>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Stat label="Total master admins" value={masterStats.total} tone="brand" />
-            <Stat label="Active" value={masterStats.active} tone="success" />
-          </div>
+          <Stagger stagger={0.05} className="grid gap-3 sm:grid-cols-2">
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile label="Total master admins" countTo={masterStats.total} icon={Star} tone="amber" loading={loading} />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile label="Active" countTo={masterStats.active} icon={ShieldCheck} tone="emerald" loading={loading} />
+            </StaggerItem>
+          </Stagger>
 
           {showNewMaster && (
             <NewMasterAdminForm
@@ -477,14 +475,16 @@ export default function ManageAdminsPage() {
             />
           )}
 
-          <DataTable
-            title={`${masterRows.length} master admin${masterRows.length !== 1 ? "s" : ""}`}
-            description="Master admins always have full access to every tab."
-            columns={masterCols}
-            data={masterRows}
-            empty="No other master admins yet."
-            loading={loading}
-          />
+          <Reveal distance={16} duration={0.45}>
+            <DataTable
+              title={`${masterRows.length} master admin${masterRows.length !== 1 ? "s" : ""}`}
+              description="Master admins always have full access to every tab."
+              columns={masterCols}
+              data={masterRows}
+              empty="No other master admins yet."
+              loading={loading}
+            />
+          </Reveal>
         </>
       )}
 
@@ -599,7 +599,7 @@ function NewAdminForm({
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50/60 to-white p-5"
+      className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50/60 to-white p-5 shadow-sm"
     >
       <div className="mb-4 flex items-center gap-3">
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-violet-800 text-white">
@@ -772,7 +772,7 @@ function NewMasterAdminForm({
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-white p-5"
+      className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-white p-5 shadow-sm"
     >
       <div className="mb-4 flex items-center gap-3">
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 text-white">
@@ -1177,28 +1177,6 @@ function Field({
         </p>
         {action}
       </div>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  tone
-}: {
-  label: string;
-  value: number;
-  tone: "brand" | "success" | "warning";
-}) {
-  const map = {
-    brand: "from-violet-600 to-violet-800 text-violet-50",
-    success: "from-emerald-500 to-emerald-700 text-emerald-50",
-    warning: "from-amber-500 to-amber-700 text-amber-50"
-  };
-  return (
-    <div className={`rounded-2xl bg-gradient-to-br ${map[tone]} p-5 shadow-soft`}>
-      <p className="text-xs font-bold uppercase tracking-widest opacity-90">{label}</p>
-      <p className="mt-2 font-display text-3xl font-bold">{value}</p>
     </div>
   );
 }

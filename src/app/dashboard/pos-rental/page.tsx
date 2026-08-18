@@ -7,6 +7,8 @@ import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Panel, StatTile, TablePro } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { formatINR, formatNumber } from "@/lib/utils";
 import { useAuth } from "@/lib/useAuth";
 import {
@@ -410,23 +412,29 @@ export default function NetworkPosRentalPage() {
 
   return (
     <div className="min-w-0 space-y-6">
-      <PageHeader
-        eyebrow="POS Management"
-        title="POS Rental & Subscriptions"
-        description={`Create your own rental plans and assign subscriptions to your ${meta.childLabelPlural.toLowerCase()}. Set monthly rent, commission, and GST per machine.`}
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="POS Management"
+          title="POS Rental & Subscriptions"
+          description={`Create your own rental plans and assign subscriptions to your ${meta.childLabelPlural.toLowerCase()}. Set monthly rent, commission, and GST per machine.`}
+        />
+      </Reveal>
 
       {/* My Rental — what upstream/admin charges me */}
       {(mySubs.length > 0 || myDues.amount > 0) && (
-        <div className="rounded-2xl border border-ink-100 bg-white p-6">
+        <Reveal distance={16} duration={0.45}>
+        <Panel className="p-6">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-                <Receipt className="h-4 w-4 text-brand-600" /> My Rental — Charged to You
-              </h3>
-              <p className="mt-1 text-xs text-ink-400">
-                Subscriptions assigned to you by your upstream. Rent is auto-debited from your wallet every month on the billing day.
-              </p>
+            <div className="flex items-start gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
+                <Receipt className="h-4 w-4" />
+              </span>
+              <div>
+                <h3 className="font-display text-base font-semibold text-ink-900">My Rental — Charged to You</h3>
+                <p className="mt-1 text-xs text-ink-500">
+                  Subscriptions assigned to you by your upstream. Rent is auto-debited from your wallet every month on the billing day.
+                </p>
+              </div>
             </div>
             {myInvoices.length > 0 && (
               <button
@@ -455,102 +463,106 @@ export default function NetworkPosRentalPage() {
 
           {/* My subscriptions */}
           {mySubs.length > 0 && (
-            <div className="overflow-x-auto rounded-xl border border-ink-100">
-              <table className="w-full min-w-[720px] text-sm">
+            <TablePro dense>
+              <table>
                 <thead>
-                  <tr className="border-b border-ink-100 bg-ink-50 text-left text-[11px] font-bold uppercase tracking-wider text-ink-500">
-                    <th className="px-4 py-2.5">Machine</th>
-                    <th className="px-4 py-2.5">Plan</th>
-                    <th className="px-4 py-2.5">Assigned By</th>
-                    <th className="px-4 py-2.5 text-right">Rent/mo</th>
-                    <th className="px-4 py-2.5 text-center">Billing Day</th>
-                    <th className="px-4 py-2.5 text-center">Status</th>
-                    <th className="px-4 py-2.5">Since</th>
+                  <tr>
+                    <th>Machine</th>
+                    <th>Plan</th>
+                    <th>Assigned By</th>
+                    <th className="text-right">Rent/mo</th>
+                    <th className="text-center">Billing Day</th>
+                    <th className="text-center">Status</th>
+                    <th>Since</th>
                   </tr>
                 </thead>
                 <tbody>
                   {mySubs.map((s) => (
-                    <tr key={s.id} className="border-b border-ink-50 last:border-0">
-                      <td className="px-4 py-2.5">
+                    <tr key={s.id}>
+                      <td>
                         <p className="font-mono text-xs font-semibold text-ink-900">{s.machine.tid ?? s.machine.serial ?? "—"}</p>
                         <p className="text-[11px] text-ink-400">{s.machine.model ?? ""}</p>
                       </td>
-                      <td className="px-4 py-2.5 text-ink-700">{s.plan.name}</td>
-                      <td className="px-4 py-2.5">
+                      <td className="text-ink-700">{s.plan.name}</td>
+                      <td>
                         <p className="text-xs font-medium text-ink-900">{s.assignedBy.name}</p>
                         <p className="text-[11px] uppercase tracking-wide text-ink-400">{s.assignedBy.role.replace(/_/g, " ").toLowerCase()}</p>
                       </td>
-                      <td className="px-4 py-2.5 text-right">
+                      <td className="text-right">
                         <p className="font-semibold text-ink-900">{formatINR(s.totalPerMonth)}</p>
                         {s.includeGst && (
                           <p className="text-[11px] text-ink-400">{formatINR(s.rent)} + {formatINR(s.gstAmount)} GST</p>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-center text-xs text-ink-600">{s.billingDay}</td>
-                      <td className="px-4 py-2.5 text-center">
+                      <td className="text-center text-xs text-ink-600">{s.billingDay}</td>
+                      <td className="text-center">
                         <Badge variant={s.status === "ACTIVE" ? "success" : s.status === "CANCELLED" ? "danger" : "warning"}>
                           {s.status.toLowerCase()}
                         </Badge>
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-ink-500">{new Date(s.startedAt).toLocaleDateString("en-IN")}</td>
+                      <td className="text-xs text-ink-500">{new Date(s.startedAt).toLocaleDateString("en-IN")}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TablePro>
           )}
 
           {/* Invoice / payment history */}
           {showInvoices && myInvoices.length > 0 && (
             <div className="mt-4">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Payment history</p>
-              <div className="overflow-x-auto rounded-xl border border-ink-100">
-                <table className="w-full min-w-[640px] text-sm">
+              <TablePro dense title="Payment history">
+                <table>
                   <thead>
-                    <tr className="border-b border-ink-100 bg-ink-50 text-left text-[11px] font-bold uppercase tracking-wider text-ink-500">
-                      <th className="px-4 py-2.5">Period</th>
-                      <th className="px-4 py-2.5">Machine</th>
-                      <th className="px-4 py-2.5">Plan</th>
-                      <th className="px-4 py-2.5 text-right">Amount</th>
-                      <th className="px-4 py-2.5 text-center">Status</th>
-                      <th className="px-4 py-2.5">Detail</th>
+                    <tr>
+                      <th>Period</th>
+                      <th>Machine</th>
+                      <th>Plan</th>
+                      <th className="text-right">Amount</th>
+                      <th className="text-center">Status</th>
+                      <th>Detail</th>
                     </tr>
                   </thead>
                   <tbody>
                     {myInvoices.map((inv) => (
-                      <tr key={inv.id} className="border-b border-ink-50 last:border-0">
-                        <td className="px-4 py-2.5 font-mono text-xs text-ink-700">{inv.periodKey}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs text-ink-700">{inv.machine.tid ?? inv.machine.serial ?? "—"}</td>
-                        <td className="px-4 py-2.5 text-xs text-ink-600">{inv.planName}</td>
-                        <td className="px-4 py-2.5 text-right">
+                      <tr key={inv.id}>
+                        <td className="font-mono text-xs text-ink-700">{inv.periodKey}</td>
+                        <td className="font-mono text-xs text-ink-700">{inv.machine.tid ?? inv.machine.serial ?? "—"}</td>
+                        <td className="text-xs text-ink-600">{inv.planName}</td>
+                        <td className="text-right">
                           <p className="font-semibold text-ink-900">{formatINR(inv.totalAmount)}</p>
                           {inv.gstAmount > 0 && <p className="text-[11px] text-ink-400">incl. {formatINR(inv.gstAmount)} GST</p>}
                         </td>
-                        <td className="px-4 py-2.5 text-center">
+                        <td className="text-center">
                           <Badge variant={inv.status === "PAID" ? "success" : inv.status === "FAILED" ? "danger" : "default"}>
                             {inv.status.toLowerCase()}
                           </Badge>
                         </td>
-                        <td className="px-4 py-2.5 text-xs text-ink-500">{inv.detail ?? "—"}</td>
+                        <td className="text-xs text-ink-500">{inv.detail ?? "—"}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TablePro>
             </div>
           )}
-        </div>
+        </Panel>
+        </Reveal>
       )}
 
       {/* My Rental Plans management */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-6">
-        <div className="mb-4">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-            <CreditCard className="h-4 w-4 text-brand-600" /> My Rental Plans
-          </h3>
-          <p className="mt-1 text-xs text-ink-400">
-            Create your own rental plans, then assign them to your {meta.childLabelPlural.toLowerCase()} below. Platform plans from admin are also available to assign.
-          </p>
+      <Reveal distance={16} duration={0.45}>
+      <Panel className="p-6">
+        <div className="mb-4 flex items-start gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
+            <CreditCard className="h-4 w-4" />
+          </span>
+          <div>
+            <h3 className="font-display text-base font-semibold text-ink-900">My Rental Plans</h3>
+            <p className="mt-1 text-xs text-ink-500">
+              Create your own rental plans, then assign them to your {meta.childLabelPlural.toLowerCase()} below. Platform plans from admin are also available to assign.
+            </p>
+          </div>
         </div>
 
         {/* Create / edit form */}
@@ -622,29 +634,29 @@ export default function NetworkPosRentalPage() {
               You haven&apos;t created any rental plans yet. Create one above to assign to your {meta.childLabelPlural.toLowerCase()}.
             </p>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-ink-100">
-              <table className="w-full text-sm">
+            <TablePro dense>
+              <table>
                 <thead>
-                  <tr className="border-b border-ink-100 bg-ink-50 text-left text-[11px] font-bold uppercase tracking-wider text-ink-500">
-                    <th className="px-4 py-2.5">Plan</th>
-                    <th className="px-4 py-2.5 text-right">Monthly Rent</th>
-                    <th className="px-4 py-2.5 text-center">GST</th>
-                    <th className="px-4 py-2.5 text-center">Status</th>
-                    <th className="px-4 py-2.5 text-right">Actions</th>
+                  <tr>
+                    <th>Plan</th>
+                    <th className="text-right">Monthly Rent</th>
+                    <th className="text-center">GST</th>
+                    <th className="text-center">Status</th>
+                    <th className="text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ownPlans.map((p) => (
-                    <tr key={p.id} className="border-b border-ink-50 last:border-0">
-                      <td className="px-4 py-2.5 font-semibold text-ink-900">{p.name}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-ink-900">{formatINR(p.monthlyRent)}</td>
-                      <td className="px-4 py-2.5 text-center">
+                    <tr key={p.id}>
+                      <td className="font-semibold text-ink-900">{p.name}</td>
+                      <td className="text-right font-semibold text-ink-900">{formatINR(p.monthlyRent)}</td>
+                      <td className="text-center">
                         <Badge variant={p.includeGst ? "success" : "default"}>{p.includeGst ? "18% GST" : "No GST"}</Badge>
                       </td>
-                      <td className="px-4 py-2.5 text-center">
+                      <td className="text-center">
                         <Badge variant={p.active ? "success" : "danger"}>{p.active ? "Active" : "Inactive"}</Badge>
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td>
                         <div className="flex items-center justify-end gap-2">
                           <Button size="sm" variant="outline" disabled={planBusy} onClick={() => startEditPlan(p)}>
                             <Pencil className="h-3.5 w-3.5" /> Edit
@@ -658,20 +670,25 @@ export default function NetworkPosRentalPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TablePro>
           )}
         </div>
-      </div>
+      </Panel>
+      </Reveal>
 
       {/* Assign subscription panel */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-6">
-        <div className="mb-4">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-            <Plus className="h-4 w-4 text-brand-600" /> Assign Subscription to {meta.childLabel}
-          </h3>
-          <p className="mt-1 text-xs text-ink-400">
-            Select a {meta.childLabel.toLowerCase()}, pick their machines, set a plan with rent & commission.
-          </p>
+      <Reveal distance={16} duration={0.45}>
+      <Panel className="p-6">
+        <div className="mb-4 flex items-start gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-accent-500 to-accent-700 text-white shadow-soft">
+            <Plus className="h-4 w-4" />
+          </span>
+          <div>
+            <h3 className="font-display text-base font-semibold text-ink-900">Assign Subscription to {meta.childLabel}</h3>
+            <p className="mt-1 text-xs text-ink-500">
+              Select a {meta.childLabel.toLowerCase()}, pick their machines, set a plan with rent & commission.
+            </p>
+          </div>
         </div>
 
         {/* Step 1: Select child */}
@@ -857,29 +874,30 @@ export default function NetworkPosRentalPage() {
             </div>
           </div>
         )}
-      </div>
+      </Panel>
+      </Reveal>
 
       {/* Stats */}
-      <div className="flex flex-wrap gap-4 rounded-2xl border border-ink-100 bg-white p-4">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-            <CheckCircle2 className="h-4 w-4" />
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Active</p>
-            <p className="text-sm font-bold text-ink-900">{activeSubs.length}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
-            <IndianRupee className="h-4 w-4" />
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Monthly</p>
-            <p className="text-sm font-bold text-ink-900">{formatINR(totalActiveRent)}</p>
-          </div>
-        </div>
-        <div className="ml-auto">
+      <div className="flex flex-wrap items-stretch gap-4">
+        <StatTile
+          className="min-w-[200px] flex-1"
+          label="Active"
+          countTo={activeSubs.length}
+          icon={CheckCircle2}
+          tone="emerald"
+          hint="Subscriptions billing your downline"
+        />
+        <StatTile
+          className="min-w-[200px] flex-1"
+          label="Monthly"
+          countTo={totalActiveRent}
+          prefix="₹"
+          decimals={2}
+          icon={IndianRupee}
+          tone="brand"
+          hint="Rent across active subscriptions"
+        />
+        <div className="flex items-center">
           <Button variant="outline" size="sm" onClick={refreshSubs}>
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </Button>
@@ -887,9 +905,11 @@ export default function NetworkPosRentalPage() {
       </div>
 
       {/* Subscriptions table */}
-      <DataTable columns={columns} data={subs} loading={subsLoading}
-        title="My Subscriptions"
-        description={`${formatNumber(subs.length)} subscription${subs.length === 1 ? "" : "s"}`} />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable columns={columns} data={subs} loading={subsLoading}
+          title="My Subscriptions"
+          description={`${formatNumber(subs.length)} subscription${subs.length === 1 ? "" : "s"}`} />
+      </Reveal>
 
       <ConfirmDialog
         open={cancelTarget !== null}

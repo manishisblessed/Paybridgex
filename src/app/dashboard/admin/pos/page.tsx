@@ -29,8 +29,17 @@ import {
   Eye,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
-import { StatCard } from "@/components/dashboard/StatCard";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
+import {
+  Panel,
+  StatTile,
+  FilterBar,
+  FilterField,
+  SectionTitle,
+  TabNav,
+  ModalShell,
+} from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -166,35 +175,24 @@ export default function AdminPosPage() {
 
   return (
     <div className="min-w-0 space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="POS Fleet"
-        description="Machine inventory, live transactions, exports and device health across all terminals."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="POS Fleet"
+          description="Machine inventory, live transactions, exports and device health across all terminals."
+        />
+      </Reveal>
 
       {/* Tabs */}
-      <div className="inline-flex w-full max-w-2xl gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
-        {(["transactions", "machines", "tracking"] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={cn(
-              "flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-all",
-              activeTab === tab
-                ? "bg-white text-ink-900 shadow-sm ring-1 ring-ink-100"
-                : "text-ink-500 hover:text-ink-700"
-            )}
-          >
-            {tab === "transactions" ? (
-              <span className="flex items-center justify-center gap-2"><ArrowLeftRight className="h-4 w-4" /> Live Transactions</span>
-            ) : tab === "machines" ? (
-              <span className="flex items-center justify-center gap-2"><Monitor className="h-4 w-4" /> POS Machines</span>
-            ) : (
-              <span className="flex items-center justify-center gap-2"><History className="h-4 w-4" /> Tracking Report</span>
-            )}
-          </button>
-        ))}
-      </div>
+      <TabNav
+        tabs={[
+          { key: "transactions", label: "Live Transactions", icon: ArrowLeftRight },
+          { key: "machines", label: "POS Machines", icon: Monitor },
+          { key: "tracking", label: "Tracking Report", icon: History },
+        ]}
+        active={activeTab}
+        onChange={(key) => setActiveTab(key as Tab)}
+      />
 
       {activeTab === "transactions" ? (
         <TransactionsTab />
@@ -462,31 +460,36 @@ function MachinesTab() {
   return (
     <div className="min-w-0 space-y-6">
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard label="Total Machines" value={stats ? String(stats.total) : "..."} icon={CreditCard} accent="violet" />
-        <StatCard label="Assigned" value={stats ? String(stats.assigned) : "..."} icon={Monitor} accent="brand" />
-        <StatCard label="Unassigned" value={stats ? String(stats.unassigned) : "..."} icon={ArrowLeftRight} accent="emerald" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Total Machines" countTo={stats?.total ?? 0} loading={!stats} icon={CreditCard} tone="violet" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Assigned" countTo={stats?.assigned ?? 0} loading={!stats} icon={Monitor} tone="brand" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Unassigned" countTo={stats?.unassigned ?? 0} loading={!stats} icon={ArrowLeftRight} tone="emerald" />
+        </StaggerItem>
+      </Stagger>
 
       {/* Fleet by user */}
       {byUser.length > 0 && (
-        <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h3 className="font-display text-sm font-semibold text-ink-900">Fleet by user</h3>
-              <p className="text-xs text-ink-500">
-                Machines held by each user and their outstanding rental dues. Click a user to filter the inventory.
-              </p>
-            </div>
-            {filteredUser && (
-              <button
-                onClick={() => { setAssigneeFilter("all"); setPage(1); }}
-                className="flex items-center gap-1 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-100"
-              >
-                <X className="h-3 w-3" /> Showing {filteredUser.name}
-              </button>
-            )}
-          </div>
+        <Panel>
+          <SectionTitle
+            className="mb-3"
+            title="Fleet by user"
+            description="Machines held by each user and their outstanding rental dues. Click a user to filter the inventory."
+            action={
+              filteredUser && (
+                <button
+                  onClick={() => { setAssigneeFilter("all"); setPage(1); }}
+                  className="flex items-center gap-1 rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-100"
+                >
+                  <X className="h-3 w-3" /> Showing {filteredUser.name}
+                </button>
+              )
+            }
+          />
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {byUser.map((u) => {
               const active = assigneeFilter === u.userId;
@@ -524,76 +527,71 @@ function MachinesTab() {
               );
             })}
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* Filters */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr,170px,170px,auto]">
-          <div className="min-w-0">
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Search</label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
-              <input
-                type="text"
-                placeholder="TID, serial, MID..."
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="w-full rounded-lg border border-ink-200 py-2 pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-              />
-            </div>
+      <FilterBar>
+        <FilterField label="Search" className="min-w-[220px] flex-1">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+            <input
+              type="text"
+              placeholder="TID, serial, MID..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              className="w-full rounded-lg border border-ink-200 py-2 pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            />
           </div>
-          <div className="min-w-0">
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Status</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-            >
-              <option value="">All statuses</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="maintenance">Maintenance</option>
-              <option value="decommissioned">Decommissioned</option>
-            </select>
-          </div>
-          <div className="min-w-0">
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Assignment</label>
-            <select
-              value={assigneeFilter}
-              onChange={(e) => { setAssigneeFilter(e.target.value); setPage(1); }}
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-            >
-              <option value="all">All machines</option>
-              <option value="assigned">Assigned</option>
-              <option value="unassigned">Unassigned</option>
-              {filteredUser && <option value={filteredUser.userId}>{filteredUser.name}</option>}
-            </select>
-          </div>
-          <div className="flex items-end gap-2">
-            <span className="mb-2 hidden items-center gap-1.5 text-xs font-medium text-emerald-600 sm:flex" title="This list refreshes every 5s; inventory auto-syncs from the partner every 10 min.">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-              </span>
-              Live
+        </FilterField>
+        <FilterField label="Status" className="w-[170px]">
+          <select
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+          >
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="decommissioned">Decommissioned</option>
+          </select>
+        </FilterField>
+        <FilterField label="Assignment" className="w-[170px]">
+          <select
+            value={assigneeFilter}
+            onChange={(e) => { setAssigneeFilter(e.target.value); setPage(1); }}
+            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+          >
+            <option value="all">All machines</option>
+            <option value="assigned">Assigned</option>
+            <option value="unassigned">Unassigned</option>
+            {filteredUser && <option value={filteredUser.userId}>{filteredUser.name}</option>}
+          </select>
+        </FilterField>
+        <div className="ml-auto flex items-center gap-2 self-end pb-0.5">
+          <span className="hidden items-center gap-1.5 text-xs font-medium text-emerald-600 sm:flex" title="This list refreshes every 5s; inventory auto-syncs from the partner every 10 min.">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSync}
-              disabled={syncing}
-              title="Inventory auto-syncs from the partner every 10 min and this list refreshes live. Click to pull from the partner now."
-            >
-              {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-              <span className="ml-1 hidden sm:inline">Sync now</span>
-            </Button>
-          </div>
+            Live
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSync}
+            disabled={syncing}
+            title="Inventory auto-syncs from the partner every 10 min and this list refreshes live. Click to pull from the partner now."
+          >
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+            <span className="ml-1 hidden sm:inline">Sync now</span>
+          </Button>
         </div>
-      </div>
+      </FilterBar>
 
       {/* Bulk action bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ink-100 bg-white px-4 py-3 shadow-sm">
+      <Panel flush className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex items-center gap-3">
           <button
             onClick={togglePage}
@@ -638,30 +636,32 @@ function MachinesTab() {
             </Button>
           )}
         </div>
-      </div>
+      </Panel>
 
       {/* Table */}
-      {error ? (
-        <ErrorBanner message={error instanceof Error ? error.message : "Failed to load POS machines."} />
-      ) : (
-        <DataTable
-          title="Terminal Inventory"
-          description={
-            pagination
-              ? `${pagination.total} terminal${pagination.total === 1 ? "" : "s"} · page ${pagination.page} of ${pagination.totalPages}`
-              : "Loading..."
-          }
-          columns={cols}
-          data={machines}
-          loading={(isLoading || syncing) && machines.length === 0}
-          loadingRows={8}
-          empty={
-            syncing
-              ? "Syncing machines from Same Day…"
-              : "No POS machines found. Click Sync to pull the latest inventory."
-          }
-        />
-      )}
+      <Reveal distance={16} duration={0.45}>
+        {error ? (
+          <ErrorBanner message={error instanceof Error ? error.message : "Failed to load POS machines."} />
+        ) : (
+          <DataTable
+            title="Terminal Inventory"
+            description={
+              pagination
+                ? `${pagination.total} terminal${pagination.total === 1 ? "" : "s"} · page ${pagination.page} of ${pagination.totalPages}`
+                : "Loading..."
+            }
+            columns={cols}
+            data={machines}
+            loading={(isLoading || syncing) && machines.length === 0}
+            loadingRows={8}
+            empty={
+              syncing
+                ? "Syncing machines from Same Day…"
+                : "No POS machines found. Click Sync to pull the latest inventory."
+            }
+          />
+        )}
+      </Reveal>
 
       {/* Pagination */}
       {pagination && pagination.totalPages > 1 && (
@@ -788,27 +788,21 @@ function AssignModal({
   }, [single, machines, onAssigned, selectedUser]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-2xl border border-ink-100 bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
-          <div>
-            <h3 className="font-display text-base font-semibold text-ink-900">
-              {single ? "Assign terminal" : `Bulk assign ${machines.length} terminals`}
-            </h3>
-            <p className="text-xs text-ink-500">
-              {single
-                ? `${single.tid ? `TID ${single.tid}` : single.externalId}${single.assignee ? ` · currently with ${single.assignee.name}` : ""}`
-                : "All selected machines will move to the chosen user."}
-            </p>
-          </div>
-          <button onClick={onClose} className="rounded-full p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-700">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="max-h-[80vh] overflow-y-auto p-5">
-          {/* Step 1: Select any network user (RT / DT / MD / SD) */}
-          {!selectedUser ? (
+    <ModalShell
+      open
+      onClose={onClose}
+      size="md"
+      eyebrow="POS Fleet"
+      title={single ? "Assign terminal" : `Bulk assign ${machines.length} terminals`}
+      subtitle={
+        single
+          ? `${single.tid ? `TID ${single.tid}` : single.externalId}${single.assignee ? ` · currently with ${single.assignee.name}` : ""}`
+          : "All selected machines will move to the chosen user."
+      }
+    >
+      <div>
+        {/* Step 1: Select any network user (RT / DT / MD / SD) */}
+        {!selectedUser ? (
             <>
               <p className="mb-3 text-xs text-ink-500">
                 Pick a role, then select the user — <span className="font-semibold text-brand-700">Retailer, Distributor, Master-Distributor or Super-Distributor</span>. The terminal (and its transactions) stays visible up the chain to their uplines, and the assignee&apos;s scheme drives MDR &amp; the commission split.
@@ -859,9 +853,8 @@ function AssignModal({
               </div>
             </>
           )}
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -1043,15 +1036,23 @@ function TransactionsTab() {
   return (
     <div className="min-w-0 space-y-6">
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total Transactions" value={summary ? String(summary.total_transactions) : "..."} icon={ArrowLeftRight} accent="brand" />
-        <StatCard label="Total Volume" value={summary ? formatINR(parseFloat(summary.total_amount)) : "..."} icon={IndianRupee} accent="emerald" />
-        <StatCard label="Captured" value={summary ? String(summary.captured_count) : "..."} icon={CreditCard} accent="violet" />
-        <StatCard label="Total Terminals" value={totalMachines != null ? String(totalMachines) : "..."} icon={Monitor} accent="accent" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Total Transactions" countTo={summary ? Number(summary.total_transactions) : 0} loading={!summary} icon={ArrowLeftRight} tone="brand" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Total Volume" value={summary ? formatINR(parseFloat(summary.total_amount)) : ""} loading={!summary} icon={IndianRupee} tone="dark" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Captured" countTo={summary ? Number(summary.captured_count) : 0} loading={!summary} icon={CreditCard} tone="violet" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Total Terminals" countTo={totalMachines ?? 0} loading={totalMachines == null} icon={Monitor} tone="sky" />
+        </StaggerItem>
+      </Stagger>
 
       {/* Live indicator + filters */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
+      <Panel className="p-4">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div
             className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5"
@@ -1142,7 +1143,7 @@ function TransactionsTab() {
             </Button>
           </div>
         </div>
-      </div>
+      </Panel>
 
       {/* Degraded enrichment notice — BIN provider (eKYC Hub) out of balance */}
       {data?.enrichment?.classificationDegraded && (
@@ -1155,25 +1156,27 @@ function TransactionsTab() {
       )}
 
       {/* Table */}
-      {error ? (
-        <ErrorBanner message={error instanceof Error ? error.message : "Failed to load transactions."} />
-      ) : (
-        <DataTable
-          title="POS Transactions"
-          description={
-            pagination
-              ? `${pagination.total_records} total · page ${pagination.page} of ${pagination.total_pages}`
-              : isLoading
-                ? "Loading..."
-                : "No data yet"
-          }
-          columns={cols}
-          data={transactions}
-          loading={isLoading && transactions.length === 0}
-          loadingRows={8}
-          empty="No transactions for the selected filters."
-        />
-      )}
+      <Reveal distance={16} duration={0.45}>
+        {error ? (
+          <ErrorBanner message={error instanceof Error ? error.message : "Failed to load transactions."} />
+        ) : (
+          <DataTable
+            title="POS Transactions"
+            description={
+              pagination
+                ? `${pagination.total_records} total · page ${pagination.page} of ${pagination.total_pages}`
+                : isLoading
+                  ? "Loading..."
+                  : "No data yet"
+            }
+            columns={cols}
+            data={transactions}
+            loading={isLoading && transactions.length === 0}
+            loadingRows={8}
+            empty="No transactions for the selected filters."
+          />
+        )}
+      </Reveal>
 
       {/* Pagination */}
       {pagination && pagination.total_pages > 1 && (
@@ -1402,68 +1405,73 @@ function TrackingTab() {
   return (
     <div className="min-w-0 space-y-6">
       {/* Summary */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Assignments" value={summary ? String(summary.assignments) : "..."} icon={ArrowRight} accent="brand" />
-        <StatCard label="Returns" value={summary ? String(summary.returns) : "..."} icon={RotateCcw} accent="accent" />
-        <StatCard label="Reassignments" value={summary ? String(summary.reassignments) : "..."} icon={ArrowLeftRight} accent="violet" />
-        <StatCard label="Active holdings" value={summary ? String(summary.active) : "..."} icon={CheckCircle2} accent="emerald" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Assignments" countTo={summary?.assignments ?? 0} loading={!summary} icon={ArrowRight} tone="brand" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Returns" countTo={summary?.returns ?? 0} loading={!summary} icon={RotateCcw} tone="amber" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Reassignments" countTo={summary?.reassignments ?? 0} loading={!summary} icon={ArrowLeftRight} tone="violet" />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Active holdings" countTo={summary?.active ?? 0} loading={!summary} icon={CheckCircle2} tone="emerald" />
+        </StaggerItem>
+      </Stagger>
 
       {/* Filters */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <div className="col-span-2 min-w-0 sm:col-span-1 lg:col-span-2">
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Search machine</label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
-              <input
-                type="text"
-                placeholder="TID, serial, MID..."
-                value={q}
-                onChange={(e) => { setQ(e.target.value); setPage(1); }}
-                className="w-full rounded-lg border border-ink-200 py-2 pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-              />
-            </div>
+      <FilterBar>
+        <FilterField label="Search machine" className="min-w-[220px] flex-1">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+            <input
+              type="text"
+              placeholder="TID, serial, MID..."
+              value={q}
+              onChange={(e) => { setQ(e.target.value); setPage(1); }}
+              className="w-full rounded-lg border border-ink-200 py-2 pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            />
           </div>
-          <div className="min-w-0">
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Movement</label>
-            <select value={action} onChange={(e) => { setAction(e.target.value); setPage(1); }}
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
-              <option value="">All</option>
-              <option value="assign">Assignments</option>
-              <option value="unassign">Returns</option>
-            </select>
-          </div>
-          <div className="min-w-0">
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Holding</label>
-            <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
-              <option value="">All</option>
-              <option value="ACTIVE">Active</option>
-              <option value="RETURNED">Returned</option>
-            </select>
-          </div>
-          <div className="min-w-0">
-            <label className="mb-1 block text-xs font-semibold text-ink-500">From</label>
-            <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }}
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
-          </div>
-          <div className="min-w-0">
-            <label className="mb-1 block text-xs font-semibold text-ink-500">To</label>
-            <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }}
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
-          </div>
-        </div>
-      </div>
+        </FilterField>
+        <FilterField label="Movement" className="w-[140px]">
+          <select value={action} onChange={(e) => { setAction(e.target.value); setPage(1); }}
+            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
+            <option value="">All</option>
+            <option value="assign">Assignments</option>
+            <option value="unassign">Returns</option>
+          </select>
+        </FilterField>
+        <FilterField label="Holding" className="w-[130px]">
+          <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}
+            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
+            <option value="">All</option>
+            <option value="ACTIVE">Active</option>
+            <option value="RETURNED">Returned</option>
+          </select>
+        </FilterField>
+        <FilterField label="From" className="w-[150px]">
+          <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }}
+            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+        </FilterField>
+        <FilterField label="To" className="w-[150px]">
+          <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }}
+            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+        </FilterField>
+      </FilterBar>
 
       {/* Grouped logbook: Date → Holder → movements */}
+      <Reveal distance={16} duration={0.45}>
       {error ? (
         <ErrorBanner message={error instanceof Error ? error.message : "Failed to load tracking history."} />
       ) : (
-        <div className="rounded-2xl border border-ink-100 bg-white shadow-sm">
+        <Panel flush>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 px-5 py-4">
             <div>
-              <h3 className="font-display text-base font-semibold text-ink-900">POS Tracking History</h3>
+              <h3 className="flex items-center gap-2 font-display text-base font-semibold text-ink-900">
+                <span className="inline-block h-4 w-1 rounded-full bg-gradient-to-b from-brand-500 to-accent-500" aria-hidden />
+                POS Tracking History
+              </h3>
               <p className="text-xs text-ink-500">
                 {pagination
                   ? `${pagination.total} movement${pagination.total === 1 ? "" : "s"} · page ${pagination.page} of ${pagination.totalPages} · grouped by date, then by holder`
@@ -1534,8 +1542,9 @@ function TrackingTab() {
               ))}
             </div>
           )}
-        </div>
+        </Panel>
       )}
+      </Reveal>
 
       {/* Pagination */}
       {pagination && pagination.totalPages > 1 && (
@@ -1694,19 +1703,15 @@ function MilestoneModal({
   }, [entry.id, transit, delivered, reason, onSaved]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-ink-100 bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
-          <div>
-            <h3 className="font-display text-base font-semibold text-ink-900">Dispatch milestones</h3>
-            <p className="text-xs text-ink-500">{entry.tid ? `TID ${entry.tid}` : entry.serial ?? entry.machineId}</p>
-          </div>
-          <button onClick={onClose} className="rounded-full p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-700">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="space-y-4 p-5">
+    <ModalShell
+      open
+      onClose={onClose}
+      size="sm"
+      eyebrow="Tracking"
+      title="Dispatch milestones"
+      subtitle={entry.tid ? `TID ${entry.tid}` : entry.serial ?? entry.machineId}
+    >
+      <div className="space-y-4">
           {err && (
             <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               <AlertCircle className="h-4 w-4 shrink-0" /> {err}
@@ -1740,9 +1745,8 @@ function MilestoneModal({
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Save
             </Button>
           </div>
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 

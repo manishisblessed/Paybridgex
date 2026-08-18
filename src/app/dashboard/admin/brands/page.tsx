@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
+import { StatusPill, SegmentedNav, ModalShell, EmptyState } from "@/components/dashboard/ui";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Reveal } from "@/components/motion";
 import { RailRatesManager } from "@/components/admin/RailRatesManager";
 import { formatINR } from "@/lib/utils";
 import {
@@ -205,7 +206,10 @@ export default function BrandsPage() {
       key: "mode",
       header: "Settlement",
       render: (b) => (
-        <Badge variant={b.settlementMode === "INSTANT" ? "brand" : b.settlementMode === "BOTH" ? "warning" : "default"}>
+        <StatusPill
+          status={b.settlementMode}
+          tone={b.settlementMode === "INSTANT" ? "brand" : b.settlementMode === "BOTH" ? "warning" : "neutral"}
+        >
           {b.settlementMode === "INSTANT" ? (
             <span className="inline-flex items-center gap-1">
               <Zap className="h-3 w-3" /> Instant
@@ -219,7 +223,7 @@ export default function BrandsPage() {
               <Clock className="h-3 w-3" /> T+1
             </span>
           )}
-        </Badge>
+        </StatusPill>
       ),
     },
     {
@@ -246,9 +250,7 @@ export default function BrandsPage() {
     {
       key: "flags",
       header: "Status",
-      render: (b) => (
-        <Badge variant={b.active ? "success" : "danger"}>{b.active ? "active" : "inactive"}</Badge>
-      ),
+      render: (b) => <StatusPill status={b.active ? "active" : "inactive"} />,
     },
     { key: "rates", header: "Rates", render: (b) => <span>{b.rates}</span> },
     { key: "machines", header: "Machines", render: (b) => <span>{b.machines}</span> },
@@ -277,61 +279,39 @@ export default function BrandsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="MDR & minimum charges"
-        description="Define the cost floor for each rail — POS, PG, QR (acquiring rate cards) and Services (BBPS & Payout: per-provider vendor cost + minimum charge). These are the company minimums: every scheme charge is validated against them, so nothing can ever be priced below the rail's floor."
-        actions={
-          tab === "pos" ? (
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={load}>
-                <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-              </Button>
-              <Button onClick={() => setShowCreate(true)}>
-                <Plus className="mr-2 h-4 w-4" /> New brand
-              </Button>
-            </div>
-          ) : undefined
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          title="MDR & minimum charges"
+          description="Define the cost floor for each rail — POS, PG, QR (acquiring rate cards) and Services (BBPS & Payout: per-provider vendor cost + minimum charge). These are the company minimums: every scheme charge is validated against them, so nothing can ever be priced below the rail's floor."
+          actions={
+            tab === "pos" ? (
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={load}>
+                  <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+                </Button>
+                <Button onClick={() => setShowCreate(true)}>
+                  <Plus className="mr-2 h-4 w-4" /> New brand
+                </Button>
+              </div>
+            ) : undefined
+          }
+        />
+      </Reveal>
 
-      <div className="flex gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
-        <button
-          onClick={() => setTab("pos")}
-          className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-            tab === "pos" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
-          }`}
-        >
-          <Store className="h-4 w-4" /> POS
-        </button>
-        <button
-          onClick={() => setTab("pg")}
-          className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-            tab === "pg" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
-          }`}
-        >
-          <CreditCard className="h-4 w-4" /> PG
-        </button>
-        <button
-          onClick={() => setTab("qr")}
-          className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-            tab === "qr" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
-          }`}
-        >
-          <QrCode className="h-4 w-4" /> QR
-        </button>
-        <button
-          onClick={() => setTab("services")}
-          className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-            tab === "services" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
-          }`}
-        >
-          <Receipt className="h-4 w-4" /> Services
-        </button>
-      </div>
+      <SegmentedNav
+        tabs={[
+          { key: "pos", label: "POS", icon: Store },
+          { key: "pg", label: "PG", icon: CreditCard },
+          { key: "qr", label: "QR", icon: QrCode },
+          { key: "services", label: "Services", icon: Receipt },
+        ]}
+        active={tab}
+        onChange={(key) => setTab(key as "pos" | "pg" | "qr" | "services")}
+      />
 
       {tab === "pos" && (
         <>
-          <div className="flex items-start gap-2 rounded-xl border border-ink-100 bg-ink-50/60 px-4 py-3 text-xs text-ink-500">
+          <div className="flex items-start gap-2 rounded-2xl border border-brand-100 bg-brand-50/40 px-4 py-3 text-xs text-ink-600 shadow-sm">
             <Clock className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
             <p>
               <span className="font-semibold text-ink-700">T+1 cutoff (per company):</span> set the IST hour after which a
@@ -341,7 +321,9 @@ export default function BrandsPage() {
             </p>
           </div>
 
-          <DataTable columns={columns} data={brands} loading={loading} />
+          <Reveal distance={16} duration={0.45}>
+            <DataTable columns={columns} data={brands} loading={loading} />
+          </Reveal>
 
           {selected && (
             <RateEditor
@@ -381,24 +363,14 @@ export default function BrandsPage() {
 
       {tab === "services" && (
         <div className="space-y-4">
-          <div className="flex w-fit gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
-            <button
-              onClick={() => setServiceTab("BBPS")}
-              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                serviceTab === "BBPS" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
-              }`}
-            >
-              <Receipt className="h-4 w-4" /> BBPS
-            </button>
-            <button
-              onClick={() => setServiceTab("PAYOUT")}
-              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                serviceTab === "PAYOUT" ? "bg-white text-brand-700 shadow-sm" : "text-ink-500 hover:text-ink-700"
-              }`}
-            >
-              <Banknote className="h-4 w-4" /> Payout
-            </button>
-          </div>
+          <SegmentedNav
+            tabs={[
+              { key: "BBPS", label: "BBPS", icon: Receipt },
+              { key: "PAYOUT", label: "Payout", icon: Banknote },
+            ]}
+            active={serviceTab}
+            onChange={(key) => setServiceTab(key as "BBPS" | "PAYOUT")}
+          />
           <RailRatesManager serviceKind={serviceTab} />
         </div>
       )}
@@ -608,15 +580,12 @@ function RateEditor({
         <div className="space-y-5 p-5">
           {/* Rate cards */}
           {detail.rates.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-ink-200 bg-ink-50/40 py-10 text-center">
-              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-brand-600">
-                <Sparkles className="h-6 w-6" />
-              </div>
-              <p className="text-sm font-semibold text-ink-700">No rates yet</p>
-              <p className="mt-1 max-w-xs text-xs text-ink-400">
-                Add the first rate below. Captures can&apos;t settle without a matching rate.
-              </p>
-            </div>
+            <EmptyState
+              icon={Sparkles}
+              title="No rates yet"
+              message={<>Add the first rate below. Captures can&apos;t settle without a matching rate.</>}
+              compact
+            />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {detail.rates.map((r) => {
@@ -709,8 +678,8 @@ function RateEditor({
                     <div className="mt-3 flex items-center justify-end gap-1 border-t border-ink-50 pt-3">
                       <button
                         onClick={() => startEdit(r)}
-                        className={`rounded-lg p-1.5 transition ${
-                          isEditing ? "bg-brand-100 text-brand-700" : "text-ink-400 hover:bg-brand-50 hover:text-brand-600"
+                        className={`grid h-8 w-8 place-items-center rounded-lg transition ${
+                          isEditing ? "bg-brand-100 text-brand-700" : "text-brand-700 hover:bg-brand-50"
                         }`}
                         title="Edit rate"
                       >
@@ -718,10 +687,10 @@ function RateEditor({
                       </button>
                       <button
                         onClick={() => toggleActive(r)}
-                        className={`rounded-lg p-1.5 transition ${
+                        className={`grid h-8 w-8 place-items-center rounded-lg transition ${
                           r.active
-                            ? "text-emerald-500 hover:bg-emerald-50"
-                            : "text-ink-400 hover:bg-ink-100 hover:text-ink-600"
+                            ? "text-emerald-700 hover:bg-emerald-50"
+                            : "text-ink-500 hover:bg-ink-100"
                         }`}
                         title={r.active ? "Deactivate" : "Activate"}
                       >
@@ -729,7 +698,7 @@ function RateEditor({
                       </button>
                       <button
                         onClick={() => setDeleteTarget(r)}
-                        className="rounded-lg p-1.5 text-rose-400 transition hover:bg-rose-50 hover:text-rose-600"
+                        className="grid h-8 w-8 place-items-center rounded-lg text-rose-700 transition hover:bg-rose-50"
                         title="Delete rate"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1004,62 +973,65 @@ function CreateBrandModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/50 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div className="w-full max-w-md rounded-2xl bg-white p-6" onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-4 text-base font-bold text-ink-900">New brand</h3>
-        <div className="space-y-3">
-          <label className="block text-xs text-ink-500">
-            Company (from POS fleet)
-            <select
-              className={`${inputCls} mt-1 w-full`}
-              value={company}
-              onChange={(e) => setCompany(e.target.value)}
-              disabled={loadingCompanies}
-            >
-              <option value="">
-                {loadingCompanies
-                  ? "Loading companies…"
-                  : companies.length === 0
-                  ? "No companies found on POS machines"
-                  : "Select a company…"}
-              </option>
-              {companies.map((c) => (
-                <option key={c.company} value={c.company}>
-                  {c.company} ({c.machineCount})
-                </option>
-              ))}
-            </select>
-          </label>
-          {company && (
-            <p className="text-[11px] text-ink-400">
-              Brand key: <span className="font-mono text-ink-600">{key}</span>
-            </p>
-          )}
-          <label className="block text-xs text-ink-500">
-            Description (optional)
-            <input className={`${inputCls} mt-1 w-full`} value={description} onChange={(e) => setDescription(e.target.value)} />
-          </label>
-          <label className="block text-xs text-ink-500">
-            Default settlement mode
-            <select className={`${inputCls} mt-1 w-full`} value={settlementMode} onChange={(e) => setSettlementMode(e.target.value)}>
-              <option value="T1">T+1 (next-day cron)</option>
-              <option value="INSTANT">Instant (per-transaction)</option>
-              <option value="BOTH">Both (follow per-user / platform default)</option>
-            </select>
-          </label>
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
+    <ModalShell
+      open
+      onClose={onClose}
+      eyebrow="Brands"
+      title="New brand"
+      subtitle="Create an acquiring brand from a POS fleet company."
+      size="sm"
+      footer={
+        <>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button onClick={submit} disabled={busy || key.length < 2} isLoading={busy}>
             Create brand
           </Button>
-        </div>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <label className="block text-xs text-ink-500">
+          Company (from POS fleet)
+          <select
+            className={`${inputCls} mt-1 w-full`}
+            value={company}
+            onChange={(e) => setCompany(e.target.value)}
+            disabled={loadingCompanies}
+          >
+            <option value="">
+              {loadingCompanies
+                ? "Loading companies…"
+                : companies.length === 0
+                ? "No companies found on POS machines"
+                : "Select a company…"}
+            </option>
+            {companies.map((c) => (
+              <option key={c.company} value={c.company}>
+                {c.company} ({c.machineCount})
+              </option>
+            ))}
+          </select>
+        </label>
+        {company && (
+          <p className="text-[11px] text-ink-400">
+            Brand key: <span className="font-mono text-ink-600">{key}</span>
+          </p>
+        )}
+        <label className="block text-xs text-ink-500">
+          Description (optional)
+          <input className={`${inputCls} mt-1 w-full`} value={description} onChange={(e) => setDescription(e.target.value)} />
+        </label>
+        <label className="block text-xs text-ink-500">
+          Default settlement mode
+          <select className={`${inputCls} mt-1 w-full`} value={settlementMode} onChange={(e) => setSettlementMode(e.target.value)}>
+            <option value="T1">T+1 (next-day cron)</option>
+            <option value="INSTANT">Instant (per-transaction)</option>
+            <option value="BOTH">Both (follow per-user / platform default)</option>
+          </select>
+        </label>
       </div>
-    </div>
+    </ModalShell>
   );
 }

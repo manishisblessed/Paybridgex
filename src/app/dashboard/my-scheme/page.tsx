@@ -12,8 +12,15 @@ import {
   Store,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
+import {
+  Panel,
+  TablePro,
+  StatusPill,
+  SectionTitle,
+  EmptyState,
+} from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
 import { SERVICE_FAMILIES, familyOf, schemeAssignerLabel, type ServiceFamily } from "@/lib/scheme/constants";
 
 type RateType = "FLAT" | "PERCENT";
@@ -149,6 +156,7 @@ export default function MyAssignedSchemePage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow="Your pricing"
         title="My Scheme"
@@ -176,22 +184,23 @@ export default function MyAssignedSchemePage() {
           </div>
         }
       />
+      </Reveal>
 
       {viewingChild && (
-        <div className="flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm text-brand-800">
+        <div className="flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm text-brand-800 shadow-sm">
           <Info className="h-4 w-4 shrink-0" />
           Viewing the scheme of your direct child{" "}
           <span className="font-semibold">{viewingChild.name}</span>
-          <Badge variant="brand">{viewingChild.role}</Badge>
+          <StatusPill status={viewingChild.role} tone="brand" />
         </div>
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center rounded-2xl border border-ink-100 bg-white py-16 text-ink-500">
+        <Panel className="flex items-center justify-center py-16 text-ink-500">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading scheme…
-        </div>
+        </Panel>
       ) : !scheme ? (
-        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800 shadow-sm">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
             <p className="font-semibold">No scheme assigned to you yet</p>
@@ -202,13 +211,16 @@ export default function MyAssignedSchemePage() {
           </div>
         </div>
       ) : (
-        <section className="rounded-2xl border border-ink-100 bg-white p-5">
+        <Reveal distance={16} duration={0.45}>
+        <Panel>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <Layers className="h-4 w-4 text-ink-400" />
             <h3 className="font-display text-sm font-semibold text-ink-900">{scheme.name}</h3>
-            <Badge variant="success">Active</Badge>
-            <Badge variant="brand">{scheme.slabCount} slabs</Badge>
-            {scheme.mdrSlabCount > 0 && <Badge variant="warning">{scheme.mdrSlabCount} MDR</Badge>}
+            <StatusPill status="Active" />
+            <StatusPill status={`${scheme.slabCount} slabs`} tone="brand" />
+            {scheme.mdrSlabCount > 0 && (
+              <StatusPill status={`${scheme.mdrSlabCount} MDR`} tone="warning" />
+            )}
           </div>
           {scheme.description && (
             <p className="mb-3 text-xs text-ink-500">{scheme.description}</p>
@@ -225,88 +237,100 @@ export default function MyAssignedSchemePage() {
               const cls = cfg?.className ?? "text-ink-600";
               return (
                 <div key={family.key}>
-                  <div className="mb-1.5 flex items-center gap-1.5">
-                    <Icon className={`h-4 w-4 ${cls}`} />
-                    <h4 className={`text-sm font-semibold ${cls}`}>
-                      {family.label} ({list.length})
-                    </h4>
-                  </div>
-                  <div className="overflow-x-auto rounded-xl border border-ink-100">
-                    <table className="w-full min-w-max text-left text-sm">
-                      <thead className="bg-ink-50/60 text-[11px] uppercase tracking-wide text-ink-400">
+                  <SectionTitle
+                    className="mb-2"
+                    title={
+                      <span className={`inline-flex items-center gap-1.5 text-sm ${cls}`}>
+                        <Icon className="h-4 w-4" />
+                        {family.label} ({list.length})
+                      </span>
+                    }
+                  />
+                  <TablePro dense>
+                    <table className="text-left">
+                      <thead>
                         <tr>
-                          <th className="px-3 py-2">Service</th>
-                          <th className="px-3 py-2">Provider</th>
-                          <th className="px-3 py-2">Band</th>
-                          <th className="px-3 py-2 text-right">Charge</th>
-                          <th className="px-3 py-2 text-right">Commission</th>
+                          <th>Service</th>
+                          <th>Provider</th>
+                          <th>Band</th>
+                          <th className="text-right">Charge</th>
+                          <th className="text-right">Commission</th>
                         </tr>
                       </thead>
                       <tbody>
                         {list.map((s) => (
-                          <tr key={s.id} className="border-t border-ink-50">
-                            <td className="px-3 py-2 font-medium text-ink-900">{s.service.replace(/_/g, " ")}</td>
-                            <td className="px-3 py-2 text-xs text-ink-600">{s.provider ?? "All"}</td>
-                            <td className="px-3 py-2 text-ink-600">{fmtBand(s.minAmount, s.maxAmount)}</td>
-                            <td className="px-3 py-2 text-right text-ink-900">{fmtServiceRate(s.chargeType, s.chargeValue)}</td>
-                            <td className="px-3 py-2 text-right text-emerald-700 font-semibold">{fmtServiceRate(s.commissionType, s.commissionValue)}</td>
+                          <tr key={s.id}>
+                            <td className="font-medium text-ink-900">{s.service.replace(/_/g, " ")}</td>
+                            <td className="text-xs text-ink-600">{s.provider ?? "All"}</td>
+                            <td className="text-ink-600">{fmtBand(s.minAmount, s.maxAmount)}</td>
+                            <td className="text-right text-ink-900">{fmtServiceRate(s.chargeType, s.chargeValue)}</td>
+                            <td className="text-right text-emerald-700 font-semibold">{fmtServiceRate(s.commissionType, s.commissionValue)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                  </div>
+                  </TablePro>
                 </div>
               );
             })}
 
             {mdrSlabs.length > 0 && (
               <div>
-                <div className="mb-1.5 flex items-center gap-1.5">
-                  <Store className="h-4 w-4 text-orange-600" />
-                  <h4 className="text-sm font-semibold text-orange-600">MDR rates ({mdrSlabs.length})</h4>
-                </div>
-                <div className="overflow-x-auto rounded-xl border border-ink-100">
-                  <table className="w-full min-w-max text-left text-sm">
-                    <thead className="bg-ink-50/60 text-[11px] uppercase tracking-wide text-ink-400">
+                <SectionTitle
+                  className="mb-2"
+                  title={
+                    <span className="inline-flex items-center gap-1.5 text-sm text-orange-600">
+                      <Store className="h-4 w-4" />
+                      MDR rates ({mdrSlabs.length})
+                    </span>
+                  }
+                />
+                <TablePro dense>
+                  <table className="text-left">
+                    <thead>
                       <tr>
-                        <th className="px-3 py-2">Rail</th>
-                        <th className="px-3 py-2">Company</th>
-                        <th className="px-3 py-2">Mode</th>
-                        <th className="px-3 py-2">Card / Brand</th>
-                        <th className="px-3 py-2 text-right">MDR T+1</th>
-                        <th className="px-3 py-2 text-right">MDR T+0</th>
-                        <th className="px-3 py-2 text-right">Commission</th>
+                        <th>Rail</th>
+                        <th>Company</th>
+                        <th>Mode</th>
+                        <th>Card / Brand</th>
+                        <th className="text-right">MDR T+1</th>
+                        <th className="text-right">MDR T+0</th>
+                        <th className="text-right">Commission</th>
                       </tr>
                     </thead>
                     <tbody>
                       {mdrSlabs.map((s) => (
-                        <tr key={s.id} className="border-t border-ink-50">
-                          <td className="px-3 py-2 font-medium text-ink-900">{s.serviceKind}</td>
-                          <td className="px-3 py-2 text-ink-600">{s.company ?? "All"}</td>
-                          <td className="px-3 py-2 text-ink-600">{s.paymentMode === "*" ? "Any" : s.paymentMode}</td>
-                          <td className="px-3 py-2 text-xs text-ink-600">
+                        <tr key={s.id}>
+                          <td className="font-medium text-ink-900">{s.serviceKind}</td>
+                          <td className="text-ink-600">{s.company ?? "All"}</td>
+                          <td className="text-ink-600">{s.paymentMode === "*" ? "Any" : s.paymentMode}</td>
+                          <td className="text-xs text-ink-600">
                             {[s.cardType, s.brandType, s.classification].filter(Boolean).join(" / ") || "Any"}
                           </td>
-                          <td className="px-3 py-2 text-right text-ink-900">{fmtRate(s.mdrType, s.mdrValue)}</td>
-                          <td className="px-3 py-2 text-right text-ink-900">
+                          <td className="text-right text-ink-900">{fmtRate(s.mdrType, s.mdrValue)}</td>
+                          <td className="text-right text-ink-900">
                             {s.mdrValueT0 > 0 ? fmtRate(s.mdrType, s.mdrValueT0) : "= T+1"}
                           </td>
-                          <td className="px-3 py-2 text-right font-semibold text-emerald-700">
+                          <td className="text-right font-semibold text-emerald-700">
                             {s.commission > 0 ? fmtRate(s.commissionType, s.commission) : "—"}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </TablePro>
               </div>
             )}
 
             {grouped.length === 0 && mdrSlabs.length === 0 && (
-              <p className="py-4 text-center text-sm text-ink-500">No slabs configured in this scheme yet.</p>
+              <EmptyState
+                compact
+                message="No slabs configured in this scheme yet."
+              />
             )}
           </div>
-        </section>
+        </Panel>
+        </Reveal>
       )}
     </div>
   );

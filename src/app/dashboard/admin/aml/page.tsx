@@ -15,7 +15,17 @@ import {
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Input, Label } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import {
+  Panel,
+  SectionTitle,
+  StatusPill,
+  SegmentedNav,
+  TablePro,
+  TableEmptyRow,
+  TableSkeletonRows,
+  type PillTone,
+} from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 
 type AlertRow = {
   id: string;
@@ -40,7 +50,7 @@ const RULE_LABELS: Record<string, string> = {
   DORMANT_BURST: "Dormant account burst",
 };
 
-const STATUS_BADGE: Record<string, "default" | "success" | "warning" | "danger" | "brand"> = {
+const STATUS_PILL: Record<string, PillTone> = {
   OPEN: "danger",
   UNDER_REVIEW: "warning",
   CLEARED: "success",
@@ -146,16 +156,18 @@ export default function AmlPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Compliance"
-        title="AML monitoring"
-        description="Transaction-monitoring alerts, STR/CTR exports and audit-chain integrity."
-        actions={
-          <Button variant="secondary" onClick={load} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Compliance"
+          title="AML monitoring"
+          description="Transaction-monitoring alerts, STR/CTR exports and audit-chain integrity."
+          actions={
+            <Button variant="secondary" onClick={load} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </Button>
+          }
+        />
+      </Reveal>
 
       {error && (
         <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -164,7 +176,8 @@ export default function AmlPage() {
       )}
 
       {/* Report exports */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5">
+      <Reveal distance={16} duration={0.45}>
+      <Panel>
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <Label>From</Label>
@@ -188,79 +201,75 @@ export default function AmlPage() {
         <p className="mt-2 text-xs text-ink-500">
           CTR: movements at/above the reporting threshold. STR: all alerts with evidence and review trail. Exports are audit-logged.
         </p>
-      </div>
+      </Panel>
+      </Reveal>
 
       {/* Filter tabs */}
-      <div className="flex flex-wrap gap-2">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setFilter(f.id)}
-            className={`rounded-full border px-4 py-1.5 text-sm font-semibold ${
-              filter === f.id ? "border-brand-600 bg-brand-50 text-brand-700" : "border-ink-200 text-ink-600 hover:border-ink-300"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      <SegmentedNav
+        tabs={FILTERS.map((f) => ({ key: f.id, label: f.label }))}
+        active={filter}
+        onChange={setFilter}
+      />
 
       {/* Alert queue */}
-      <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-ink-50/60 text-left text-xs uppercase tracking-wider text-ink-500">
-            <tr>
-              <th className="px-5 py-3 font-semibold">Rule</th>
-              <th className="px-5 py-3 font-semibold">User</th>
-              <th className="px-5 py-3 font-semibold">Day</th>
-              <th className="px-5 py-3 font-semibold">Severity</th>
-              <th className="px-5 py-3 font-semibold">Status</th>
-              <th className="px-5 py-3 font-semibold">Filed</th>
-              <th className="px-5 py-3"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-ink-100 text-ink-800">
-            {alerts.length === 0 && !loading && (
+      <Reveal distance={16} duration={0.45}>
+        <TablePro>
+          <table>
+            <thead>
               <tr>
-                <td colSpan={7} className="px-5 py-8 text-center text-ink-500">
-                  No alerts in this view. The sweep runs hourly.
-                </td>
+                <th>Rule</th>
+                <th>User</th>
+                <th>Day</th>
+                <th>Severity</th>
+                <th>Status</th>
+                <th>Filed</th>
+                <th></th>
               </tr>
-            )}
-            {alerts.map((a) => (
-              <tr key={a.id} className="hover:bg-ink-50/40">
-                <td className="px-5 py-3">
-                  <div className="flex items-center gap-2 font-semibold text-ink-900">
-                    <ShieldAlert className={`h-4 w-4 ${a.severity === "HIGH" ? "text-rose-500" : "text-amber-500"}`} />
-                    {RULE_LABELS[a.rule] ?? a.rule}
-                  </div>
-                </td>
-                <td className="px-5 py-3">
-                  <div className="font-medium text-ink-900">{a.user.name}</div>
-                  <div className="text-xs text-ink-500">{a.user.phone} · {a.user.role}</div>
-                </td>
-                <td className="px-5 py-3 font-mono text-xs text-ink-600">{a.dateKey}</td>
-                <td className="px-5 py-3">
-                  <Badge variant={a.severity === "HIGH" ? "danger" : "warning"}>{a.severity}</Badge>
-                </td>
-                <td className="px-5 py-3">
-                  <Badge variant={STATUS_BADGE[a.status] ?? "default"}>{a.status}</Badge>
-                </td>
-                <td className="px-5 py-3 text-ink-500">{fmtDate(a.createdAt)}</td>
-                <td className="px-5 py-3 text-right">
-                  <Button variant="secondary" onClick={() => { setSelected(a); setNote(a.reviewNote ?? ""); }}>
-                    <Eye className="h-4 w-4" /> Review
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {alerts.length === 0 && loading && <TableSkeletonRows rows={5} cols={7} />}
+              {alerts.length === 0 && !loading && (
+                <TableEmptyRow
+                  colSpan={7}
+                  icon={ShieldCheck}
+                  message="No alerts in this view. The sweep runs hourly."
+                />
+              )}
+              {alerts.map((a) => (
+                <tr key={a.id}>
+                  <td>
+                    <div className="flex items-center gap-2 font-semibold text-ink-900">
+                      <ShieldAlert className={`h-4 w-4 ${a.severity === "HIGH" ? "text-rose-500" : "text-amber-500"}`} />
+                      {RULE_LABELS[a.rule] ?? a.rule}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="font-medium text-ink-900">{a.user.name}</div>
+                    <div className="text-xs text-ink-500">{a.user.phone} · {a.user.role}</div>
+                  </td>
+                  <td className="font-mono text-xs text-ink-600">{a.dateKey}</td>
+                  <td>
+                    <StatusPill status={a.severity} tone={a.severity === "HIGH" ? "danger" : "warning"} />
+                  </td>
+                  <td>
+                    <StatusPill status={a.status} tone={STATUS_PILL[a.status] ?? "neutral"} />
+                  </td>
+                  <td className="text-ink-500">{fmtDate(a.createdAt)}</td>
+                  <td className="text-right">
+                    <Button variant="secondary" onClick={() => { setSelected(a); setNote(a.reviewNote ?? ""); }}>
+                      <Eye className="h-4 w-4" /> Review
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TablePro>
+      </Reveal>
 
       {/* Review drawer */}
       {selected && (
-        <div className="rounded-2xl border border-brand-200 bg-white p-5">
+        <Panel className="border-brand-200 shadow-soft">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="font-display text-lg font-semibold text-ink-900">
@@ -304,14 +313,13 @@ export default function AmlPage() {
               <Flag className="h-4 w-4" /> Mark STR reported
             </Button>
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* Audit chain integrity */}
+      <Reveal distance={16} duration={0.45}>
       <section className="space-y-3">
-        <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink-900">
-          <Link2 className="h-5 w-5 text-ink-400" /> Audit-chain anchors
-        </h2>
+        <SectionTitle title="Audit-chain anchors" className="mb-0" />
         {verifyResult && (
           <div
             className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm ${
@@ -326,32 +334,32 @@ export default function AmlPage() {
               : `${verifyResult.dateKey}: VERIFICATION FAILED (${verifyResult.reason}). Investigate immediately.`}
           </div>
         )}
-        <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-ink-50/60 text-left text-xs uppercase tracking-wider text-ink-500">
+        <TablePro dense>
+          <table>
+            <thead>
               <tr>
-                <th className="px-5 py-3 font-semibold">Day</th>
-                <th className="px-5 py-3 font-semibold">Rows</th>
-                <th className="px-5 py-3 font-semibold">Chain hash</th>
-                <th className="px-5 py-3"></th>
+                <th>Day</th>
+                <th>Rows</th>
+                <th>Chain hash</th>
+                <th></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-ink-100 text-ink-800">
+            <tbody>
               {anchors.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-5 py-8 text-center text-ink-500">
-                    No anchors yet — the first daily anchor is created at 00:20 IST.
-                  </td>
-                </tr>
+                <TableEmptyRow
+                  colSpan={4}
+                  icon={Link2}
+                  message="No anchors yet — the first daily anchor is created at 00:20 IST."
+                />
               )}
               {anchors.map((an) => (
-                <tr key={an.dateKey} className="hover:bg-ink-50/40">
-                  <td className="px-5 py-3 font-mono text-xs">{an.dateKey}</td>
-                  <td className="px-5 py-3 text-ink-600">{an.rowCount}</td>
-                  <td className="px-5 py-3 font-mono text-[10px] text-ink-500">
+                <tr key={an.dateKey}>
+                  <td className="font-mono text-xs">{an.dateKey}</td>
+                  <td className="text-ink-600">{an.rowCount}</td>
+                  <td className="font-mono text-[10px] text-ink-500">
                     {an.chainHash.slice(0, 24)}…
                   </td>
-                  <td className="px-5 py-3 text-right">
+                  <td className="text-right">
                     <Button variant="secondary" onClick={() => verifyAnchor(an.dateKey)} disabled={verifying === an.dateKey}>
                       <ShieldCheck className="h-4 w-4" /> {verifying === an.dateKey ? "Verifying…" : "Verify"}
                     </Button>
@@ -360,8 +368,9 @@ export default function AmlPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TablePro>
       </section>
+      </Reveal>
     </div>
   );
 }

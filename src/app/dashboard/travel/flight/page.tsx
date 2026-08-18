@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Plane, ArrowRightLeft } from "lucide-react";
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
+import { Panel, SectionTitle } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { formatINR } from "@/lib/utils";
@@ -83,18 +85,21 @@ export default function FlightPage() {
 
   return (
     <div>
-      <ServicePageHeader
-        icon={Plane}
-        title="Flight Booking"
-        description="Search and book domestic flights with the best agent fares."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={Plane}
+          title="Flight Booking"
+          description="Search and book domestic flights with the best agent fares."
+        />
+      </Reveal>
 
+      <Reveal distance={16} duration={0.45}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           setSearched(true);
         }}
-        className="rounded-2xl border border-ink-100 bg-white p-6"
+        className="rounded-2xl border border-ink-100 bg-white p-6 shadow-sm"
       >
         <div className="grid items-end gap-4 lg:grid-cols-12">
           <div className="lg:col-span-3">
@@ -110,7 +115,7 @@ export default function FlightPage() {
               type="button"
               onClick={swap}
               aria-label="Swap"
-              className="grid h-10 w-10 place-items-center rounded-full border border-ink-200 bg-white text-ink-700 hover:border-brand-300 hover:text-brand-700"
+              className="grid h-10 w-10 place-items-center rounded-full border border-ink-200 bg-white text-ink-700 shadow-sm transition-all duration-150 hover:border-brand-300 hover:text-brand-700 hover:shadow-soft"
             >
               <ArrowRightLeft className="h-4 w-4" />
             </button>
@@ -149,22 +154,27 @@ export default function FlightPage() {
           </div>
         </div>
       </form>
+      </Reveal>
 
       {searched && (
-        <div className="mt-6 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="font-display text-base font-semibold text-ink-900">
-              {sampleFlights.length} flights found · {from.split(" · ")[0]} →{" "}
-              {to.split(" · ")[0]}
-            </h3>
-          </div>
+        <Reveal distance={16} duration={0.45} className="mt-6 space-y-3">
+          <SectionTitle
+            className="mb-0"
+            title={
+              <>
+                {sampleFlights.length} flights found · {from.split(" · ")[0]} →{" "}
+                {to.split(" · ")[0]}
+              </>
+            }
+          />
           {sampleFlights.map((f) => (
-            <div
+            <Panel
               key={f.flightNo}
-              className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-ink-100 bg-white p-5"
+              interactive
+              className="flex flex-wrap items-center justify-between gap-4"
             >
               <div className="flex items-center gap-4">
-                <span className="grid h-12 w-12 place-items-center rounded-xl bg-brand-50 text-brand-700">
+                <span className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
                   <Plane className="h-5 w-5" />
                 </span>
                 <div>
@@ -204,9 +214,9 @@ export default function FlightPage() {
                   Book
                 </Button>
               </div>
-            </div>
+            </Panel>
           ))}
-        </div>
+        </Reveal>
       )}
     </div>
   );

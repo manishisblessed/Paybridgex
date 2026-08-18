@@ -5,10 +5,11 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Panel, SectionTitle, StatusPill, SegmentedNav } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { formatINR, formatNumber } from "@/lib/utils";
-import { RefreshCw, Undo2, Search } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 
 type Reversal = {
   id: string;
@@ -219,8 +220,9 @@ export default function ReversalDeskPage() {
       key: "status",
       header: "Status",
       render: (r) => (
-        <Badge
-          variant={
+        <StatusPill
+          status={r.status}
+          tone={
             r.status === "COMPLETED"
               ? "success"
               : r.status === "PENDING_APPROVAL"
@@ -229,7 +231,7 @@ export default function ReversalDeskPage() {
           }
         >
           {r.status.toLowerCase().replace(/_/g, " ")}
-        </Badge>
+        </StatusPill>
       ),
     },
     {
@@ -250,21 +252,22 @@ export default function ReversalDeskPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Reversal Desk"
-        description="Compensating ledger entries against settled transactions and settlements — history is never edited, only reversed."
-        actions={
-          <Button variant="outline" onClick={load}>
-            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          title="Reversal Desk"
+          description="Compensating ledger entries against settled transactions and settlements — history is never edited, only reversed."
+          actions={
+            <Button variant="outline" onClick={load}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+            </Button>
+          }
+        />
+      </Reveal>
 
       {/* Raise a reversal */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5">
-        <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink-800">
-          <Undo2 className="h-4 w-4 text-brand-600" /> Raise a reversal
-        </p>
+      <Reveal distance={16} duration={0.45}>
+      <Panel>
+        <SectionTitle title="Raise a reversal" />
 
         <div className="mb-4 flex gap-2">
           <div className="relative flex-1 max-w-md">
@@ -353,31 +356,29 @@ export default function ReversalDeskPage() {
             Raise reversal
           </Button>
         </div>
-      </div>
+      </Panel>
+      </Reveal>
 
       {/* Filter + table */}
-      <div className="flex items-center gap-2">
-        {STATUSES.map((s) => (
-          <button
-            key={s}
-            onClick={() => {
-              setStatus(s);
-              setPage(1);
-            }}
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-              status === s ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200"
-            }`}
-          >
-            {s === "all" ? "All" : s.toLowerCase().replace(/_/g, " ")}
-          </button>
-        ))}
-      </div>
-
-      <DataTable
-        columns={columns}
-        data={rows}
-        loading={loading}
+      <SegmentedNav
+        tabs={STATUSES.map((s) => ({
+          key: s,
+          label: s === "all" ? "All" : s.toLowerCase().replace(/_/g, " "),
+        }))}
+        active={status}
+        onChange={(s) => {
+          setStatus(s);
+          setPage(1);
+        }}
       />
+
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          columns={columns}
+          data={rows}
+          loading={loading}
+        />
+      </Reveal>
 
       {pages > 1 && (
         <div className="flex items-center justify-between text-sm text-ink-500">

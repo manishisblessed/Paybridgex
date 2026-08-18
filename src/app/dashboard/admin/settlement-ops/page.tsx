@@ -5,8 +5,9 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Panel, StatTile, StatusPill, SectionTitle } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { formatINR, formatNumber } from "@/lib/utils";
 import {
   Timer,
@@ -16,6 +17,11 @@ import {
   AlertTriangle,
   CheckCircle2,
   Settings2,
+  Banknote,
+  MinusCircle,
+  XCircle,
+  Users,
+  Wallet,
 } from "lucide-react";
 
 type Run = {
@@ -58,21 +64,6 @@ type Overview = {
 
 const inputCls =
   "rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100";
-
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "good" | "bad" }) {
-  return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">{label}</p>
-      <p
-        className={`mt-1 text-xl font-bold ${
-          tone === "good" ? "text-emerald-600" : tone === "bad" ? "text-rose-600" : "text-ink-900"
-        }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
 
 export default function SettlementOpsPage() {
   const [data, setData] = useState<Overview | null>(null);
@@ -154,15 +145,22 @@ export default function SettlementOpsPage() {
     {
       key: "trigger",
       header: "Trigger",
-      render: (r) => <Badge variant={r.trigger === "MANUAL" ? "warning" : "default"}>{r.trigger.toLowerCase()}</Badge>,
+      render: (r) => (
+        <StatusPill status={r.trigger} tone={r.trigger === "MANUAL" ? "warning" : "neutral"}>
+          {r.trigger.toLowerCase()}
+        </StatusPill>
+      ),
     },
     {
       key: "status",
       header: "Status",
       render: (r) => (
-        <Badge variant={r.status === "SUCCESS" ? "success" : r.status === "FAILED" ? "danger" : "default"}>
+        <StatusPill
+          status={r.status}
+          tone={r.status === "SUCCESS" ? "success" : r.status === "FAILED" ? "danger" : "neutral"}
+        >
           {r.status.toLowerCase()}
-        </Badge>
+        </StatusPill>
       ),
     },
     {
@@ -188,6 +186,7 @@ export default function SettlementOpsPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         title="Settlement Ops"
         description="T+1 AEPS → primary wallet settlement — engine controls, daily cycle status, run history and alerts."
@@ -223,13 +222,14 @@ export default function SettlementOpsPage() {
           </div>
         }
       />
+      </Reveal>
 
       {cfg && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <Badge variant={cfg.enabled ? "success" : "danger"}>
+          <StatusPill status={cfg.enabled ? "enabled" : "disabled"}>
             engine {cfg.enabled ? "enabled" : "disabled"}
-          </Badge>
-          {cfg.paused && <Badge variant="warning">paused</Badge>}
+          </StatusPill>
+          {cfg.paused && <StatusPill status="paused" tone="warning" />}
           <span className="text-ink-500">
             Daily at {String(cfg.hour).padStart(2, "0")}:00 IST · minimum {formatINR(cfg.minAmount)}
           </span>
@@ -237,8 +237,8 @@ export default function SettlementOpsPage() {
       )}
 
       {showConfig && (
-        <div className="rounded-2xl border border-brand-200 bg-white p-5">
-          <p className="mb-3 text-sm font-semibold text-ink-800">Engine configuration</p>
+        <Panel className="border-brand-200">
+          <SectionTitle title="Engine configuration" className="mb-3" />
           <div className="flex flex-wrap items-end gap-4">
             <label className="flex items-center gap-2 text-sm text-ink-700">
               <input
@@ -287,33 +287,77 @@ export default function SettlementOpsPage() {
               Save configuration
             </Button>
           </div>
-        </div>
+        </Panel>
       )}
 
       {today && (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-          <Stat label={`Settled today (${today.dayKey})`} value={String(today.settledCount)} tone="good" />
-          <Stat label="Settled amount" value={formatINR(today.settledAmount)} tone="good" />
-          <Stat label="Skipped" value={String(today.skippedCount)} />
-          <Stat label="Failed" value={String(today.failedCount)} tone={today.failedCount > 0 ? "bad" : undefined} />
-          <Stat label="Users with AEPS balance" value={formatNumber(today.pendingUsers)} />
-          <Stat label="Unsettled AEPS float" value={formatINR(today.pendingAmount)} />
-        </div>
+        <Stagger stagger={0.05} className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label={`Settled today (${today.dayKey})`}
+              countTo={today.settledCount}
+              icon={CheckCircle2}
+              tone="emerald"
+            />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label="Settled amount"
+              countTo={today.settledAmount}
+              prefix="₹"
+              decimals={2}
+              icon={Banknote}
+              tone="emerald"
+            />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile label="Skipped" countTo={today.skippedCount} icon={MinusCircle} tone="ink" />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label="Failed"
+              countTo={today.failedCount}
+              icon={XCircle}
+              tone={today.failedCount > 0 ? "rose" : "ink"}
+            />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label="Users with AEPS balance"
+              countTo={today.pendingUsers}
+              icon={Users}
+              tone="brand"
+            />
+          </StaggerItem>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label="Unsettled AEPS float"
+              countTo={today.pendingAmount}
+              prefix="₹"
+              decimals={2}
+              icon={Wallet}
+              tone="dark"
+            />
+          </StaggerItem>
+        </Stagger>
       )}
 
       {data && data.alerts.length > 0 && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5 shadow-sm">
           <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-800">
-            <AlertTriangle className="h-4 w-4" /> Open alerts ({data.alerts.length})
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-soft">
+              <AlertTriangle className="h-4 w-4" />
+            </span>
+            Open alerts ({data.alerts.length})
           </p>
           <ul className="space-y-2">
             {data.alerts.map((a) => (
-              <li key={a.id} className="flex items-start justify-between gap-3 rounded-xl bg-white p-3">
+              <li key={a.id} className="flex items-start justify-between gap-3 rounded-xl border border-ink-100/60 bg-white p-3 shadow-sm">
                 <div>
                   <p className="text-sm font-medium text-ink-900">
-                    <Badge variant={a.severity === "CRITICAL" ? "danger" : "warning"}>
+                    <StatusPill status={a.severity} tone={a.severity === "CRITICAL" ? "danger" : "warning"}>
                       {a.severity.toLowerCase()}
-                    </Badge>{" "}
+                    </StatusPill>{" "}
                     {a.title}
                   </p>
                   <p className="mt-0.5 text-xs text-ink-400">
@@ -335,11 +379,13 @@ export default function SettlementOpsPage() {
         </div>
       )}
 
-      <DataTable
-        columns={columns}
-        data={data?.runs ?? []}
-        loading={loading}
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          columns={columns}
+          data={data?.runs ?? []}
+          loading={loading}
+        />
+      </Reveal>
 
       {pages > 1 && (
         <div className="flex items-center justify-between text-sm text-ink-500">

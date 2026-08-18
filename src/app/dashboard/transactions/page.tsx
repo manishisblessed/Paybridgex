@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
-import { History, Search, Filter } from "lucide-react";
+import { History, Search, Filter, Receipt, IndianRupee, HandCoins } from "lucide-react";
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
+import { StatTile, FilterBar } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { TransactionsTable } from "@/components/dashboard/TransactionsTable";
@@ -51,42 +53,52 @@ export default function TransactionsPage() {
 
   return (
     <div>
-      <ServicePageHeader
-        icon={History}
-        title="Transactions"
-        description="Search, filter and export every transaction processed through your account."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={History}
+          title="Transactions"
+          description="Search, filter and export every transaction processed through your account."
+        />
+      </Reveal>
 
-      <div className={`mb-6 grid gap-4 ${showCommission ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
-        <div className="rounded-2xl border border-ink-100 bg-white p-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-ink-500">
-            Total transactions
-          </p>
-          <p className="mt-1 font-display text-2xl font-bold text-ink-900">
-            {loading ? "…" : totals.count}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-ink-100 bg-white p-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-ink-500">
-            Total volume
-          </p>
-          <p className="mt-1 font-display text-2xl font-bold text-ink-900">
-            ₹ {totals.total.toLocaleString("en-IN")}
-          </p>
-        </div>
+      <Stagger
+        stagger={0.05}
+        className={`mb-6 grid gap-4 ${showCommission ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}
+      >
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Total transactions"
+            countTo={totals.count}
+            icon={Receipt}
+            tone="brand"
+            loading={loading}
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Total volume"
+            countTo={totals.total}
+            prefix="₹ "
+            icon={IndianRupee}
+            tone="violet"
+            loading={loading}
+          />
+        </StaggerItem>
         {showCommission && (
-          <div className="rounded-2xl border border-ink-100 bg-white p-5">
-            <p className="text-xs font-semibold uppercase tracking-widest text-ink-500">
-              Total commission
-            </p>
-            <p className="mt-1 font-display text-2xl font-bold text-emerald-700">
-              ₹ {totals.commission.toLocaleString("en-IN")}
-            </p>
-          </div>
+          <StaggerItem distance={14} duration={0.35}>
+            <StatTile
+              label="Total commission"
+              countTo={totals.commission}
+              prefix="₹ "
+              icon={HandCoins}
+              tone="emerald"
+              loading={loading}
+            />
+          </StaggerItem>
         )}
-      </div>
+      </Stagger>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-ink-100 bg-white p-3">
+      <FilterBar className="mb-4">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
           <Input
@@ -126,9 +138,11 @@ export default function TransactionsPage() {
           ]}
           rows={rows}
         />
-      </div>
+      </FilterBar>
 
-      <TransactionsTable data={rows} showHeader={false} loading={loading} showCommission={showCommission} />
+      <Reveal distance={16} duration={0.45}>
+        <TransactionsTable data={rows} showHeader={false} loading={loading} showCommission={showCommission} />
+      </Reveal>
     </div>
   );
 }

@@ -12,7 +12,6 @@ import {
   TrendingUp,
   Clock,
   Users,
-  Wallet,
   CheckCircle2,
   XCircle,
   Globe,
@@ -20,6 +19,8 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Spinner } from "@/components/ui/Spinner";
+import { Panel, StatTile, TablePro, TableEmptyRow } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { formatINR } from "@/lib/utils";
 
 type PerformanceData = {
@@ -123,14 +124,17 @@ export default function PerformancePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Performance"
-        title="User Details & Activity"
-        description="Your account information, login history, and transaction performance at a glance."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Performance"
+          title="User Details & Activity"
+          description="Your account information, login history, and transaction performance at a glance."
+        />
+      </Reveal>
 
       {/* User Identity Card */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-6 shadow-soft">
+      <Reveal distance={16} duration={0.45}>
+      <Panel flush className="p-6 shadow-soft">
         <div className="flex flex-wrap items-start gap-6">
           <div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-brand-600 to-accent-500 text-white">
             <User className="h-8 w-8" />
@@ -174,41 +178,53 @@ export default function PerformancePage() {
             <p className="font-display text-2xl font-bold text-ink-900">{formatINR(user.walletBalance)}</p>
           </div>
         </div>
-      </div>
+      </Panel>
+      </Reveal>
 
       {/* Quick Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          icon={Activity}
-          label="Transactions (30d)"
-          value={stats.totalTransactions30d.toLocaleString("en-IN")}
-          color="brand"
-        />
-        <StatCard
-          icon={TrendingUp}
-          label="Turnover (30d)"
-          value={formatINR(stats.totalAmount30d)}
-          color="emerald"
-        />
-        <StatCard
-          icon={CheckCircle2}
-          label="Success Rate"
-          value={`${stats.successRate}%`}
-          sub={`${stats.successfulTxns} passed · ${stats.failedTxns} failed`}
-          color="green"
-        />
-        <StatCard
-          icon={Users}
-          label="Network Size"
-          value={stats.networkSize.toLocaleString("en-IN")}
-          sub={`${stats.walletTransactions} wallet txns`}
-          color="blue"
-        />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            icon={Activity}
+            label="Transactions (30d)"
+            countTo={stats.totalTransactions30d}
+            tone="brand"
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            icon={TrendingUp}
+            label="Turnover (30d)"
+            countTo={stats.totalAmount30d}
+            prefix="₹"
+            decimals={2}
+            tone="emerald"
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            icon={CheckCircle2}
+            label="Success Rate"
+            countTo={stats.successRate}
+            suffix="%"
+            hint={`${stats.successfulTxns} passed · ${stats.failedTxns} failed`}
+            tone="sky"
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            icon={Users}
+            label="Network Size"
+            countTo={stats.networkSize}
+            hint={`${stats.walletTransactions} wallet txns`}
+            tone="violet"
+          />
+        </StaggerItem>
+      </Stagger>
 
       {/* Security & 2FA Status */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-ink-100 bg-white p-5">
+      <Reveal distance={16} duration={0.45} className="grid gap-4 md:grid-cols-2">
+        <Panel>
           <h3 className="flex items-center gap-2 font-display text-base font-semibold text-ink-900">
             <Shield className="h-4 w-4 text-brand-600" />
             Security Status
@@ -240,10 +256,10 @@ export default function PerformancePage() {
               </span>
             </div>
           </div>
-        </div>
+        </Panel>
 
         {/* Parent/Upline Info */}
-        <div className="rounded-2xl border border-ink-100 bg-white p-5">
+        <Panel>
           <h3 className="flex items-center gap-2 font-display text-base font-semibold text-ink-900">
             <Users className="h-4 w-4 text-brand-600" />
             {parentInfo ? "Upline / Parent" : "Account Hierarchy"}
@@ -272,51 +288,47 @@ export default function PerformancePage() {
               </div>
             )}
           </div>
-        </div>
-      </div>
+        </Panel>
+      </Reveal>
 
       {/* Login History */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5">
-        <h3 className="flex items-center gap-2 font-display text-base font-semibold text-ink-900">
-          <Clock className="h-4 w-4 text-brand-600" />
-          Recent Login Activity
-        </h3>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-sm">
+      <Reveal distance={16} duration={0.45}>
+        <TablePro title="Recent Login Activity" dense>
+          <table>
             <thead>
-              <tr className="border-b border-ink-100 text-[10px] font-bold uppercase tracking-widest text-ink-500">
-                <th className="px-3 py-2">Date & Time</th>
-                <th className="px-3 py-2">IP Address</th>
-                <th className="px-3 py-2">Location (Lat, Lng)</th>
-                <th className="px-3 py-2">Device</th>
+              <tr>
+                <th>Date & Time</th>
+                <th>IP Address</th>
+                <th>Location (Lat, Lng)</th>
+                <th>Device</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-ink-50">
+            <tbody>
               {loginHistory.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-3 py-6 text-center text-ink-400">
-                    No login history available yet.
-                  </td>
-                </tr>
+                <TableEmptyRow
+                  colSpan={4}
+                  icon={Clock}
+                  message="No login history available yet."
+                />
               ) : (
                 loginHistory.map((entry) => {
                   const meta = entry.meta as { lat?: number; lng?: number } | null;
                   const ua = entry.userAgent || "Unknown";
                   const shortDevice = ua.length > 50 ? ua.slice(0, 50) + "..." : ua;
                   return (
-                    <tr key={entry.id} className="hover:bg-ink-25">
-                      <td className="whitespace-nowrap px-3 py-2.5 text-ink-800">
+                    <tr key={entry.id}>
+                      <td className="whitespace-nowrap text-ink-800">
                         {new Date(entry.createdAt).toLocaleString("en-IN")}
                       </td>
-                      <td className="px-3 py-2.5 font-mono text-xs text-ink-600">
+                      <td className="font-mono text-xs text-ink-600">
                         {entry.ip || "—"}
                       </td>
-                      <td className="px-3 py-2.5 text-ink-600">
+                      <td className="text-ink-600">
                         {meta?.lat && meta?.lng
                           ? `${meta.lat.toFixed(4)}, ${meta.lng.toFixed(4)}`
                           : "—"}
                       </td>
-                      <td className="max-w-[200px] truncate px-3 py-2.5 text-xs text-ink-500">
+                      <td className="max-w-[200px] truncate text-xs text-ink-500">
                         {shortDevice}
                       </td>
                     </tr>
@@ -325,42 +337,8 @@ export default function PerformancePage() {
               )}
             </tbody>
           </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  sub,
-  color,
-}: {
-  icon: typeof Activity;
-  label: string;
-  value: string;
-  sub?: string;
-  color: string;
-}) {
-  const bgMap: Record<string, string> = {
-    brand: "bg-brand-50 text-brand-600",
-    emerald: "bg-emerald-50 text-emerald-600",
-    green: "bg-green-50 text-green-600",
-    blue: "bg-blue-50 text-blue-600",
-  };
-
-  return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-5">
-      <div className="flex items-center gap-3">
-        <span className={`grid h-9 w-9 place-items-center rounded-lg ${bgMap[color] || bgMap.brand}`}>
-          <Icon className="h-4 w-4" />
-        </span>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">{label}</p>
-      </div>
-      <p className="mt-2 font-display text-xl font-bold text-ink-900">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-ink-500">{sub}</p>}
+        </TablePro>
+      </Reveal>
     </div>
   );
 }

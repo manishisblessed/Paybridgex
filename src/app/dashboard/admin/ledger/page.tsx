@@ -8,8 +8,10 @@ import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
-import { formatINR, formatNumber } from "@/lib/utils";
-import { RefreshCw, Download, Search, Lock } from "lucide-react";
+import { StatTile, FilterBar } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
+import { formatINR } from "@/lib/utils";
+import { RefreshCw, Download, Search, Lock, TrendingUp, TrendingDown, ScrollText } from "lucide-react";
 
 type Entry = {
   id: string;
@@ -222,47 +224,54 @@ export default function LedgerExplorerPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin · Money"
-        title="Ledger Explorer"
-        description="Every rupee that has ever moved, across both wallet books. Filter, inspect and export — the ledger is append-only and never edited."
-        actions={
-          <>
-            <Button variant="outline" onClick={load} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-            </Button>
-            <Button variant="outline" onClick={() => exportFile("csv")}>
-              <Download className="h-4 w-4" /> CSV
-            </Button>
-            <Button variant="outline" onClick={() => exportFile("zip")}>
-              <Download className="h-4 w-4" /> ZIP
-            </Button>
-          </>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin · Money"
+          title="Ledger Explorer"
+          description="Every rupee that has ever moved, across both wallet books. Filter, inspect and export — the ledger is append-only and never edited."
+          actions={
+            <>
+              <Button variant="outline" onClick={load} disabled={loading}>
+                <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+              </Button>
+              <Button variant="outline" onClick={() => exportFile("csv")}>
+                <Download className="h-4 w-4" /> CSV
+              </Button>
+              <Button variant="outline" onClick={() => exportFile("zip")}>
+                <Download className="h-4 w-4" /> ZIP
+              </Button>
+            </>
+          }
+        />
+      </Reveal>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">
-            Credits (filtered)
-          </p>
-          <p className="mt-1 font-display text-xl font-bold text-emerald-700">
-            {formatINR(sums.credit)}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-rose-600">
-            Debits (filtered)
-          </p>
-          <p className="mt-1 font-display text-xl font-bold text-rose-700">{formatINR(sums.debit)}</p>
-        </div>
-        <div className="rounded-2xl border border-ink-100 bg-white p-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">Entries</p>
-          <p className="mt-1 font-display text-xl font-bold text-ink-900">{formatNumber(total)}</p>
-        </div>
-      </div>
+      <Stagger stagger={0.05} className="grid gap-3 sm:grid-cols-3">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Credits (filtered)"
+            countTo={sums.credit}
+            prefix="₹"
+            decimals={2}
+            icon={TrendingUp}
+            tone="emerald"
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Debits (filtered)"
+            countTo={sums.debit}
+            prefix="₹"
+            decimals={2}
+            icon={TrendingDown}
+            tone="rose"
+          />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Entries" countTo={total} icon={ScrollText} tone="dark" />
+        </StaggerItem>
+      </Stagger>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <FilterBar>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-ink-400" />
           <input
@@ -297,13 +306,15 @@ export default function LedgerExplorerPage() {
         <input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} className={inputCls} />
         <span className="text-xs text-ink-400">to</span>
         <input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} className={inputCls} />
-      </div>
+      </FilterBar>
 
-      <DataTable
-        columns={columns}
-        data={entries}
-        loading={loading}
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          columns={columns}
+          data={entries}
+          loading={loading}
+        />
+      </Reveal>
 
       {pages > 1 && (
         <div className="flex items-center justify-end gap-2 text-sm">

@@ -19,11 +19,12 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label } from "@/components/ui/Input";
 import { ReportActions } from "@/components/dashboard/ReportActions";
+import { ModalShell, StatTile, StatusPill } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { generateRandomPassword } from "@/lib/utils";
 import { ASSIGNABLE_SUB_ADMIN_TABS } from "@/lib/roles";
 
@@ -153,9 +154,9 @@ export default function AdminSubAdminsPage() {
       header: "2FA",
       render: (r) =>
         r.twoFactorEnabled ? (
-          <Badge variant="success">Enabled</Badge>
+          <StatusPill status="Enabled" tone="success" />
         ) : (
-          <Badge variant="warning">Not set up</Badge>
+          <StatusPill status="Not set up" tone="warning" />
         ),
     },
     {
@@ -163,7 +164,7 @@ export default function AdminSubAdminsPage() {
       header: "Tabs",
       render: (r) =>
         (r.allowedTabs ?? []).length === 0 ? (
-          <Badge variant="accent">All tabs</Badge>
+          <StatusPill status="All tabs" tone="brand" />
         ) : (
           <span className="text-xs text-ink-700">
             {r.allowedTabs.length} of {ASSIGNABLE_SUB_ADMIN_TABS.length}
@@ -173,19 +174,7 @@ export default function AdminSubAdminsPage() {
     {
       key: "status",
       header: "Status",
-      render: (r) => (
-        <Badge
-          variant={
-            r.status === "ACTIVE"
-              ? "success"
-              : r.status === "SUSPENDED"
-                ? "danger"
-                : "default"
-          }
-        >
-          {r.status}
-        </Badge>
-      ),
+      render: (r) => <StatusPill status={r.status} />,
     },
     {
       key: "createdAt",
@@ -264,46 +253,54 @@ export default function AdminSubAdminsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="Sub-admins"
-        description="Create operations users delegated by you. Each sub-admin signs in at /sub-admin with 2FA enforced."
-        actions={
-          <>
-            <ReportActions
-              filename="sub-admins"
-              title="Paybridgex · Sub-Admins"
-              columns={[
-                { key: "id", header: "ID" },
-                { key: "name", header: "Name" },
-                { key: "email", header: "Email" },
-                { key: "phone", header: "Mobile" },
-                { key: "status", header: "Status" },
-                {
-                  key: "twoFactorEnabled",
-                  header: "2FA",
-                  render: (r) => (r.twoFactorEnabled ? "Yes" : "No"),
-                },
-                {
-                  key: "createdAt",
-                  header: "Created",
-                  render: (r) => new Date(r.createdAt).toLocaleString("en-IN"),
-                },
-              ]}
-              rows={rows}
-            />
-            <Button onClick={() => setShowNew(true)}>
-              <Plus className="h-4 w-4" /> Create sub-admin
-            </Button>
-          </>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="Sub-admins"
+          description="Create operations users delegated by you. Each sub-admin signs in at /sub-admin with 2FA enforced."
+          actions={
+            <>
+              <ReportActions
+                filename="sub-admins"
+                title="Paybridgex · Sub-Admins"
+                columns={[
+                  { key: "id", header: "ID" },
+                  { key: "name", header: "Name" },
+                  { key: "email", header: "Email" },
+                  { key: "phone", header: "Mobile" },
+                  { key: "status", header: "Status" },
+                  {
+                    key: "twoFactorEnabled",
+                    header: "2FA",
+                    render: (r) => (r.twoFactorEnabled ? "Yes" : "No"),
+                  },
+                  {
+                    key: "createdAt",
+                    header: "Created",
+                    render: (r) => new Date(r.createdAt).toLocaleString("en-IN"),
+                  },
+                ]}
+                rows={rows}
+              />
+              <Button onClick={() => setShowNew(true)}>
+                <Plus className="h-4 w-4" /> Create sub-admin
+              </Button>
+            </>
+          }
+        />
+      </Reveal>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Stat label="Total sub-admins" value={stats.total} tone="brand" />
-        <Stat label="Active" value={stats.active} tone="success" />
-        <Stat label="2FA enabled" value={stats.with2FA} tone="warning" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-3 sm:grid-cols-3">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Total sub-admins" countTo={stats.total} icon={UserCog} tone="brand" loading={loading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Active" countTo={stats.active} icon={ShieldCheck} tone="emerald" loading={loading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="2FA enabled" countTo={stats.with2FA} icon={Smartphone} tone="violet" loading={loading} />
+        </StaggerItem>
+      </Stagger>
 
       {showNew && (
         <NewSubAdminForm
@@ -343,14 +340,16 @@ export default function AdminSubAdminsPage() {
         />
       )}
 
-      <DataTable
-        title={`${rows.length} sub-admins`}
-        loading={loading}
-        description="Sub-admins log in at /sub-admin and inherit a restricted operations dashboard."
-        columns={cols}
-        data={rows}
-        empty="No sub-admins created yet. Click 'Create sub-admin' to issue the first credentials."
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title={`${rows.length} sub-admins`}
+          loading={loading}
+          description="Sub-admins log in at /sub-admin and inherit a restricted operations dashboard."
+          columns={cols}
+          data={rows}
+          empty="No sub-admins created yet. Click 'Create sub-admin' to issue the first credentials."
+        />
+      </Reveal>
 
       <ConfirmDialog
         open={deleteTarget !== null}
@@ -416,7 +415,7 @@ function NewSubAdminForm({
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50/60 to-white p-5"
+      className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50/60 to-white p-5 shadow-sm"
     >
       <div className="mb-4 flex items-center gap-3">
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-ink-900 text-white">
@@ -528,70 +527,55 @@ function TabsDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4">
-      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 bg-gradient-to-br from-violet-50 to-white px-6 py-5">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-violet-700">
-              Assign tabs
-            </p>
-            <h3 className="mt-1 font-display text-lg font-bold text-ink-900">
-              {record.name}
-            </h3>
-            <p className="mt-1 text-xs text-ink-600">
-              Pick the workspace tabs this sub-admin may access. Leaving all
-              unticked grants the full sub-admin menu.
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 hover:bg-ink-100"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {error && (
-          <p className="mx-6 mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            {error}
-          </p>
-        )}
-
-        <div className="grid gap-2 px-6 py-4 sm:grid-cols-2">
-          {ASSIGNABLE_SUB_ADMIN_TABS.map((tab) => {
-            const on = picked.includes(tab.href);
-            return (
-              <label
-                key={tab.href}
-                className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition ${
-                  on
-                    ? "border-violet-200 bg-violet-50 text-violet-800"
-                    : "border-ink-200 bg-white text-ink-600"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={on}
-                  onChange={() => toggle(tab.href)}
-                  className="h-4 w-4 rounded border-ink-300 text-violet-600 focus:ring-violet-500"
-                />
-                <span className="flex-1 truncate">{tab.label}</span>
-              </label>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-ink-100 bg-ink-50/40 px-6 py-3">
+    <ModalShell
+      open
+      onClose={onClose}
+      eyebrow="Assign tabs"
+      title={record.name}
+      subtitle="Pick the workspace tabs this sub-admin may access. Leaving all unticked grants the full sub-admin menu."
+      headerClassName="bg-gradient-to-br from-violet-50 to-white"
+      size="md"
+      footer={
+        <>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button onClick={save} isLoading={saving}>
             Save tabs
           </Button>
-        </div>
+        </>
+      }
+    >
+      {error && (
+        <p className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {error}
+        </p>
+      )}
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        {ASSIGNABLE_SUB_ADMIN_TABS.map((tab) => {
+          const on = picked.includes(tab.href);
+          return (
+            <label
+              key={tab.href}
+              className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition ${
+                on
+                  ? "border-brand-300 bg-brand-50 font-medium text-brand-800"
+                  : "border-ink-100 bg-white text-ink-600 hover:border-ink-200"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={on}
+                onChange={() => toggle(tab.href)}
+                className="h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
+              />
+              <span className="flex-1 truncate">{tab.label}</span>
+            </label>
+          );
+        })}
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -836,32 +820,6 @@ function Field({
         </p>
         {action}
       </div>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "brand" | "success" | "warning";
-}) {
-  const map = {
-    brand: "from-brand-500 to-brand-700 text-brand-50",
-    success: "from-emerald-500 to-emerald-700 text-emerald-50",
-    warning: "from-amber-500 to-amber-700 text-amber-50",
-  };
-  return (
-    <div
-      className={`rounded-2xl bg-gradient-to-br ${map[tone]} p-5 shadow-soft`}
-    >
-      <p className="text-xs font-bold uppercase tracking-widest opacity-90">
-        {label}
-      </p>
-      <p className="mt-2 font-display text-3xl font-bold">{value}</p>
     </div>
   );
 }

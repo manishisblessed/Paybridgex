@@ -7,6 +7,7 @@ import { clientIp } from "@/lib/security/audit";
 import { generateNextUserCode } from "@/lib/userCode";
 import { uplineInclude, flattenUpline } from "@/lib/hierarchy";
 import { buildInviteDataForUser } from "@/lib/onboarding/inviteBackfill";
+import { defaultServicesForRole } from "@/lib/settings";
 
 export const fetchCache = "force-no-store";
 
@@ -74,6 +75,9 @@ export async function POST(req: Request) {
 
   const passwordHash = await bcrypt.hash(password, 12);
   const userCode = await generateNextUserCode(role);
+  // New network users start with only the tier's configured default services
+  // (empty = none). Admins grant the rest per user afterwards.
+  const enabledServices = await defaultServicesForRole(role);
 
   // Create the user AND a linked onboarding invite in one transaction. The
   // Onboarding Invites page reads from the Invite table, so without this a
@@ -93,6 +97,7 @@ export async function POST(req: Request) {
         state: state?.trim(),
         pincode: pincode?.trim(),
         parentId: parentId ?? undefined,
+        enabledServices,
       },
       select: {
         id: true,

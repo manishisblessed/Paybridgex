@@ -21,7 +21,14 @@ import {
   TransactionResult,
   type TxnResult,
 } from "@/components/dashboard/TransactionResult";
-import { Badge } from "@/components/ui/Badge";
+import {
+  DarkPanel,
+  StatusPill,
+  TablePro,
+  TableEmptyRow,
+  TableSkeletonRows,
+} from "@/components/dashboard/ui";
+import { CountUp, Reveal } from "@/components/motion";
 import { generateRefId, formatINR } from "@/lib/utils";
 import { useAuth } from "@/lib/useAuth";
 
@@ -219,15 +226,17 @@ export default function WalletPage() {
 
   return (
     <div>
-      <ServicePageHeader
-        icon={Wallet}
-        title="Paybridgex Wallet"
-        description="Top-up your wallet instantly via UPI, or view your balance history."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={Wallet}
+          title="Paybridgex Wallet"
+          description="Top-up your wallet instantly via UPI, or view your balance history."
+        />
+      </Reveal>
 
+      <Reveal distance={16} duration={0.45}>
       <div className="mb-8 grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-1 relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 via-brand-600 to-accent-500 p-6 text-white shadow-glow">
-          <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+        <DarkPanel className="lg:col-span-1 p-6">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-widest text-white/80">
               Available balance
@@ -242,25 +251,25 @@ export default function WalletPage() {
             </button>
           </div>
           <p className="mt-2 font-display text-3xl font-bold">
-            {formatINR(balance)}
+            <CountUp value={balance} prefix="₹" decimals={2} />
           </p>
           <div className="mt-6 grid grid-cols-2 gap-3 text-xs">
-            <div className="rounded-xl bg-white/15 p-3">
-              <p className="opacity-80">This month in</p>
+            <div className="rounded-xl bg-white/10 p-3 ring-1 ring-white/15">
+              <p className="text-white/70">This month in</p>
               <p className="mt-1 font-display text-lg font-bold">
                 {formatINR(data?.monthlyIn ?? 0)}
               </p>
             </div>
-            <div className="rounded-xl bg-white/15 p-3">
-              <p className="opacity-80">This month out</p>
+            <div className="rounded-xl bg-white/10 p-3 ring-1 ring-white/15">
+              <p className="text-white/70">This month out</p>
               <p className="mt-1 font-display text-lg font-bold">
                 {formatINR(data?.monthlyOut ?? 0)}
               </p>
             </div>
           </div>
-        </div>
+        </DarkPanel>
 
-        <div className="lg:col-span-2 rounded-2xl border border-ink-100 bg-white p-6">
+        <div className="lg:col-span-2 rounded-2xl border border-ink-100 bg-white p-6 shadow-sm">
           <div className="grid grid-cols-2 gap-2">
             {(
               [
@@ -433,21 +442,19 @@ export default function WalletPage() {
           )}
         </div>
       </div>
+      </Reveal>
 
       {/* Wallet transaction history — real data from DB */}
-      <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 px-5 py-4">
-          <div>
-            <h3 className="font-display text-base font-semibold text-ink-900">
-              Wallet history
-            </h3>
-            <p className="text-xs text-ink-500">
-              {data?.recentTxns.length
-                ? `Showing latest ${data.recentTxns.length} entries`
-                : "No wallet transactions yet"}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
+      <Reveal distance={16} duration={0.45}>
+      <TablePro
+        title="Wallet history"
+        description={
+          data?.recentTxns.length
+            ? `Showing latest ${data.recentTxns.length} entries`
+            : "No wallet transactions yet"
+        }
+        action={
+          <>
             <select
               value={stmtPeriod}
               onChange={(e) => setStmtPeriod(e.target.value as typeof stmtPeriod)}
@@ -470,37 +477,34 @@ export default function WalletPage() {
                 CSV
               </Button>
             </a>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-ink-50/60 text-left text-xs uppercase tracking-wider text-ink-500">
+          </>
+        }
+      >
+          <table>
+            <thead>
               <tr>
-                <th className="px-5 py-3 font-semibold">Type</th>
-                <th className="px-5 py-3 font-semibold">Description</th>
-                <th className="px-5 py-3 font-semibold text-right">Amount</th>
-                <th className="px-5 py-3 font-semibold text-right">
-                  Balance after
-                </th>
-                <th className="px-5 py-3 font-semibold">Date</th>
+                <th>Type</th>
+                <th>Description</th>
+                <th className="text-right">Amount</th>
+                <th className="text-right">Balance after</th>
+                <th>Date</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-ink-100 text-ink-800">
+            <tbody>
               {!data?.recentTxns.length ? (
-                <tr>
-                  <td
+                fetching ? (
+                  <TableSkeletonRows rows={6} cols={5} />
+                ) : (
+                  <TableEmptyRow
                     colSpan={5}
-                    className="px-5 py-12 text-center text-sm text-ink-500"
-                  >
-                    {fetching
-                      ? "Loading..."
-                      : "No wallet transactions yet. Your transaction history will appear here."}
-                  </td>
-                </tr>
+                    icon={Wallet}
+                    message="No wallet transactions yet. Your transaction history will appear here."
+                  />
+                )
               ) : (
                 data.recentTxns.map((t) => (
-                  <tr key={t.id} className="hover:bg-ink-50/40">
-                    <td className="px-5 py-3">
+                  <tr key={t.id}>
+                    <td>
                       <div className="flex items-center gap-2">
                         {t.direction === "CREDIT" ? (
                           <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-50 text-emerald-600">
@@ -511,16 +515,10 @@ export default function WalletPage() {
                             <ArrowUpRight className="h-3.5 w-3.5" />
                           </span>
                         )}
-                        <Badge
-                          variant={
-                            t.direction === "CREDIT" ? "success" : "danger"
-                          }
-                        >
-                          {t.direction}
-                        </Badge>
+                        <StatusPill status={t.direction} />
                       </div>
                     </td>
-                    <td className="px-5 py-3">
+                    <td>
                       <div className="font-medium text-ink-900">
                         {REASON_LABELS[t.reason] ?? t.reason}
                       </div>
@@ -529,15 +527,15 @@ export default function WalletPage() {
                       )}
                     </td>
                     <td
-                      className={`px-5 py-3 text-right font-semibold ${t.direction === "CREDIT" ? "text-emerald-700" : "text-rose-700"}`}
+                      className={`text-right font-semibold ${t.direction === "CREDIT" ? "text-emerald-700" : "text-rose-700"}`}
                     >
                       {t.direction === "CREDIT" ? "+" : "−"}
                       {formatINR(t.amount)}
                     </td>
-                    <td className="px-5 py-3 text-right text-ink-600">
+                    <td className="text-right text-ink-600">
                       {formatINR(t.balanceAfter)}
                     </td>
-                    <td className="px-5 py-3 text-xs text-ink-500 whitespace-nowrap">
+                    <td className="text-xs text-ink-500">
                       {new Date(t.createdAt).toLocaleString("en-IN", {
                         dateStyle: "medium",
                         timeStyle: "short",
@@ -548,8 +546,8 @@ export default function WalletPage() {
               )}
             </tbody>
           </table>
-        </div>
-      </div>
+      </TablePro>
+      </Reveal>
 
       <TransactionResult result={result} onClose={() => setResult(null)} />
     </div>

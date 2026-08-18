@@ -10,7 +10,6 @@ import {
   ArrowLeftRight,
   CreditCard,
   RefreshCw,
-  Download,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -27,12 +26,20 @@ import {
 } from "lucide-react";
 import { SettlementReportTab } from "./SettlementReportTab";
 import { PageHeader } from "@/components/dashboard/PageHeader";
-import { StatCard } from "@/components/dashboard/StatCard";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
+import {
+  StatTile,
+  FilterBar,
+  FilterField,
+  TabNav,
+  Panel,
+  EmptyState,
+} from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { cn, formatINR } from "@/lib/utils";
+import { formatINR } from "@/lib/utils";
 import { posClassificationLabel } from "@/lib/pos/classification";
 import { type ReportColumn } from "@/lib/reports";
 import { ReportActions } from "@/components/dashboard/ReportActions";
@@ -135,34 +142,25 @@ export default function PosPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Point of Sale"
-        title="POS Terminals"
-        description="Live terminals and per-second transactions from your POS machines — powered by Same Day Solution."
-        actions={
-          <Button variant="outline">
-            <Wrench className="h-4 w-4" /> Raise service request
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Point of Sale"
+          title="POS Terminals"
+          description="Live terminals and per-second transactions from your POS machines — powered by Same Day Solution."
+          actions={
+            <Button variant="outline">
+              <Wrench className="h-4 w-4" /> Raise service request
+            </Button>
+          }
+        />
+      </Reveal>
 
       {/* Tabs */}
-      <div className="flex gap-1 rounded-xl border border-ink-100 bg-ink-50/60 p-1">
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
-            className={cn(
-              "flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition-all",
-              activeTab === id
-                ? "bg-white text-ink-900 shadow-sm"
-                : "text-ink-500 hover:text-ink-700"
-            )}
-          >
-            <span className="flex items-center justify-center gap-2"><Icon className="h-4 w-4" /> {label}</span>
-          </button>
-        ))}
-      </div>
+      <TabNav
+        tabs={tabs.map(({ id, label, icon }) => ({ key: id, label, icon }))}
+        active={activeTab}
+        onChange={(key) => setActiveTab(key as Tab)}
+      />
 
       {activeTab === "transactions" ? (
         <TransactionsTab />
@@ -222,12 +220,20 @@ function FreeRentTab() {
 
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Machines on target" value={`${achievedCount}/${machines.length}`} icon={Trophy} accent="emerald" />
-        <StatCard label="Rent waived this cycle" value={formatINR(totalSaved)} icon={Gift} accent="brand" />
-        <StatCard label="Target per machine" value={data ? formatINR(data.target) : "..."} icon={IndianRupee} accent="violet" />
-        <StatCard label="Your machines" value={String(machines.length)} icon={Monitor} accent="accent" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Machines on target" value={`${achievedCount}/${machines.length}`} icon={Trophy} tone="emerald" loading={isLoading && !data} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Rent waived this cycle" value={formatINR(totalSaved)} icon={Gift} tone="brand" loading={isLoading && !data} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Target per machine" value={data ? formatINR(data.target) : "..."} icon={IndianRupee} tone="violet" loading={isLoading && !data} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Your machines" value={String(machines.length)} icon={Monitor} tone="sky" loading={isLoading && !data} />
+        </StaggerItem>
+      </Stagger>
 
       <div className="flex items-center gap-3">
         <Button variant="outline" size="sm" onClick={() => mutate()} title="Refresh">
@@ -249,16 +255,18 @@ function FreeRentTab() {
           <Loader2 className="h-4 w-4 animate-spin" /> Loading your machines...
         </div>
       ) : machines.length === 0 ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-ink-200 bg-ink-50 p-4 text-sm text-ink-600">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          You have no active POS rental subscriptions yet.
-        </div>
+        <EmptyState
+          icon={Monitor}
+          title="No POS rental subscriptions"
+          message="You have no active POS rental subscriptions yet."
+          compact
+        />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <Reveal distance={16} duration={0.45} className="grid gap-4 md:grid-cols-2">
           {machines.map((m) => (
             <RentTargetCard key={m.subscriptionId} m={m} />
           ))}
-        </div>
+        </Reveal>
       )}
     </>
   );
@@ -270,7 +278,7 @@ function RentTargetCard({ m }: { m: RentalTargetMachine }) {
 
   if (m.achieved) {
     return (
-      <div className="relative overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5">
+      <div className="relative overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="font-mono text-xs font-semibold text-ink-700">{label}</p>
@@ -303,7 +311,7 @@ function RentTargetCard({ m }: { m: RentalTargetMachine }) {
   }
 
   return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-5">
+    <Panel interactive>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-mono text-xs font-semibold text-ink-700">{label}</p>
@@ -328,7 +336,7 @@ function RentTargetCard({ m }: { m: RentalTargetMachine }) {
         <span>{formatINR(m.businessDone)} done</span>
         <span>Target {formatINR(m.target)}</span>
       </div>
-    </div>
+    </Panel>
   );
 }
 
@@ -433,11 +441,17 @@ function MachinesTab() {
 
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <StatCard label="Active Terminals" value={stats ? String(stats.active) : "..."} icon={Monitor} accent="brand" />
-        <StatCard label="Total Machines" value={stats ? String(stats.total) : "..."} icon={CreditCard} accent="violet" />
-        <StatCard label="On This Page" value={String(machines.length)} icon={ArrowLeftRight} accent="emerald" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Active Terminals" value={stats ? String(stats.active) : "..."} icon={Monitor} tone="brand" loading={!stats} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Total Machines" value={stats ? String(stats.total) : "..."} icon={CreditCard} tone="violet" loading={!stats} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="On This Page" value={String(machines.length)} icon={ArrowLeftRight} tone="emerald" loading={isLoading && !data} />
+        </StaggerItem>
+      </Stagger>
 
       <div className="flex items-center gap-3">
         <Button variant="outline" size="sm" onClick={() => mutate()} title="Refresh">
@@ -448,14 +462,16 @@ function MachinesTab() {
       {error ? (
         <ErrorBanner message={error instanceof Error ? error.message : "Failed to load POS machines."} />
       ) : (
-        <DataTable
-          title="My Terminals"
-          description={pagination ? `${pagination.total} terminal${pagination.total === 1 ? "" : "s"} assigned to your account` : "Loading..."}
-          columns={cols}
-          data={machines}
-          loading={isLoading}
-          empty="No POS machines assigned to your account yet."
-        />
+        <Reveal distance={16} duration={0.45}>
+          <DataTable
+            title="My Terminals"
+            description={pagination ? `${pagination.total} terminal${pagination.total === 1 ? "" : "s"} assigned to your account` : "Loading..."}
+            columns={cols}
+            data={machines}
+            loading={isLoading}
+            empty="No POS machines assigned to your account yet."
+          />
+        </Reveal>
       )}
 
       {pagination && pagination.totalPages > 1 && (
@@ -745,116 +761,50 @@ function TransactionsTab() {
 
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Transactions" value={summary ? String(summary.total_transactions) : "..."} icon={ArrowLeftRight} accent="brand" />
-        <StatCard label="Total Volume" value={summary ? formatINR(parseFloat(summary.total_amount)) : "..."} icon={IndianRupee} accent="emerald" />
-        <StatCard label="Captured" value={summary ? String(summary.captured_count) : "..."} icon={CreditCard} accent="violet" />
-        <StatCard label="Terminals" value={allTerminals.length ? String(allTerminals.length) : "..."} icon={Monitor} accent="accent" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Total Transactions" value={summary ? String(summary.total_transactions) : "..."} icon={ArrowLeftRight} tone="brand" loading={!summary} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Total Volume" value={summary ? formatINR(parseFloat(summary.total_amount)) : "..."} icon={IndianRupee} tone="emerald" loading={!summary} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Captured" value={summary ? String(summary.captured_count) : "..."} icon={CreditCard} tone="violet" loading={!summary} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Terminals" value={allTerminals.length ? String(allTerminals.length) : "..."} icon={Monitor} tone="sky" loading={!treeData} />
+        </StaggerItem>
+      </Stagger>
 
       {/* Network hierarchy cascading filters */}
       {filterTiers.length > 0 && members.length > 0 && (
-        <div className="rounded-2xl border border-ink-100 bg-white p-4">
-          <p className="mb-3 text-xs font-semibold text-ink-500">Filter by network</p>
-          <div className="flex flex-wrap items-end gap-3">
-            {filterTiers.map((tier) => {
-              const opts = tierOptions[tier] ?? [];
-              if (opts.length === 0) return null;
-              return (
-                <div key={tier}>
-                  <label className="mb-1 block text-xs font-semibold text-ink-500">
-                    {ROLE_LABELS[tier] ?? tier}
-                  </label>
-                  <select
-                    value={hierSelections[tier] ?? ""}
-                    onChange={(e) => handleHierChange(tier, e.target.value)}
-                    className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-                  >
-                    <option value="">All</option>
-                    {opts.map((m) => (
-                      <option key={m.id} value={m.id}>{m.name}</option>
-                    ))}
-                  </select>
-                </div>
-              );
-            })}
-
-            {filteredTerminals.length > 1 && (
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-ink-500">Terminal</label>
+        <FilterBar label="Network">
+          {filterTiers.map((tier) => {
+            const opts = tierOptions[tier] ?? [];
+            if (opts.length === 0) return null;
+            return (
+              <FilterField key={tier} label={ROLE_LABELS[tier] ?? tier}>
                 <select
-                  value={terminalFilter}
-                  onChange={(e) => { setTerminalFilter(e.target.value); setPage(1); }}
+                  value={hierSelections[tier] ?? ""}
+                  onChange={(e) => handleHierChange(tier, e.target.value)}
                   className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
                 >
-                  <option value="">All terminals</option>
-                  {filteredTerminals.map((t) => (
-                    <option key={t.tid} value={t.tid}>
-                      {t.tid}{t.location ? ` — ${t.location}` : t.model ? ` — ${t.model}` : ""}
-                    </option>
+                  <option value="">All</option>
+                  {opts.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
                   ))}
                 </select>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+              </FilterField>
+            );
+          })}
 
-      {/* Live indicator + Date / Status / Mode filters */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
-          </span>
-          <span className="text-xs font-semibold text-emerald-700">Live — auto-refreshing</span>
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">From</label>
-            <input type="date" value={dateFrom} min={assignedAtDate ?? undefined}
-              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-              className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
-            {assignedAtDate && dateFrom < assignedAtDate && (
-              <p className="mt-1 text-[10px] text-amber-600">
-                Clamped to assignment date ({new Date(assignedAtDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })})
-              </p>
-            )}
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">To</label>
-            <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-              className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Status</label>
-            <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value as PosTransactionStatus | ""); setPage(1); }}
-              className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
-              <option value="">All</option>
-              <option value="CAPTURED">Captured</option>
-              <option value="AUTHORIZED">Authorized</option>
-              <option value="FAILED">Failed</option>
-              <option value="REFUNDED">Refunded</option>
-              <option value="VOIDED">Voided</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Mode</label>
-            <select value={modeFilter} onChange={(e) => { setModeFilter(e.target.value as PosPaymentMode | ""); setPage(1); }}
-              className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
-              <option value="">All</option>
-              <option value="CARD">Card</option>
-              <option value="UPI">UPI</option>
-              <option value="NFC">NFC</option>
-              <option value="BHARATQR">BharatQR</option>
-            </select>
-          </div>
-          {/* Terminal picker for roles with no hierarchy (retailer) or no tree data yet */}
-          {filterTiers.length === 0 && filteredTerminals.length > 1 && (
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-ink-500">Terminal</label>
-              <select value={terminalFilter} onChange={(e) => { setTerminalFilter(e.target.value); setPage(1); }}
-                className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
+          {filteredTerminals.length > 1 && (
+            <FilterField label="Terminal">
+              <select
+                value={terminalFilter}
+                onChange={(e) => { setTerminalFilter(e.target.value); setPage(1); }}
+                className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              >
                 <option value="">All terminals</option>
                 {filteredTerminals.map((t) => (
                   <option key={t.tid} value={t.tid}>
@@ -862,46 +812,110 @@ function TransactionsTab() {
                   </option>
                 ))}
               </select>
-            </div>
+            </FilterField>
           )}
-          <Button variant="outline" size="sm" onClick={() => { setDateFrom(today.from); setDateTo(today.to); setPage(1); }}>
-            Today
-          </Button>
-          <div className="ml-auto flex flex-wrap gap-2">
-            <ReportActions<PosTransaction>
-              filename={`pos-transactions-${dateFrom}-to-${dateTo}`}
-              title="POS Transactions Report"
-              subtitle={reportSubtitle}
-              columns={posExportCols}
-              rows={transactions}
-              fetchRows={fetchAllRows}
-            />
-          </div>
+        </FilterBar>
+      )}
+
+      {/* Live indicator + Date / Status / Mode filters */}
+      <FilterBar hideIcon className="items-end">
+        <span className="inline-flex items-center gap-2 self-center rounded-full bg-emerald-50 px-3 py-1.5 ring-1 ring-emerald-200/70">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+          </span>
+          <span className="text-xs font-semibold text-emerald-700">Live — auto-refreshing</span>
+        </span>
+        <FilterField label="From">
+          <input type="date" value={dateFrom} min={assignedAtDate ?? undefined}
+            onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+            className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+          {assignedAtDate && dateFrom < assignedAtDate && (
+            <p className="mt-1 text-[10px] text-amber-600">
+              Clamped to assignment date ({new Date(assignedAtDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })})
+            </p>
+          )}
+        </FilterField>
+        <FilterField label="To">
+          <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+            className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+        </FilterField>
+        <FilterField label="Status">
+          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value as PosTransactionStatus | ""); setPage(1); }}
+            className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
+            <option value="">All</option>
+            <option value="CAPTURED">Captured</option>
+            <option value="AUTHORIZED">Authorized</option>
+            <option value="FAILED">Failed</option>
+            <option value="REFUNDED">Refunded</option>
+            <option value="VOIDED">Voided</option>
+          </select>
+        </FilterField>
+        <FilterField label="Mode">
+          <select value={modeFilter} onChange={(e) => { setModeFilter(e.target.value as PosPaymentMode | ""); setPage(1); }}
+            className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
+            <option value="">All</option>
+            <option value="CARD">Card</option>
+            <option value="UPI">UPI</option>
+            <option value="NFC">NFC</option>
+            <option value="BHARATQR">BharatQR</option>
+          </select>
+        </FilterField>
+        {/* Terminal picker for roles with no hierarchy (retailer) or no tree data yet */}
+        {filterTiers.length === 0 && filteredTerminals.length > 1 && (
+          <FilterField label="Terminal">
+            <select value={terminalFilter} onChange={(e) => { setTerminalFilter(e.target.value); setPage(1); }}
+              className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
+              <option value="">All terminals</option>
+              {filteredTerminals.map((t) => (
+                <option key={t.tid} value={t.tid}>
+                  {t.tid}{t.location ? ` — ${t.location}` : t.model ? ` — ${t.model}` : ""}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+        )}
+        <Button variant="outline" size="sm" onClick={() => { setDateFrom(today.from); setDateTo(today.to); setPage(1); }}>
+          Today
+        </Button>
+        <div className="ml-auto flex flex-wrap gap-2">
+          <ReportActions<PosTransaction>
+            filename={`pos-transactions-${dateFrom}-to-${dateTo}`}
+            title="POS Transactions Report"
+            subtitle={reportSubtitle}
+            columns={posExportCols}
+            rows={transactions}
+            fetchRows={fetchAllRows}
+          />
         </div>
-      </div>
+      </FilterBar>
 
       {hasNoTerminals ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-ink-200 bg-ink-50 p-4 text-sm text-ink-600">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          No POS terminals are assigned to your account yet.
-        </div>
+        <EmptyState
+          icon={Monitor}
+          title="No POS terminals yet"
+          message="No POS terminals are assigned to your account yet."
+          compact
+        />
       ) : error ? (
         <ErrorBanner message={error instanceof Error ? error.message : "Failed to load transactions."} />
       ) : (
-        <DataTable
-          title={showingAllTerminals ? "POS Transactions · All terminals" : "POS Transactions"}
-          description={
-            pagination
-              ? `${pagination.total_records} total · page ${pagination.page} of ${pagination.total_pages}${showingAllTerminals ? ` · ${filteredTerminals.length} terminals` : ""}`
-              : isLoading
-                ? "Loading..."
-                : "No data yet"
-          }
-          columns={cols}
-          data={transactions}
-          loading={isLoading}
-          empty="No transactions for the selected filters."
-        />
+        <Reveal distance={16} duration={0.45}>
+          <DataTable
+            title={showingAllTerminals ? "POS Transactions · All terminals" : "POS Transactions"}
+            description={
+              pagination
+                ? `${pagination.total_records} total · page ${pagination.page} of ${pagination.total_pages}${showingAllTerminals ? ` · ${filteredTerminals.length} terminals` : ""}`
+                : isLoading
+                  ? "Loading..."
+                  : "No data yet"
+            }
+            columns={cols}
+            data={transactions}
+            loading={isLoading}
+            empty="No transactions for the selected filters."
+          />
+        </Reveal>
       )}
 
       {pagination && pagination.total_pages > 1 && (
@@ -1047,12 +1061,20 @@ function SettlementsTab() {
 
   return (
     <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Unsettled transactions" value={String(entries.length)} icon={Clock} accent="accent" />
-        <StatCard label="Unsettled amount" value={formatINR(pendingTotal)} icon={IndianRupee} accent="brand" />
-        <StatCard label="Selected" value={String(selectedEntries.length)} icon={Zap} accent="violet" />
-        <StatCard label="Instant payout (selected)" value={formatINR(totalInstantNet)} icon={Banknote} accent="emerald" />
-      </div>
+      <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Unsettled transactions" value={String(entries.length)} icon={Clock} tone="sky" loading={isLoading && !data} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Unsettled amount" value={formatINR(pendingTotal)} icon={IndianRupee} tone="brand" loading={isLoading && !data} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Selected" value={String(selectedEntries.length)} icon={Zap} tone="violet" loading={isLoading && !data} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Instant payout (selected)" value={formatINR(totalInstantNet)} icon={Banknote} tone="emerald" loading={isLoading && !data} />
+        </StaggerItem>
+      </Stagger>
 
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="outline" size="sm" onClick={() => mutate()} title="Refresh">
@@ -1083,7 +1105,7 @@ function SettlementsTab() {
       </div>
 
       {instantEnabled ? (
-        <div className="rounded-xl border border-brand-100 bg-brand-50/50 p-3 text-xs text-ink-600">
+        <div className="rounded-xl border border-brand-100 bg-gradient-to-r from-brand-50/70 to-accent-50/50 p-3 text-xs text-ink-600">
           Pick the transactions you want paid out <strong>now</strong> — they&apos;re credited instantly at your
           scheme&apos;s instant rate. Everything you leave unselected settles automatically on the next day (T+1)
           at your standard rate. A transaction is only ever settled once.
@@ -1098,14 +1120,16 @@ function SettlementsTab() {
       {error ? (
         <ErrorBanner message={error instanceof Error ? error.message : "Failed to load settlements."} />
       ) : (
-        <DataTable
-          title="Unsettled POS proceeds"
-          description="Captured transactions awaiting settlement to your wallet."
-          columns={cols}
-          data={entries}
-          loading={isLoading}
-          empty="Nothing to settle — all your captured transactions are settled."
-        />
+        <Reveal distance={16} duration={0.45}>
+          <DataTable
+            title="Unsettled POS proceeds"
+            description="Captured transactions awaiting settlement to your wallet."
+            columns={cols}
+            data={entries}
+            loading={isLoading}
+            empty="Nothing to settle — all your captured transactions are settled."
+          />
+        </Reveal>
       )}
 
       <ConfirmDialog

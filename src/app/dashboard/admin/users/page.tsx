@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import Link from "next/link";
 import {
   Search,
-  Filter,
   MoreHorizontal,
   ShieldOff,
   ShieldCheck,
@@ -31,6 +30,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ReportActions } from "@/components/dashboard/ReportActions";
 import { Pagination } from "@/components/ui/Pagination";
 import { UplineChain } from "@/components/dashboard/UplineChain";
+import { Panel, FilterBar, ModalShell } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { formatINR } from "@/lib/utils";
 
 type UserRow = {
@@ -271,6 +272,7 @@ export default function AdminUsersPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow="Admin"
         title="Users & shops"
@@ -301,8 +303,9 @@ export default function AdminUsersPage() {
           </>
         }
       />
+      </Reveal>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-ink-100 bg-white p-4">
+      <FilterBar>
         <div className="relative min-w-[220px] flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
           <Input
@@ -313,7 +316,6 @@ export default function AdminUsersPage() {
           />
         </div>
         <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-ink-400" />
           <Select value={role} onChange={(e) => setRole(e.target.value)} className="h-10 w-44">
             <option value="all">All roles</option>
             <option value="retailer">Retailers</option>
@@ -328,9 +330,9 @@ export default function AdminUsersPage() {
             <option value="Suspended">Suspended</option>
           </Select>
         </div>
-      </div>
+      </FilterBar>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-ink-100 bg-white px-4 py-3">
+      <Panel flush className="flex flex-wrap items-center gap-3 px-4 py-3">
         <p className="text-sm text-ink-700">
           <span className="font-semibold">{selected.length}</span> selected
         </p>
@@ -360,16 +362,18 @@ export default function AdminUsersPage() {
             Bulk services ({selected.length})
           </Button>
         </div>
-      </div>
+      </Panel>
 
-      <DataTable
-        title={`${total} users`}
-        description="Click on a row to view full profile, ledger and transactions."
-        columns={columns}
-        data={users}
-        loading={loading}
-        empty="No users match your filters."
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title={`${total} users`}
+          description="Click on a row to view full profile, ledger and transactions."
+          columns={columns}
+          data={users}
+          loading={loading}
+          empty="No users match your filters."
+        />
+      </Reveal>
       <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
 
       {servicesUser && (
@@ -507,35 +511,16 @@ function UserMoreMenu({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4"
-      onClick={onClose}
+    <ModalShell
+      open
+      onClose={onClose}
+      size="sm"
+      className="max-w-sm"
+      eyebrow="More actions"
+      title={user.name}
+      subtitle={`${user.shop} · ${user.role}`}
     >
-      <div
-        role="menu"
-        aria-label={`More actions for ${user.name}`}
-        className="w-full max-w-sm overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3 border-b border-ink-100 px-5 py-4">
-          <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">More actions</p>
-            <h3 className="mt-1 truncate font-display text-base font-bold text-ink-900">{user.name}</h3>
-            <p className="truncate text-xs text-ink-500">
-              {user.shop} · {user.role}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-500 hover:bg-ink-100"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="p-2">
+      <div role="menu" aria-label={`More actions for ${user.name}`} className="-mx-3 -my-2">
           <button
             type="button"
             role="menuitem"
@@ -602,9 +587,8 @@ function UserMoreMenu({
               Close account
             </button>
           )}
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -684,30 +668,34 @@ function ApprovalStatusDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4" onClick={onClose}>
-      <div
-        className="w-full max-w-sm overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3 border-b border-ink-100 px-5 py-4">
-          <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">Approval status</p>
-            <h3 className="mt-1 truncate font-display text-base font-bold text-ink-900">{user.name}</h3>
-            <p className="truncate text-xs text-ink-500">
-              {user.role} · <span className="font-medium text-brand-600">{user.userCode}</span>
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-500 hover:bg-ink-100"
-            aria-label="Close"
+    <ModalShell
+      open
+      onClose={onClose}
+      size="sm"
+      className="max-w-sm"
+      eyebrow="Approval status"
+      title={user.name}
+      subtitle={
+        <>
+          {user.role} · <span className="font-medium text-brand-600">{user.userCode}</span>
+        </>
+      }
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            onClick={apply}
+            disabled={!dirty || busy || (needsReason && reason.trim().length < 3)}
+            isLoading={busy}
           >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="px-5 py-4">
+            Update status
+          </Button>
+        </>
+      }
+    >
+      <div>
           <div className="mb-3 flex items-center justify-between text-sm">
             <span className="text-ink-500">Current</span>
             <Badge variant={current === "APPROVED" ? "success" : current === "REJECTED" ? "danger" : "warning"}>
@@ -745,22 +733,8 @@ function ApprovalStatusDialog({
             Change the status in any direction. <b>Rejected</b> fully locks the account —
             no login and no transactions — and signs the user out immediately.
           </p>
-        </div>
-
-        <div className="flex justify-end gap-2 border-t border-ink-100 bg-ink-50/40 px-5 py-3">
-          <Button variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            onClick={apply}
-            disabled={!dirty || busy || (needsReason && reason.trim().length < 3)}
-            isLoading={busy}
-          >
-            Update status
-          </Button>
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -790,7 +764,7 @@ function ResetPasswordResultDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4 backdrop-blur-sm">
       <div
         className="w-full max-w-sm overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -941,7 +915,7 @@ function UserServicesDialog({
   const enabledCount = enabledKeys.length;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4 backdrop-blur-sm">
       <div className="w-full max-w-2xl max-h-[85vh] overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl flex flex-col">
         <div className="flex items-start justify-between gap-4 bg-gradient-to-br from-violet-50 to-white px-6 py-5 shrink-0">
           <div>
@@ -1118,7 +1092,7 @@ function BulkServicesDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink-900/40 px-4 backdrop-blur-sm">
       <div className="w-full max-w-2xl max-h-[85vh] overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl flex flex-col">
         <div className="flex items-start justify-between gap-4 bg-gradient-to-br from-brand-50 to-white px-6 py-5 shrink-0">
           <div>

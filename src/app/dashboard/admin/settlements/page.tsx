@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ReportActions } from "@/components/dashboard/ReportActions";
+import { Panel, DarkPanel, StatusPill, TabNav } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { formatINR, generateRefId } from "@/lib/utils";
-import { Landmark, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Landmark, Plus, RefreshCw, Trash2, History } from "lucide-react";
 
 type SettlementRow = {
   id: string;
@@ -90,9 +92,10 @@ function CyclesTab() {
       key: "status",
       header: "Status",
       render: (r) => (
-        <Badge variant={r.status === "Settled" ? "success" : r.status === "In Bank" ? "brand" : "warning"}>
-          {r.status}
-        </Badge>
+        <StatusPill
+          status={r.status}
+          tone={r.status === "Settled" ? "success" : r.status === "In Bank" ? "brand" : "warning"}
+        />
       ),
     },
     { key: "date", header: "Date" },
@@ -120,12 +123,14 @@ function CyclesTab() {
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </Button>
       </div>
-      <DataTable
-        title="Recent cycles" loading={loading}
-        columns={cols}
-        data={settlements}
-        empty="No settlement data yet."
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title="Recent cycles" loading={loading}
+          columns={cols}
+          data={settlements}
+          empty="No settlement data yet."
+        />
+      </Reveal>
     </div>
   );
 }
@@ -346,11 +351,7 @@ function BankTransfersTab() {
     {
       key: "status",
       header: "Status",
-      render: (r) => (
-        <Badge variant={r.status === "SUCCESS" ? "success" : r.status === "PENDING" ? "warning" : "danger"}>
-          {r.status}
-        </Badge>
-      ),
+      render: (r) => <StatusPill status={r.status} />,
     },
     { key: "utr", header: "UTR", render: (r) => <span className="font-mono text-xs">{r.utr ?? "—"}</span> },
     {
@@ -378,29 +379,38 @@ function BankTransfersTab() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={16} duration={0.45}>
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Balance + accounts */}
         <div className="space-y-4">
-          <div className="rounded-2xl border border-ink-100 bg-white p-5">
+          <DarkPanel>
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-widest text-ink-500">
+              <p className="text-xs font-semibold uppercase tracking-widest text-white/60">
                 Partner wallet (Same Day)
               </p>
-              <Button variant="outline" onClick={refresh} disabled={loading} className="h-8 px-2">
+              <button
+                type="button"
+                onClick={refresh}
+                disabled={loading}
+                title="Refresh"
+                className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-30"
+              >
                 <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-              </Button>
+              </button>
             </div>
-            <p className="mt-2 font-display text-2xl font-bold text-ink-900">
+            <p className="mt-2 font-display text-2xl font-bold text-white">
               {balance ? formatINR(balance.balance) : loading ? "Loading…" : "—"}
             </p>
             {balance?.isFrozen && (
-              <Badge variant="danger">Wallet frozen — contact Same Day admin</Badge>
+              <StatusPill status="frozen" tone="danger" className="mt-2">
+                Wallet frozen — contact Same Day admin
+              </StatusPill>
             )}
-          </div>
+          </DarkPanel>
 
-          <div className="rounded-2xl border border-ink-100 bg-white p-5">
+          <Panel>
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-ink-900">Settlement accounts</p>
+              <p className="font-display text-sm font-semibold text-ink-900">Settlement accounts</p>
               <Button variant="outline" onClick={() => setShowAdd((s) => !s)} className="h-8 px-2">
                 <Plus className="h-3.5 w-3.5" />
               </Button>
@@ -493,7 +503,7 @@ function BankTransfersTab() {
                       <p className="text-xs text-ink-500">
                         {a.accountNumber} · {a.ifscCode}
                       </p>
-                      <Badge variant={badgeProps.variant}>{badgeProps.label}</Badge>
+                      <StatusPill status={badgeProps.label} tone={badgeProps.variant} />
                       {a.verificationStatus === "SKIPPED" && (
                         <p className="mt-1 text-[10px] text-amber-700">Transfers at your own risk — not bank-verified</p>
                       )}
@@ -510,17 +520,17 @@ function BankTransfersTab() {
                 );
               })}
             </ul>
-          </div>
+          </Panel>
         </div>
 
         {/* Transfer form */}
-        <div className="lg:col-span-2 rounded-2xl border border-ink-100 bg-white p-5">
+        <Panel className="lg:col-span-2">
           <div className="flex items-center gap-2">
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-50 text-brand-700">
+            <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
               <Landmark className="h-4 w-4" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-ink-900">New bank transfer</p>
+              <p className="font-display text-sm font-semibold text-ink-900">New bank transfer</p>
               <p className="text-xs text-ink-500">
                 Moves money from the Same Day partner wallet to a verified or trusted account. Failed transfers auto-refund.
               </p>
@@ -617,15 +627,18 @@ function BankTransfersTab() {
               </Button>
             </div>
           </form>
-        </div>
+        </Panel>
       </div>
+      </Reveal>
 
-      <DataTable
-        title="Recent bank transfers" loading={loading}
-        columns={transferCols}
-        data={transfers}
-        empty="No settlement transfers yet."
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title="Recent bank transfers" loading={loading}
+          columns={transferCols}
+          data={transfers}
+          empty="No settlement transfers yet."
+        />
+      </Reveal>
 
       <ConfirmDialog
         open={removeTarget !== null}
@@ -697,33 +710,22 @@ export default function AdminSettlementsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="Settlements"
-        description="Live bank transfers from the Same Day partner wallet, plus derived T+1 settlement cycles."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="Settlements"
+          description="Live bank transfers from the Same Day partner wallet, plus derived T+1 settlement cycles."
+        />
+      </Reveal>
 
-      <div className="flex gap-2">
-        {(
-          [
-            { id: "transfers", label: "Bank transfers" },
-            { id: "cycles", label: "T+1 cycles" },
-          ] as const
-        ).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`rounded-xl border-2 px-4 py-2 text-sm font-semibold transition ${
-              tab === t.id
-                ? "border-brand-500 bg-brand-50 text-brand-700"
-                : "border-ink-100 bg-white text-ink-700 hover:border-ink-200"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <TabNav
+        tabs={[
+          { key: "transfers", label: "Bank transfers", icon: Landmark },
+          { key: "cycles", label: "T+1 cycles", icon: History },
+        ]}
+        active={tab}
+        onChange={(key) => setTab(key as "transfers" | "cycles")}
+      />
 
       {tab === "transfers" ? <BankTransfersTab /> : <CyclesTab />}
     </div>

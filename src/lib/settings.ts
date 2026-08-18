@@ -197,7 +197,36 @@ const SETTING_SCHEMAS = {
     /** Safety cap on pages fetched per run (page_size 100). */
     maxPages: z.number().int().min(1).max(500).default(100),
   }),
+
+  /**
+   * Default service allowlist granted to a NEW network user at creation, keyed
+   * by role. Network users are default-disabled (an empty `enabledServices`
+   * means NO access); these per-tier lists let an admin pre-enable a curated
+   * starter set so every new signup of that role begins with those rails on,
+   * without hand-editing each account. Empty (the ship default) means new users
+   * start with NO services. Edited from Network Manager → "Default services for
+   * new users"; also used by the `backfill:network-services` script.
+   */
+  "network.default_services": z.object({
+    RETAILER: z.array(z.string()).default([]),
+    DISTRIBUTOR: z.array(z.string()).default([]),
+    MASTER_DISTRIBUTOR: z.array(z.string()).default([]),
+    SUPER_DISTRIBUTOR: z.array(z.string()).default([]),
+  }),
 } as const;
+
+/** Network (non-staff) roles that carry a per-tier default service allowlist. */
+export const NETWORK_ROLES = [
+  "RETAILER",
+  "DISTRIBUTOR",
+  "MASTER_DISTRIBUTOR",
+  "SUPER_DISTRIBUTOR",
+] as const;
+export type NetworkRole = (typeof NETWORK_ROLES)[number];
+
+export function isNetworkRole(role: string): role is NetworkRole {
+  return (NETWORK_ROLES as readonly string[]).includes(role);
+}
 
 export type SettingKey = keyof typeof SETTING_SCHEMAS;
 
@@ -222,6 +251,17 @@ export const WALLET_OP_ABSOLUTE_MAX = 1_000_000_000;
  */
 export async function walletOpMaxAmount(): Promise<number> {
   return (await getSetting("wallet.op_max_amount")).amount;
+}
+
+/**
+ * Default service keys granted to a NEW user of `role` at creation. Returns the
+ * per-tier list from `network.default_services`; empty for non-network roles or
+ * when the admin hasn't configured a starter set (default-disabled).
+ */
+export async function defaultServicesForRole(role: string): Promise<string[]> {
+  if (!isNetworkRole(role)) return [];
+  const cfg = await getSetting("network.default_services");
+  return cfg[role] ?? [];
 }
 
 /** Read a setting, falling back to defaults when missing/invalid. */

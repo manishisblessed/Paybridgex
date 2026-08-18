@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import { EmptyState, Panel, StatTile, StatusPill } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import {
   RefreshCw,
   DownloadCloud,
   Power,
+  PowerOff,
   CreditCard,
   Monitor,
   Receipt,
@@ -175,54 +177,57 @@ export default function AdminServicesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Admin"
-        title="On / Off Services"
-        description="Master kill-switch for every money rail & platform flag. Turning a rail off blocks its mutations across the app immediately — every change is audit logged."
-        actions={
-          <>
-            <Button variant="outline" onClick={fetchServices} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
-            </Button>
-            <Button variant="outline" onClick={seedDefaults} disabled={seeding}>
-              <DownloadCloud className={`h-4 w-4 ${seeding ? "animate-pulse" : ""}`} /> Seed defaults
-            </Button>
-          </>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Admin"
+          title="On / Off Services"
+          description="Master kill-switch for every money rail & platform flag. Turning a rail off blocks its mutations across the app immediately — every change is audit logged."
+          actions={
+            <>
+              <Button variant="outline" onClick={fetchServices} disabled={loading}>
+                <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
+              </Button>
+              <Button variant="outline" onClick={seedDefaults} disabled={seeding}>
+                <DownloadCloud className={`h-4 w-4 ${seeding ? "animate-pulse" : ""}`} /> Seed defaults
+              </Button>
+            </>
+          }
+        />
+      </Reveal>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl border border-ink-100 bg-white p-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">Total rails</p>
-          <p className="mt-1 font-display text-xl font-bold text-ink-900">{services.length}</p>
-        </div>
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Live</p>
-          <p className="mt-1 font-display text-xl font-bold text-emerald-700">{enabledCount}</p>
-        </div>
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-rose-600">Disabled</p>
-          <p className="mt-1 font-display text-xl font-bold text-rose-700">{services.length - enabledCount}</p>
-        </div>
-      </div>
+      <Stagger stagger={0.05} className="grid gap-3 sm:grid-cols-3">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Total rails" countTo={services.length} icon={Boxes} tone="brand" loading={loading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Live" countTo={enabledCount} icon={Power} tone="emerald" loading={loading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile
+            label="Disabled"
+            countTo={services.length - enabledCount}
+            icon={PowerOff}
+            tone="rose"
+            loading={loading}
+          />
+        </StaggerItem>
+      </Stagger>
 
       {loading ? (
-        <div className="rounded-2xl border border-ink-100 bg-white p-10 text-center text-sm text-ink-500">
-          Loading services…
-        </div>
+        <Panel className="p-10 text-center text-sm text-ink-500">Loading services…</Panel>
       ) : services.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-ink-200 bg-white p-10 text-center">
-          <Power className="mx-auto h-8 w-8 text-ink-300" />
-          <p className="mt-3 text-sm font-semibold text-ink-700">No service routes yet</p>
-          <p className="mt-1 text-sm text-ink-500">Seed the known rails to populate the panel.</p>
-          <div className="mt-4 flex justify-center">
+        <EmptyState
+          icon={Power}
+          title="No service routes yet"
+          message="Seed the known rails to populate the panel."
+          cta={
             <Button onClick={seedDefaults} disabled={seeding}>
               <DownloadCloud className="h-4 w-4" /> Seed defaults
             </Button>
-          </div>
-        </div>
+          }
+        />
       ) : (
-        <div className="space-y-8">
+        <Reveal distance={16} duration={0.45} className="space-y-8">
           {grouped.map(([kind, items]) => {
             const meta = metaFor(kind);
             const Icon = meta.icon;
@@ -256,7 +261,7 @@ export default function AdminServicesPage() {
               </section>
             );
           })}
-        </div>
+        </Reveal>
       )}
     </div>
   );
@@ -290,7 +295,7 @@ function ServiceCard({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="truncate font-display text-base font-semibold text-ink-900">{svc.name}</h3>
-            <Badge variant={svc.enabled ? "success" : "danger"}>{svc.enabled ? "ON" : "OFF"}</Badge>
+            <StatusPill status={svc.enabled ? "ON" : "OFF"} tone={svc.enabled ? "success" : "danger"} />
           </div>
           <p className="mt-0.5 font-mono text-[11px] text-ink-400">{svc.key}</p>
         </div>

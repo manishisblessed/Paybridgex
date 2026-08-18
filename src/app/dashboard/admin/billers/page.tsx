@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
-import { Badge } from "@/components/ui/Badge";
+import { StatTile, StatusPill } from "@/components/dashboard/ui";
 import { Button } from "@/components/ui/Button";
 import { ReportActions } from "@/components/dashboard/ReportActions";
-import { Settings2, RefreshCw } from "lucide-react";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
+import { Settings2, RefreshCw, Activity, Layers, Gauge, AlertTriangle, XCircle } from "lucide-react";
 
 type BillerRow = {
   category: string;
@@ -53,9 +54,10 @@ export default function AdminBillersPage() {
       key: "status",
       header: "Status",
       render: (r) => (
-        <Badge variant={r.status === "Live" ? "success" : r.status === "Degraded" ? "warning" : "danger"}>
-          {r.status}
-        </Badge>
+        <StatusPill
+          status={r.status}
+          tone={r.status === "Live" ? "success" : r.status === "Degraded" ? "warning" : "danger"}
+        />
       ),
     },
     {
@@ -72,6 +74,7 @@ export default function AdminBillersPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow="Admin"
         title="Billers & routing"
@@ -100,28 +103,34 @@ export default function AdminBillersPage() {
           </>
         }
       />
+      </Reveal>
 
-      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {[
-          { l: "Live billers", v: stats.totalActive.toLocaleString("en-IN") },
-          { l: "Categories", v: String(stats.totalCategories) },
-          { l: "Avg uptime", v: billers.length ? "99.9%" : "—" },
-          { l: "Degraded now", v: String(stats.degradedCount) },
-          { l: "Down now", v: String(stats.downCount) },
-        ].map((s) => (
-          <div key={s.l} className="rounded-2xl border border-ink-100 bg-white p-4">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">{s.l}</p>
-            <p className="mt-1 font-display text-xl font-bold text-ink-900">{s.v}</p>
-          </div>
-        ))}
-      </div>
+      <Stagger stagger={0.05} className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Live billers" countTo={stats.totalActive} icon={Activity} tone="emerald" loading={loading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Categories" countTo={stats.totalCategories} icon={Layers} tone="brand" loading={loading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Avg uptime" value={billers.length ? "99.9%" : "—"} icon={Gauge} tone="sky" loading={loading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Degraded now" countTo={stats.degradedCount} icon={AlertTriangle} tone="amber" loading={loading} />
+        </StaggerItem>
+        <StaggerItem distance={14} duration={0.35}>
+          <StatTile label="Down now" countTo={stats.downCount} icon={XCircle} tone="rose" loading={loading} />
+        </StaggerItem>
+      </Stagger>
 
-      <DataTable
-        title="Categories" loading={loading}
-        columns={cols}
-        data={billers}
-        empty="No billers found in the database. Seed billers to see data here."
-      />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title="Categories" loading={loading}
+          columns={cols}
+          data={billers}
+          empty="No billers found in the database. Seed billers to see data here."
+        />
+      </Reveal>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { QrCode, Copy, Check } from "lucide-react";
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
 import { Input, Label } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { Reveal } from "@/components/motion";
 
 export default function UpiPage() {
   const [amount, setAmount] = useState("");
@@ -27,16 +28,19 @@ export default function UpiPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <ServicePageHeader
-        icon={QrCode}
-        title="UPI Collect"
-        description="Generate UPI payment requests and accept payments instantly without a POS machine."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={QrCode}
+          title="UPI Collect"
+          description="Generate UPI payment requests and accept payments instantly without a POS machine."
+        />
+      </Reveal>
 
+      <Reveal distance={16} duration={0.45}>
       <div className="grid gap-6 lg:grid-cols-2">
         <form
           onSubmit={(e) => e.preventDefault()}
-          className="space-y-4 rounded-2xl border border-ink-100 bg-white p-6"
+          className="space-y-4 rounded-2xl border border-ink-100 bg-white p-6 shadow-sm"
         >
           <div>
             <Label htmlFor="amount">Amount (₹)</Label>
@@ -79,7 +83,7 @@ export default function UpiPage() {
           </Button>
         </form>
 
-        <div className="rounded-2xl border border-ink-100 bg-gradient-to-br from-brand-50 to-accent-50 p-6 text-center">
+        <div className="rounded-2xl border border-ink-100 bg-gradient-to-br from-brand-50 to-accent-50 p-6 text-center shadow-sm">
           <h3 className="font-display text-base font-semibold text-ink-900">
             Show this QR to your customer
           </h3>
@@ -99,6 +103,7 @@ export default function UpiPage() {
           </div>
         </div>
       </div>
+      </Reveal>
     </div>
   );
 }

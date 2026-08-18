@@ -99,7 +99,7 @@ export function RechargeForm({
     <>
       <form
         onSubmit={submit}
-        className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-6 sm:grid-cols-2"
+        className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-5 shadow-sm sm:grid-cols-2 sm:p-6"
       >
         <div>
           <Label htmlFor="number">{numberLabel}</Label>
@@ -141,7 +141,7 @@ export function RechargeForm({
                 key={v}
                 type="button"
                 onClick={() => setAmount(String(v))}
-                className="rounded-full border border-ink-200 px-3 py-1 text-xs font-medium text-ink-700 hover:border-brand-300 hover:text-brand-700"
+                className="rounded-full border border-ink-200 bg-white px-3 py-1 text-xs font-medium text-ink-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 hover:shadow-sm"
               >
                 {formatINR(v)}
               </button>

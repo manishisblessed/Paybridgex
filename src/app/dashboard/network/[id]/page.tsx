@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
+import { Panel, StatTile, TabNav, TablePro } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { formatINR } from "@/lib/utils";
@@ -149,28 +151,6 @@ function groupByFamily(slabs: Slab[]): Array<readonly [ServiceFamily, Slab[]]> {
 }
 
 const FAMILY_ICONS: Record<string, typeof CreditCard> = { BBPS: CreditCard, PAYOUT: Send };
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  tint,
-}: {
-  icon: typeof Wallet;
-  label: string;
-  value: string;
-  tint: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-4">
-      <div className={`mb-2 inline-flex h-9 w-9 items-center justify-center rounded-xl ${tint}`}>
-        <Icon className="h-4 w-4" />
-      </div>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">{label}</p>
-      <p className="mt-0.5 font-display text-lg font-bold text-ink-900">{value}</p>
-    </div>
-  );
-}
 
 export default function NetworkMemberDetailPage() {
   const params = useParams<{ id: string }>();
@@ -341,6 +321,7 @@ export default function NetworkMemberDetailPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow="Network member"
         title={u?.name ?? "Member"}
@@ -363,6 +344,7 @@ export default function NetworkMemberDetailPage() {
           </div>
         }
       />
+      </Reveal>
 
       {error ? (
         <div className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">
@@ -399,40 +381,39 @@ export default function NetworkMemberDetailPage() {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-            <StatCard icon={Wallet} label="Wallet" value={formatINR(u.walletBalance)} tint="bg-brand-100 text-brand-700" />
-            <StatCard icon={CalendarDays} label="Today" value={formatINR(s.turnoverToday)} tint="bg-blue-100 text-blue-700" />
-            <StatCard icon={TrendingUp} label="MTD Turnover" value={formatINR(s.turnoverMtd)} tint="bg-emerald-100 text-emerald-700" />
-            <StatCard icon={TrendingUp} label="Lifetime" value={formatINR(s.turnoverLifetime)} tint="bg-emerald-100 text-emerald-700" />
-            <StatCard icon={CircleDollarSign} label="Commission MTD" value={formatINR(s.commissionMtd)} tint="bg-amber-100 text-amber-700" />
-            <StatCard icon={Users} label="Downline" value={String(u.downline)} tint="bg-violet-100 text-violet-700" />
-          </div>
+          <Stagger stagger={0.05} className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile icon={Wallet} label="Wallet" tone="dark" countTo={u.walletBalance} prefix="₹" decimals={2} className="h-full" />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile icon={CalendarDays} label="Today" tone="sky" countTo={s.turnoverToday} prefix="₹" decimals={2} className="h-full" />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile icon={TrendingUp} label="MTD Turnover" tone="emerald" countTo={s.turnoverMtd} prefix="₹" decimals={2} className="h-full" />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile icon={TrendingUp} label="Lifetime" tone="brand" countTo={s.turnoverLifetime} prefix="₹" decimals={2} className="h-full" />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile icon={CircleDollarSign} label="Commission MTD" tone="amber" countTo={s.commissionMtd} prefix="₹" decimals={2} className="h-full" />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile icon={Users} label="Downline" tone="violet" countTo={u.downline} className="h-full" />
+            </StaggerItem>
+          </Stagger>
 
-          <div className="flex flex-wrap gap-1 border-b border-ink-100">
-            {([
+          <Reveal distance={16} duration={0.45} className="space-y-6">
+          <TabNav
+            tabs={[
               { key: "onboarding", label: "Onboarding", icon: ClipboardCheck },
               { key: "kyc", label: "Documents & KYC", icon: FileText },
               { key: "transactions", label: "Transactions", icon: History },
               { key: "activity", label: "Activity", icon: ActivityIcon },
               { key: "scheme", label: "Scheme", icon: Layers },
-            ] as const).map((t) => {
-              const active = tab === t.key;
-              return (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className={`inline-flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-                    active
-                      ? "border-brand-600 text-brand-700"
-                      : "border-transparent text-ink-500 hover:text-ink-800"
-                  }`}
-                >
-                  <t.icon className="h-4 w-4" />
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
+            ]}
+            active={tab}
+            onChange={(k) => setTab(k as Tab)}
+          />
 
           {tab === "onboarding" && (
             <OnboardingProgressView
@@ -445,7 +426,7 @@ export default function NetworkMemberDetailPage() {
           )}
 
           {tab === "kyc" && (
-            <div className="rounded-2xl border border-ink-100 bg-white">
+            <Panel flush>
               {kycLoading ? (
                 <div className="flex items-center justify-center py-16 text-ink-500">
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading documents & KYC…
@@ -465,7 +446,7 @@ export default function NetworkMemberDetailPage() {
                   getDocHref={(docId) => `/api/network/${id}/documents/${docId}`}
                 />
               )}
-            </div>
+            </Panel>
           )}
 
           {tab === "transactions" && (
@@ -479,7 +460,7 @@ export default function NetworkMemberDetailPage() {
           )}
 
           {tab === "activity" && (
-            <div className="rounded-2xl border border-ink-100 bg-white">
+            <Panel flush>
               {actLoading ? (
                 <div className="flex items-center justify-center py-14 text-ink-500">
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading activity…
@@ -509,11 +490,11 @@ export default function NetworkMemberDetailPage() {
                   ))}
                 </ul>
               )}
-            </div>
+            </Panel>
           )}
 
           {tab === "scheme" && (
-            <div className="rounded-2xl border border-ink-100 bg-white p-5">
+            <Panel>
               {schemeLoading ? (
                 <div className="flex items-center justify-center py-10 text-ink-500">
                   <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading scheme…
@@ -551,30 +532,30 @@ export default function NetworkMemberDetailPage() {
                               {family.label} ({list.length})
                             </h4>
                           </div>
-                          <div className="overflow-x-auto rounded-xl border border-ink-100">
-                            <table className="w-full min-w-max text-left text-sm">
-                              <thead className="bg-ink-50/60 text-[11px] uppercase tracking-wide text-ink-400">
+                          <TablePro dense>
+                            <table>
+                              <thead>
                                 <tr>
-                                  <th className="px-3 py-2">Service</th>
-                                  <th className="px-3 py-2">Provider</th>
-                                  <th className="px-3 py-2">Band</th>
-                                  <th className="px-3 py-2 text-right">Charge</th>
-                                  <th className="px-3 py-2 text-right">Commission</th>
+                                  <th>Service</th>
+                                  <th>Provider</th>
+                                  <th>Band</th>
+                                  <th className="text-right">Charge</th>
+                                  <th className="text-right">Commission</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {list.map((sl) => (
-                                  <tr key={sl.id} className="border-t border-ink-50">
-                                    <td className="px-3 py-2 font-medium text-ink-900">{sl.service.replace(/_/g, " ")}</td>
-                                    <td className="px-3 py-2 text-xs text-ink-600">{sl.provider ?? "All"}</td>
-                                    <td className="px-3 py-2 text-ink-600">{fmtBand(sl.minAmount, sl.maxAmount)}</td>
-                                    <td className="px-3 py-2 text-right text-ink-900">{fmtServiceRate(sl.chargeType, sl.chargeValue)}</td>
-                                    <td className="px-3 py-2 text-right font-semibold text-emerald-700">{fmtServiceRate(sl.commissionType, sl.commissionValue)}</td>
+                                  <tr key={sl.id}>
+                                    <td className="font-medium text-ink-900">{sl.service.replace(/_/g, " ")}</td>
+                                    <td className="text-xs text-ink-600">{sl.provider ?? "All"}</td>
+                                    <td className="text-ink-600">{fmtBand(sl.minAmount, sl.maxAmount)}</td>
+                                    <td className="text-right text-ink-900">{fmtServiceRate(sl.chargeType, sl.chargeValue)}</td>
+                                    <td className="text-right font-semibold text-emerald-700">{fmtServiceRate(sl.commissionType, sl.commissionValue)}</td>
                                   </tr>
                                 ))}
                               </tbody>
                             </table>
-                          </div>
+                          </TablePro>
                         </div>
                       );
                     })}
@@ -585,40 +566,40 @@ export default function NetworkMemberDetailPage() {
                           <Store className="h-4 w-4 text-orange-600" />
                           <h4 className="text-sm font-semibold text-orange-600">POS MDR ({mdrSlabs.length})</h4>
                         </div>
-                        <div className="overflow-x-auto rounded-xl border border-ink-100">
-                          <table className="w-full min-w-max text-left text-sm">
-                            <thead className="bg-ink-50/60 text-[11px] uppercase tracking-wide text-ink-400">
+                        <TablePro dense>
+                          <table>
+                            <thead>
                               <tr>
-                                <th className="px-3 py-2">Rail</th>
-                                <th className="px-3 py-2">Company</th>
-                                <th className="px-3 py-2">Mode</th>
-                                <th className="px-3 py-2">Card / Brand</th>
-                                <th className="px-3 py-2 text-right">MDR T+1</th>
-                                <th className="px-3 py-2 text-right">MDR T+0</th>
-                                <th className="px-3 py-2 text-right">Commission</th>
+                                <th>Rail</th>
+                                <th>Company</th>
+                                <th>Mode</th>
+                                <th>Card / Brand</th>
+                                <th className="text-right">MDR T+1</th>
+                                <th className="text-right">MDR T+0</th>
+                                <th className="text-right">Commission</th>
                               </tr>
                             </thead>
                             <tbody>
                               {mdrSlabs.map((sl) => (
-                                <tr key={sl.id} className="border-t border-ink-50">
-                                  <td className="px-3 py-2 font-medium text-ink-900">{sl.serviceKind}</td>
-                                  <td className="px-3 py-2 text-ink-600">{sl.company ?? "All"}</td>
-                                  <td className="px-3 py-2 text-ink-600">{sl.paymentMode === "*" ? "Any" : sl.paymentMode}</td>
-                                  <td className="px-3 py-2 text-xs text-ink-600">
+                                <tr key={sl.id}>
+                                  <td className="font-medium text-ink-900">{sl.serviceKind}</td>
+                                  <td className="text-ink-600">{sl.company ?? "All"}</td>
+                                  <td className="text-ink-600">{sl.paymentMode === "*" ? "Any" : sl.paymentMode}</td>
+                                  <td className="text-xs text-ink-600">
                                     {[sl.cardType, sl.brandType, sl.classification].filter(Boolean).join(" / ") || "Any"}
                                   </td>
-                                  <td className="px-3 py-2 text-right text-ink-900">{fmtRate(sl.mdrType, sl.mdrValue)}</td>
-                                  <td className="px-3 py-2 text-right text-ink-900">
+                                  <td className="text-right text-ink-900">{fmtRate(sl.mdrType, sl.mdrValue)}</td>
+                                  <td className="text-right text-ink-900">
                                     {sl.mdrValueT0 > 0 ? fmtRate(sl.mdrType, sl.mdrValueT0) : "= T+1"}
                                   </td>
-                                  <td className="px-3 py-2 text-right font-semibold text-emerald-700">
+                                  <td className="text-right font-semibold text-emerald-700">
                                     {sl.commission > 0 ? fmtRate(sl.commissionType, sl.commission) : "—"}
                                   </td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
-                        </div>
+                        </TablePro>
                       </div>
                     )}
 
@@ -628,8 +609,9 @@ export default function NetworkMemberDetailPage() {
                   </div>
                 </>
               )}
-            </div>
+            </Panel>
           )}
+          </Reveal>
         </>
       )}
     </div>

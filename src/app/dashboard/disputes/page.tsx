@@ -13,7 +13,8 @@ import {
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import { Panel, StatusPill, EmptyState, type PillTone } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 
 type DisputeRow = {
   id: string;
@@ -42,10 +43,10 @@ type DisputeDetail = DisputeRow & {
   }>;
 };
 
-const STATUS_BADGE: Record<string, "default" | "success" | "warning" | "danger" | "brand" | "accent"> = {
+const STATUS_TONE: Record<string, PillTone> = {
   OPEN: "brand",
   UNDER_REVIEW: "warning",
-  AWAITING_USER: "accent",
+  AWAITING_USER: "violet",
   RESOLVED: "success",
   REJECTED: "danger",
 };
@@ -169,11 +170,13 @@ export default function DisputesPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <ServicePageHeader
-        icon={LifeBuoy}
-        title="Support Tickets"
-        description="Raise disputes about transactions, wallet, commissions or KYC — with guaranteed response times."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={LifeBuoy}
+          title="Support Tickets"
+          description="Raise disputes about transactions, wallet, commissions or KYC — with guaranteed response times."
+        />
+      </Reveal>
 
       {error && (
         <div className="mb-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -183,7 +186,7 @@ export default function DisputesPage() {
       )}
 
       {view === "list" && (
-        <>
+        <Reveal distance={16} duration={0.45}>
           <div className="mb-4 flex items-center justify-between">
             <p className="text-xs text-ink-500">
               {loading ? "Loading…" : `${disputes.length} ticket(s)`} · Urgent tickets are answered within 4 hours,
@@ -200,26 +203,30 @@ export default function DisputesPage() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-            {disputes.length === 0 ? (
-              <div className="p-12 text-center text-sm text-ink-500">
-                {loading ? "Loading…" : "No tickets yet. Raise one if something went wrong — we respond fast."}
-              </div>
-            ) : (
+          {disputes.length === 0 ? (
+            <EmptyState
+              icon={LifeBuoy}
+              title={loading ? undefined : "No tickets yet"}
+              message={
+                loading ? "Loading…" : "Raise one if something went wrong — we respond fast."
+              }
+            />
+          ) : (
+            <Panel flush className="overflow-hidden">
               <ul className="divide-y divide-ink-100">
                 {disputes.map((d) => (
                   <li key={d.id}>
                     <button
                       type="button"
                       onClick={() => openDetail(d.id)}
-                      className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-ink-50/50"
+                      className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-brand-50/40"
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-xs text-ink-500">{d.ticketNo}</span>
-                          <Badge variant={STATUS_BADGE[d.status] ?? "default"}>
+                          <StatusPill status={d.status} tone={STATUS_TONE[d.status]}>
                             {STATUS_LABELS[d.status] ?? d.status}
-                          </Badge>
+                          </StatusPill>
                         </div>
                         <p className="mt-1 truncate text-sm font-medium text-ink-900">{d.subject}</p>
                         <p className="text-xs text-ink-500">
@@ -234,13 +241,14 @@ export default function DisputesPage() {
                   </li>
                 ))}
               </ul>
-            )}
-          </div>
-        </>
+            </Panel>
+          )}
+        </Reveal>
       )}
 
       {view === "new" && (
-        <form onSubmit={createTicket} className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-6">
+        <Reveal distance={16} duration={0.45}>
+        <form onSubmit={createTicket} className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-6 shadow-sm">
           <button
             type="button"
             onClick={() => setView("list")}
@@ -307,10 +315,11 @@ export default function DisputesPage() {
             {submitting ? "Raising ticket…" : "Raise ticket"}
           </Button>
         </form>
+        </Reveal>
       )}
 
       {view === "detail" && detail && (
-        <div className="space-y-4">
+        <Reveal distance={16} duration={0.45} className="space-y-4">
           <button
             type="button"
             onClick={() => {
@@ -322,12 +331,12 @@ export default function DisputesPage() {
             <ChevronLeft className="h-3.5 w-3.5" /> Back to tickets
           </button>
 
-          <div className="rounded-2xl border border-ink-100 bg-white p-5">
+          <Panel>
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-xs text-ink-500">{detail.ticketNo}</span>
-              <Badge variant={STATUS_BADGE[detail.status] ?? "default"}>
+              <StatusPill status={detail.status} tone={STATUS_TONE[detail.status]}>
                 {STATUS_LABELS[detail.status] ?? detail.status}
-              </Badge>
+              </StatusPill>
               {detail.status !== "RESOLVED" && detail.status !== "REJECTED" && (
                 <span className="flex items-center gap-1 text-xs text-ink-500">
                   <Clock className="h-3 w-3" />
@@ -356,10 +365,13 @@ export default function DisputesPage() {
                 <p className="mt-1 whitespace-pre-wrap">{detail.resolution}</p>
               </div>
             )}
-          </div>
+          </Panel>
 
-          <div className="rounded-2xl border border-ink-100 bg-white p-5">
-            <p className="text-sm font-semibold text-ink-900">Conversation</p>
+          <Panel>
+            <p className="flex items-center gap-2 font-display text-sm font-semibold text-ink-900">
+              <span className="inline-block h-4 w-1 rounded-full bg-gradient-to-b from-brand-500 to-accent-500" aria-hidden />
+              Conversation
+            </p>
             <ul className="mt-3 space-y-3">
               {detail.messages.length === 0 && (
                 <li className="text-xs text-ink-500">No replies yet — support will respond within the SLA.</li>
@@ -397,8 +409,8 @@ export default function DisputesPage() {
                 {replying ? "Sending…" : "Send"}
               </Button>
             </form>
-          </div>
-        </div>
+          </Panel>
+        </Reveal>
       )}
     </div>
   );

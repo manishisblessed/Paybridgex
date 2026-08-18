@@ -18,7 +18,8 @@ import {
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
 import { Input, Label } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import { Panel, DarkPanel, StatusPill, SectionTitle } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { type Session } from "@/lib/auth";
 import { useAuth } from "@/lib/useAuth";
 
@@ -207,34 +208,38 @@ export default function ProfilePage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
-      <ServicePageHeader
-        icon={User}
-        title="Profile"
-        description="Manage your personal details, KYC status and account preferences."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={User}
+          title="Profile"
+          description="Manage your personal details, KYC status and account preferences."
+        />
+      </Reveal>
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Sidebar */}
         <aside className="space-y-4">
-          <div className="rounded-2xl border border-ink-100 bg-white p-6 text-center">
-            <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-accent-500 font-display text-xl font-bold text-white shadow-glow">
-              {session.name
-                .split(" ")
-                .map((n) => n[0])
-                .slice(0, 2)
-                .join("")}
-            </div>
-            <h2 className="mt-4 font-display text-lg font-semibold text-ink-900">
-              {session.name}
-            </h2>
-            <p className="text-xs text-ink-500">{session.email}</p>
-            <Badge variant="brand" className="mt-3 capitalize">
-              {session.role}
-            </Badge>
-          </div>
+          <Reveal distance={16} duration={0.45}>
+            <DarkPanel className="p-6 text-center">
+              <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-accent-500 font-display text-xl font-bold text-white shadow-glow ring-2 ring-white/20">
+                {session.name
+                  .split(" ")
+                  .map((n) => n[0])
+                  .slice(0, 2)
+                  .join("")}
+              </div>
+              <h2 className="mt-4 font-display text-lg font-semibold text-white">
+                {session.name}
+              </h2>
+              <p className="text-xs text-white/60">{session.email}</p>
+              <span className="mt-3 inline-flex items-center rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold capitalize text-white ring-1 ring-white/15">
+                {session.role}
+              </span>
+            </DarkPanel>
+          </Reveal>
 
           {/* KYC Status Card */}
-          <div className="rounded-2xl border border-ink-100 bg-white p-5">
+          <Panel>
             <p className="text-[10px] font-bold uppercase tracking-widest text-ink-500">
               KYC Status
             </p>
@@ -244,23 +249,23 @@ export default function ProfilePage() {
               <>
                 <div className="mt-3">
                   {kycStatus === "APPROVED" && (
-                    <div className="flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
-                      <CheckCircle2 className="h-4 w-4" />
+                    <StatusPill status="APPROVED" tone="success">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
                       Verified
-                    </div>
+                    </StatusPill>
                   )}
                   {kycStatus === "PENDING_REVIEW" && (
-                    <div className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
-                      <Clock className="h-4 w-4" />
+                    <StatusPill status="PENDING_REVIEW" tone="warning">
+                      <Clock className="h-3.5 w-3.5" />
                       Under review
-                    </div>
+                    </StatusPill>
                   )}
                   {kycStatus === "REJECTED" && (
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800">
-                        <XCircle className="h-4 w-4" />
+                      <StatusPill status="REJECTED" tone="danger">
+                        <XCircle className="h-3.5 w-3.5" />
                         Rejected
-                      </div>
+                      </StatusPill>
                       {kyc?.rejectedReason && (
                         <p className="text-xs text-rose-600">
                           {kyc.rejectedReason}
@@ -269,10 +274,10 @@ export default function ProfilePage() {
                     </div>
                   )}
                   {kycStatus === "NOT_STARTED" && (
-                    <div className="flex items-center gap-2 rounded-xl bg-ink-50 px-3 py-2 text-sm font-semibold text-ink-600">
-                      <AlertTriangle className="h-4 w-4" />
+                    <StatusPill status="NOT_STARTED" tone="neutral">
+                      <AlertTriangle className="h-3.5 w-3.5" />
                       Not submitted
-                    </div>
+                    </StatusPill>
                   )}
                 </div>
 
@@ -298,7 +303,7 @@ export default function ProfilePage() {
                 )}
               </>
             )}
-          </div>
+          </Panel>
         </aside>
 
         {/* Main content */}
@@ -306,7 +311,7 @@ export default function ProfilePage() {
           {/* Profile form */}
           <form
             onSubmit={save}
-            className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-6 sm:grid-cols-2"
+            className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-6 shadow-sm sm:grid-cols-2"
           >
             <div className="sm:col-span-2">
               <Label htmlFor="name">Full name</Label>
@@ -343,14 +348,12 @@ export default function ProfilePage() {
 
           {/* KYC Section */}
           {canSubmitKyc && (
-            <div className="rounded-2xl border border-ink-100 bg-white p-6">
-              <h3 className="font-display text-base font-semibold text-ink-900">
-                Complete your KYC
-              </h3>
-              <p className="mt-1 text-xs text-ink-500">
-                Upload required documents and fill in your details to activate
-                your account.
-              </p>
+            <Panel className="p-6">
+              <SectionTitle
+                title="Complete your KYC"
+                description="Upload required documents and fill in your details to activate your account."
+                className="mb-0"
+              />
 
               {kycStatus === "REJECTED" && kyc?.rejectedReason && (
                 <div className="mt-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -392,7 +395,7 @@ export default function ProfilePage() {
                         </span>
                       </div>
                       {uploaded ? (
-                        <Badge variant="success">Uploaded</Badge>
+                        <StatusPill status="Uploaded" tone="success" />
                       ) : (
                         <label className="cursor-pointer">
                           <input
@@ -482,11 +485,11 @@ export default function ProfilePage() {
                   {kycSubmitting ? "Submitting…" : "Submit KYC for review"}
                 </Button>
               </form>
-            </div>
+            </Panel>
           )}
 
           {kycStatus === "PENDING_REVIEW" && (
-            <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-6 text-center">
+            <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-6 text-center shadow-sm">
               <Clock className="mx-auto h-10 w-10 text-amber-500" />
               <h3 className="mt-3 font-display text-lg font-semibold text-ink-900">
                 KYC under review

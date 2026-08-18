@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
-  Search, Filter, PackagePlus, RefreshCw, ShieldCheck, ShieldOff, Loader2,
+  Search, PackagePlus, RefreshCw, ShieldCheck, ShieldOff, Loader2,
   Wallet, ArrowUpDown, Monitor, Layers, X, Check, AlertCircle, Eye,
   Link2, Copy, Share2, Send, Pencil, Trash2, Clock, MailPlus, ListChecks,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/PageHeader";
+import { FilterBar, FilterField, ModalShell, Panel } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -245,28 +247,28 @@ export default function NetworkPage() {
             <Link
               href={`/dashboard/network/${r.id}`}
               title="View business, transactions & activity"
-              className="rounded-lg p-1.5 text-ink-500 hover:bg-brand-50 hover:text-brand-700"
+              className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 transition-colors hover:bg-brand-50 hover:text-brand-700"
             >
               <Eye className="h-4 w-4" />
             </Link>
             <button
               onClick={() => setActionTarget({ user: r, action: "wallet" })}
               title="Push / Pull balance"
-              className="rounded-lg p-1.5 text-ink-500 hover:bg-brand-50 hover:text-brand-700"
+              className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 transition-colors hover:bg-brand-50 hover:text-brand-700"
             >
               <Wallet className="h-4 w-4" />
             </button>
             <button
               onClick={() => setActionTarget({ user: r, action: "pos" })}
               title="Assign POS machine"
-              className="rounded-lg p-1.5 text-ink-500 hover:bg-brand-50 hover:text-brand-700"
+              className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 transition-colors hover:bg-brand-50 hover:text-brand-700"
             >
               <Monitor className="h-4 w-4" />
             </button>
             <button
               onClick={() => setActionTarget({ user: r, action: "scheme" })}
               title="Assign commission scheme"
-              className="rounded-lg p-1.5 text-ink-500 hover:bg-brand-50 hover:text-brand-700"
+              className="grid h-8 w-8 place-items-center rounded-lg text-ink-500 transition-colors hover:bg-brand-50 hover:text-brand-700"
             >
               <Layers className="h-4 w-4" />
             </button>
@@ -313,6 +315,7 @@ export default function NetworkPage() {
 
   return (
     <div className="space-y-6">
+      <Reveal distance={14} duration={0.4}>
       <PageHeader
         eyebrow={meta.eyebrow}
         title={meta.title}
@@ -348,22 +351,22 @@ export default function NetworkPage() {
           </>
         }
       />
+      </Reveal>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-ink-100 bg-white p-4">
+      <FilterBar>
         <div className="relative min-w-[220px] flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, shop, ID..." className="pl-9" />
         </div>
-        <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-ink-400" />
+        <FilterField>
           <Select value={status} onChange={(e) => setStatus(e.target.value)} className="h-10 w-44">
             <option value="all">Any status</option>
             <option value="Active">Active</option>
             <option value="Pending KYC">Pending KYC</option>
             <option value="Suspended">Suspended</option>
           </Select>
-        </div>
-      </div>
+        </FilterField>
+      </FilterBar>
 
       {toggleError && (
         <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -374,14 +377,16 @@ export default function NetworkPage() {
 
       <PendingInvitesCard singular={meta.singular} onChanged={fetchNetwork} />
 
-      <DataTable
-        title={`${total} ${meta.plural}`}
-        columns={cols}
-        data={users}
-        loading={loading}
-        empty={`No ${meta.plural} in your network yet.`}
-      />
-      <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
+      <Reveal distance={16} duration={0.45}>
+        <DataTable
+          title={`${total} ${meta.plural}`}
+          columns={cols}
+          data={users}
+          loading={loading}
+          empty={`No ${meta.plural} in your network yet.`}
+        />
+        <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
+      </Reveal>
 
       {actionTarget?.action === "wallet" && (
         <WalletTransferModal
@@ -471,45 +476,45 @@ function WalletTransferModal({ child, onClose, onDone }: { child: NetworkUser; o
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-ink-100 bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
-          <div>
-            <h3 className="font-display text-base font-semibold text-ink-900">Wallet transfer</h3>
-            <p className="text-xs text-ink-500">{child.name} · Balance: {formatINR(child.walletBalance)}</p>
-          </div>
-          <button onClick={onClose} className="rounded-full p-1 text-ink-400 hover:bg-ink-100"><X className="h-5 w-5" /></button>
+    <ModalShell
+      open
+      onClose={onClose}
+      size="sm"
+      eyebrow="Network wallet"
+      title="Wallet transfer"
+      subtitle={`${child.name} · Balance: ${formatINR(child.walletBalance)}`}
+      footer={
+        <>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="primary" size="sm" onClick={submit} disabled={busy}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpDown className="h-4 w-4" />}
+            {direction === "PUSH" ? "Push" : "Pull"} ₹{amount || "0"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {err && <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700"><AlertCircle className="h-4 w-4 shrink-0" /> {err}</div>}
+        <div className="flex gap-2">
+          {(["PUSH", "PULL"] as const).map((d) => (
+            <button key={d} onClick={() => setDirection(d)}
+              className={`flex-1 rounded-xl border px-3 py-2.5 text-sm font-semibold transition ${direction === d ? "border-brand-300 bg-brand-50 text-brand-800" : "border-ink-100 bg-white text-ink-600 hover:border-ink-200"}`}>
+              {d === "PUSH" ? "Push (credit child)" : "Pull (debit child)"}
+            </button>
+          ))}
         </div>
-        <div className="space-y-4 p-5">
-          {err && <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700"><AlertCircle className="h-4 w-4 shrink-0" /> {err}</div>}
-          <div className="flex gap-2">
-            {(["PUSH", "PULL"] as const).map((d) => (
-              <button key={d} onClick={() => setDirection(d)}
-                className={`flex-1 rounded-xl border px-3 py-2.5 text-sm font-semibold transition ${direction === d ? "border-brand-300 bg-brand-50 text-brand-800" : "border-ink-100 bg-white text-ink-600 hover:border-ink-200"}`}>
-                {d === "PUSH" ? "Push (credit child)" : "Pull (debit child)"}
-              </button>
-            ))}
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Amount (₹)</label>
-            <input type="number" min="1" step="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1000"
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-ink-500">Note (optional)</label>
-            <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason for transfer..."
-              className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
-          </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
-            <Button variant="primary" size="sm" onClick={submit} disabled={busy}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpDown className="h-4 w-4" />}
-              {direction === "PUSH" ? "Push" : "Pull"} ₹{amount || "0"}
-            </Button>
-          </div>
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-ink-500">Amount (₹)</label>
+          <input type="number" min="1" step="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1000"
+            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-ink-500">Note (optional)</label>
+          <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason for transfer..."
+            className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -593,24 +598,23 @@ function PosAssignModal({ child, parentId, onClose, onDone }: { child: NetworkUs
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-2xl border border-ink-100 bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
-          <div>
-            <h3 className="font-display text-base font-semibold text-ink-900">Assign POS to {child.name}</h3>
-            <p className="text-xs text-ink-500">Select one or more machines to assign to your {child.role.replace(/-/g, " ")}. Configure rent later on the POS Rental page.</p>
-          </div>
-          <button onClick={onClose} className="rounded-full p-1 text-ink-400 hover:bg-ink-100"><X className="h-5 w-5" /></button>
-        </div>
-        <div className="max-h-[80vh] overflow-y-auto p-5">
-          {err && <div className="mb-3 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700"><AlertCircle className="h-4 w-4 shrink-0" /> {err}</div>}
+    <ModalShell
+      open
+      onClose={onClose}
+      size="md"
+      eyebrow="POS machines"
+      title={`Assign POS to ${child.name}`}
+      subtitle={`Select one or more machines to assign to your ${child.role.replace(/-/g, " ")}. Configure rent later on the POS Rental page.`}
+    >
+      <div>
+        {err && <div className="mb-3 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700"><AlertCircle className="h-4 w-4 shrink-0" /> {err}</div>}
 
-          {loading ? (
-            <div className="px-4 py-8 text-center text-sm text-ink-500">Loading machines…</div>
-          ) : machines.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-ink-500">No machines available to assign. Machines must be assigned to you first.</div>
-          ) : (
-            <>
+        {loading ? (
+          <div className="px-4 py-8 text-center text-sm text-ink-500">Loading machines…</div>
+        ) : machines.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-ink-500">No machines available to assign. Machines must be assigned to you first.</div>
+        ) : (
+          <>
               <div className="mb-2 flex items-center justify-between">
                 <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-ink-600">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll}
@@ -643,11 +647,10 @@ function PosAssignModal({ child, parentId, onClose, onDone }: { child: NetworkUs
                   Assign {selected.size > 0 ? selected.size : ""} machine{selected.size === 1 ? "" : "s"}
                 </Button>
               </div>
-            </>
-          )}
-        </div>
+          </>
+        )}
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -685,19 +688,26 @@ function SchemeAssignModal({ child, onClose, onDone }: { child: NetworkUser; onC
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-ink-100 bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
-          <div>
-            <h3 className="font-display text-base font-semibold text-ink-900">Assign scheme to {child.name}</h3>
-            <p className="text-xs text-ink-500">One scheme covers charges, commission and POS MDR</p>
-          </div>
-          <button onClick={onClose} className="rounded-full p-1 text-ink-400 hover:bg-ink-100"><X className="h-5 w-5" /></button>
-        </div>
-        <div className="space-y-4 p-5">
-          {err && <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700"><AlertCircle className="h-4 w-4 shrink-0" /> {err}</div>}
+    <ModalShell
+      open
+      onClose={onClose}
+      size="sm"
+      eyebrow="Commission scheme"
+      title={`Assign scheme to ${child.name}`}
+      subtitle="One scheme covers charges, commission and POS MDR"
+      footer={
+        <>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="primary" size="sm" onClick={submit} disabled={busy || loading || schemes.length === 0}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Assign
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {err && <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700"><AlertCircle className="h-4 w-4 shrink-0" /> {err}</div>}
 
-          {child.schemeName && (
+        {child.schemeName && (
             <div className="flex items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-xs text-brand-700">
               <Layers className="h-4 w-4 shrink-0" />
               Currently assigned: <span className="font-semibold">{child.schemeName}</span>
@@ -733,15 +743,8 @@ function SchemeAssignModal({ child, onClose, onDone }: { child: NetworkUser; onC
               </select>
             </div>
           )}
-          <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
-            <Button variant="primary" size="sm" onClick={submit} disabled={busy || loading || schemes.length === 0}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Assign
-            </Button>
-          </div>
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -801,11 +804,13 @@ function PendingInvitesCard({ singular, onChanged }: { singular: string; onChang
   if (!loading && invites.length === 0) return null;
 
   return (
-    <div className="rounded-2xl border border-ink-100 bg-white">
+    <Panel flush>
       <div className="flex items-center justify-between border-b border-ink-100 px-5 py-3.5">
-        <div className="flex items-center gap-2">
-          <MailPlus className="h-4 w-4 text-brand-600" />
-          <h3 className="text-sm font-semibold text-ink-900">Pending invitations</h3>
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
+            <MailPlus className="h-4 w-4" />
+          </span>
+          <h3 className="font-display text-sm font-semibold text-ink-900">Pending invitations</h3>
           {invites.length > 0 && <Badge variant="warning">{invites.length}</Badge>}
         </div>
         <button
@@ -935,7 +940,7 @@ function PendingInvitesCard({ singular, onChanged }: { singular: string; onChang
           if (cancelTarget) await act(cancelTarget, "cancel");
         }}
       />
-    </div>
+    </Panel>
   );
 }
 
@@ -1101,25 +1106,26 @@ function EditInviteModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4 backdrop-blur-sm"
-      onClick={onClose}
+    <ModalShell
+      open
+      onClose={onClose}
+      size="sm"
+      eyebrow="Pending invite"
+      title="Edit contact"
+      subtitle="A refreshed link is sent after you save."
+      footer={
+        <>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" onClick={submit} disabled={busy}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Save & resend
+          </Button>
+        </>
+      }
     >
-      <div
-        className="w-full max-w-md rounded-2xl border border-ink-100 bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
-          <div>
-            <h3 className="font-display text-base font-semibold text-ink-900">Edit contact</h3>
-            <p className="text-xs text-ink-500">A refreshed link is sent after you save.</p>
-          </div>
-          <button onClick={onClose} className="rounded-full p-1 text-ink-400 hover:bg-ink-100">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="space-y-4 p-5">
-          {err && (
+      <div className="space-y-4">
+        {err && (
             <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
               <AlertCircle className="h-4 w-4 shrink-0" /> {err}
             </div>
@@ -1154,16 +1160,7 @@ function EditInviteModal({
               className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
             />
           </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="sm" onClick={submit} disabled={busy}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Save & resend
-            </Button>
-          </div>
-        </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   XCircle,
-  Clock,
   Loader2,
   FileSignature,
   FileText,
@@ -17,6 +16,8 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
+import { Panel, StatusPill, SectionTitle, EmptyState, type PillTone } from "@/components/dashboard/ui";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 
 type Approval = {
   id: string;
@@ -115,17 +116,19 @@ export default function ApprovalsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Network"
-        title="Declaration Approvals"
-        description="Review and approve onboarding declarations from your network members."
-        actions={
-          <Button variant="outline" onClick={fetchApprovals} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Network"
+          title="Declaration Approvals"
+          description="Review and approve onboarding declarations from your network members."
+          actions={
+            <Button variant="outline" onClick={fetchApprovals} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          }
+        />
+      </Reveal>
 
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -142,63 +145,79 @@ export default function ApprovalsPage() {
           {/* Pending Approvals */}
           {pending.length > 0 && (
             <div className="space-y-3">
-              <h2 className="text-lg font-bold text-ink-900">Pending Approvals ({pending.length})</h2>
-              <div className="grid gap-4 md:grid-cols-2">
+              <SectionTitle className="mb-0" title={`Pending Approvals (${pending.length})`} />
+              <Stagger stagger={0.05} className="grid gap-4 md:grid-cols-2">
                 {pending.map((a) => (
-                  <ApprovalCard key={a.id} approval={a} onReview={() => startReview(a)} />
+                  <StaggerItem key={a.id} distance={14} duration={0.35}>
+                    <ApprovalCard approval={a} onReview={() => startReview(a)} />
+                  </StaggerItem>
                 ))}
-              </div>
+              </Stagger>
             </div>
           )}
 
           {pending.length === 0 && (
-            <div className="rounded-2xl border border-ink-100 bg-white p-12 text-center">
-              <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-400" />
-              <p className="mt-3 text-lg font-semibold text-ink-900">All caught up!</p>
-              <p className="mt-1 text-ink-500">No pending declaration approvals.</p>
-            </div>
+            <Reveal distance={16} duration={0.45}>
+              <EmptyState
+                icon={CheckCircle2}
+                title="All caught up!"
+                message="No pending declaration approvals."
+              />
+            </Reveal>
           )}
 
           {/* Pending Transfer Approvals */}
           {pendingTransfers.length > 0 && (
             <div className="space-y-3">
-              <h2 className="flex items-center gap-2 text-lg font-bold text-ink-900">
-                <GitBranch className="h-5 w-5 text-brand-600" />
-                Transfer Requests ({pendingTransfers.length})
-              </h2>
-              <div className="grid gap-4 md:grid-cols-2">
+              <SectionTitle
+                className="mb-0"
+                title={
+                  <span className="flex items-center gap-2">
+                    <GitBranch className="h-5 w-5 text-brand-600" />
+                    Transfer Requests ({pendingTransfers.length})
+                  </span>
+                }
+              />
+              <Stagger stagger={0.05} className="grid gap-4 md:grid-cols-2">
                 {pendingTransfers.map((t) => (
-                  <TransferCard key={t.id} transfer={t} onReview={() => startTransferReview(t)} />
+                  <StaggerItem key={t.id} distance={14} duration={0.35}>
+                    <TransferCard transfer={t} onReview={() => startTransferReview(t)} />
+                  </StaggerItem>
                 ))}
-              </div>
+              </Stagger>
             </div>
           )}
 
           {/* Completed */}
           {completed.length > 0 && (
-            <div className="space-y-3">
-              <h2 className="text-lg font-bold text-ink-900">History</h2>
+            <Reveal distance={16} duration={0.45} className="space-y-3">
+              <SectionTitle className="mb-0" title="History" />
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {completed.map((a) => (
                   <ApprovalCard key={a.id} approval={a} />
                 ))}
               </div>
-            </div>
+            </Reveal>
           )}
 
           {/* Completed Transfers */}
           {completedTransfers.length > 0 && (
-            <div className="space-y-3">
-              <h2 className="flex items-center gap-2 text-lg font-bold text-ink-900">
-                <GitBranch className="h-5 w-5 text-ink-400" />
-                Transfer History
-              </h2>
+            <Reveal distance={16} duration={0.45} className="space-y-3">
+              <SectionTitle
+                className="mb-0"
+                title={
+                  <span className="flex items-center gap-2">
+                    <GitBranch className="h-5 w-5 text-ink-400" />
+                    Transfer History
+                  </span>
+                }
+              />
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {completedTransfers.map((t) => (
                   <TransferCard key={t.id} transfer={t} />
                 ))}
               </div>
-            </div>
+            </Reveal>
           )}
         </>
       )}
@@ -207,26 +226,24 @@ export default function ApprovalsPage() {
 }
 
 function ApprovalCard({ approval, onReview }: { approval: Approval; onReview?: () => void }) {
-  const statusConfig = {
-    PENDING: { color: "bg-amber-100 text-amber-800", icon: Clock, label: "Pending" },
-    APPROVED: { color: "bg-emerald-100 text-emerald-800", icon: CheckCircle2, label: "Approved" },
-    REJECTED: { color: "bg-rose-100 text-rose-800", icon: XCircle, label: "Rejected" },
-    EXPIRED: { color: "bg-ink-100 text-ink-600", icon: Clock, label: "Expired" },
-  }[approval.status] ?? { color: "bg-ink-100 text-ink-600", icon: Clock, label: approval.status };
-
-  const StatusIcon = statusConfig.icon;
+  const statusConfig: { tone: PillTone; label: string } =
+    (
+      {
+        PENDING: { tone: "warning", label: "Pending" },
+        APPROVED: { tone: "success", label: "Approved" },
+        REJECTED: { tone: "danger", label: "Rejected" },
+        EXPIRED: { tone: "neutral", label: "Expired" },
+      } as Record<string, { tone: PillTone; label: string }>
+    )[approval.status] ?? { tone: "neutral", label: approval.status };
 
   return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-soft">
+    <Panel interactive>
       <div className="flex items-start justify-between">
         <div>
-          <p className="font-semibold text-ink-900">{approval.onboardeeName}</p>
+          <p className="font-display font-semibold text-ink-900">{approval.onboardeeName}</p>
           <p className="text-xs text-ink-500">{approval.onboardeeRole.replace(/_/g, " ")}</p>
         </div>
-        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${statusConfig.color}`}>
-          <StatusIcon className="h-3 w-3" />
-          {statusConfig.label}
-        </span>
+        <StatusPill status={statusConfig.label} tone={statusConfig.tone} />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
         <div>
@@ -266,7 +283,7 @@ function ApprovalCard({ approval, onReview }: { approval: Approval; onReview?: (
           <FileText className="h-4 w-4" /> View Signed Declaration
         </a>
       )}
-    </div>
+    </Panel>
   );
 }
 
@@ -596,10 +613,10 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
   if (success) {
     return (
       <div className="mx-auto max-w-lg space-y-6 py-12 text-center">
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-500 text-white">
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-soft">
           <CheckCircle2 className="h-8 w-8" />
         </div>
-        <h2 className="text-xl font-bold text-ink-900">Declaration Approved</h2>
+        <h2 className="font-display text-xl font-bold text-ink-900">Declaration Approved</h2>
         <p className="text-ink-600">
           You have approved <strong>{approval.onboardeeName}</strong>&apos;s onboarding as a{" "}
           <strong>{approval.onboardeeRole.replace(/_/g, " ")}</strong>.
@@ -613,10 +630,10 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
   if (rejected) {
     return (
       <div className="mx-auto max-w-lg space-y-6 py-12 text-center">
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-rose-500 text-white">
+        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-rose-500 to-rose-600 text-white shadow-soft">
           <XCircle className="h-8 w-8" />
         </div>
-        <h2 className="text-xl font-bold text-ink-900">Declaration Rejected</h2>
+        <h2 className="font-display text-xl font-bold text-ink-900">Declaration Rejected</h2>
         <p className="text-ink-600">
           You have rejected <strong>{approval.onboardeeName}</strong>&apos;s onboarding declaration.
         </p>
@@ -627,13 +644,15 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title={`Review: ${approval.onboardeeName}`}
-        description={`${approval.onboardeeRole.replace(/_/g, " ")} onboarding declaration approval`}
-        actions={
-          <Button variant="outline" onClick={onBack}>Back</Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          title={`Review: ${approval.onboardeeName}`}
+          description={`${approval.onboardeeRole.replace(/_/g, " ")} onboarding declaration approval`}
+          actions={
+            <Button variant="outline" onClick={onBack}>Back</Button>
+          }
+        />
+      </Reveal>
 
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -642,8 +661,8 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
       )}
 
       {/* Applicant Info */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-soft">
-        <h3 className="mb-3 font-bold text-ink-900">Applicant Details</h3>
+      <Panel className="shadow-soft">
+        <h3 className="mb-3 font-display text-base font-semibold text-ink-900">Applicant Details</h3>
         <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">
           <div>
             <p className="text-ink-400 text-xs">Name</p>
@@ -666,7 +685,7 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
             <p className="font-medium text-ink-900">{new Date(approval.sentAt).toLocaleString()}</p>
           </div>
         </div>
-      </div>
+      </Panel>
 
       {/* Declaration Warning + document view */}
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
@@ -693,11 +712,13 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
       </div>
 
       {/* Signature */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-soft">
+      <Panel className="shadow-soft">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <FileSignature className="h-5 w-5 text-brand-600" />
-            <h3 className="font-bold text-ink-900">Your Signature</h3>
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
+              <FileSignature className="h-4 w-4" />
+            </span>
+            <h3 className="font-display text-base font-semibold text-ink-900">Your Signature</h3>
             {hasSigned && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
           </div>
           {hasSigned && (
@@ -738,13 +759,15 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
         <p className="mt-2 text-xs text-ink-400">
           Draw your signature using mouse or touch. Signature is captured exactly as drawn.
         </p>
-      </div>
+      </Panel>
 
       {/* Selfie */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-soft">
+      <Panel className="shadow-soft">
         <div className="flex items-center gap-2 mb-3">
-          <Camera className="h-5 w-5 text-brand-600" />
-          <h3 className="font-bold text-ink-900">Approval Selfie</h3>
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-violet-700 text-white shadow-soft">
+            <Camera className="h-4 w-4" />
+          </span>
+          <h3 className="font-display text-base font-semibold text-ink-900">Approval Selfie</h3>
           {selfieDataUrl && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
         </div>
 
@@ -804,13 +827,15 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
             </button>
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* GPS Location */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-soft">
+      <Panel className="shadow-soft">
         <div className="flex items-center gap-2 mb-3">
-          <MapPin className="h-5 w-5 text-brand-600" />
-          <h3 className="font-bold text-ink-900">Location Verification</h3>
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-soft">
+            <MapPin className="h-4 w-4" />
+          </span>
+          <h3 className="font-display text-base font-semibold text-ink-900">Location Verification</h3>
           {gps && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
         </div>
 
@@ -834,7 +859,7 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
             </p>
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* Action Buttons */}
       <div className="flex items-center gap-3">
@@ -883,31 +908,29 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
 /* ─── Transfer Approval Card ─────────────────────────────────────────────── */
 
 function TransferCard({ transfer, onReview }: { transfer: TransferRequest; onReview?: () => void }) {
-  const statusConfig = {
-    PENDING_DECLARATION: { color: "bg-amber-100 text-amber-800", icon: Clock, label: "Pending Approval" },
-    APPROVED: { color: "bg-emerald-100 text-emerald-800", icon: CheckCircle2, label: "Approved" },
-    REJECTED: { color: "bg-rose-100 text-rose-800", icon: XCircle, label: "Rejected" },
-    EXPIRED: { color: "bg-ink-100 text-ink-600", icon: Clock, label: "Expired" },
-    CANCELLED: { color: "bg-ink-100 text-ink-600", icon: XCircle, label: "Cancelled" },
-  }[transfer.status] ?? { color: "bg-ink-100 text-ink-600", icon: Clock, label: transfer.status };
-
-  const StatusIcon = statusConfig.icon;
+  const statusConfig: { tone: PillTone; label: string } =
+    (
+      {
+        PENDING_DECLARATION: { tone: "warning", label: "Pending Approval" },
+        APPROVED: { tone: "success", label: "Approved" },
+        REJECTED: { tone: "danger", label: "Rejected" },
+        EXPIRED: { tone: "neutral", label: "Expired" },
+        CANCELLED: { tone: "neutral", label: "Cancelled" },
+      } as Record<string, { tone: PillTone; label: string }>
+    )[transfer.status] ?? { tone: "neutral", label: transfer.status };
 
   return (
-    <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-soft">
+    <Panel interactive>
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2">
             <GitBranch className="h-4 w-4 text-brand-600" />
-            <p className="font-semibold text-ink-900">{transfer.user.name}</p>
+            <p className="font-display font-semibold text-ink-900">{transfer.user.name}</p>
             {transfer.user.userCode && <span className="font-medium text-brand-600 text-sm">{transfer.user.userCode}</span>}
           </div>
           <p className="text-xs text-ink-500">{transfer.user.role.replace(/_/g, " ")} · Transfer Request</p>
         </div>
-        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${statusConfig.color}`}>
-          <StatusIcon className="h-3 w-3" />
-          {statusConfig.label}
-        </span>
+        <StatusPill status={statusConfig.label} tone={statusConfig.tone} />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
         <div>
@@ -946,7 +969,7 @@ function TransferCard({ transfer, onReview }: { transfer: TransferRequest; onRev
           <FileSignature className="h-4 w-4" /> Review & Accept Transfer
         </Button>
       )}
-    </div>
+    </Panel>
   );
 }
 
@@ -1211,7 +1234,7 @@ function TransferReviewPage({ transfer, onBack }: { transfer: TransferRequest; o
       <div className="space-y-6">
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-12 text-center">
           <CheckCircle2 className="mx-auto h-16 w-16 text-emerald-500" />
-          <h2 className="mt-4 text-2xl font-bold text-emerald-800">Transfer Approved!</h2>
+          <h2 className="mt-4 font-display text-2xl font-bold text-emerald-800">Transfer Approved!</h2>
           <p className="mt-2 text-emerald-700">
             {transfer.user.name} has been successfully transferred under your account.
             Their previous scheme has been cleared — you can now assign them a new one.
@@ -1229,7 +1252,7 @@ function TransferReviewPage({ transfer, onBack }: { transfer: TransferRequest; o
       <div className="space-y-6">
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-12 text-center">
           <XCircle className="mx-auto h-16 w-16 text-rose-500" />
-          <h2 className="mt-4 text-2xl font-bold text-rose-800">Transfer Rejected</h2>
+          <h2 className="mt-4 font-display text-2xl font-bold text-rose-800">Transfer Rejected</h2>
           <p className="mt-2 text-rose-700">
             You have rejected the transfer of {transfer.user.name}. The Master Admin has been notified.
           </p>
@@ -1243,16 +1266,18 @@ function TransferReviewPage({ transfer, onBack }: { transfer: TransferRequest; o
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Transfer Approval"
-        title={`Accept ${transfer.user.name}?`}
-        description={`Master Admin wants to transfer this ${transfer.user.role.replace(/_/g, " ")} under your account.`}
-        actions={
-          <Button variant="outline" onClick={onBack}>
-            Back to list
-          </Button>
-        }
-      />
+      <Reveal distance={14} duration={0.4}>
+        <PageHeader
+          eyebrow="Transfer Approval"
+          title={`Accept ${transfer.user.name}?`}
+          description={`Master Admin wants to transfer this ${transfer.user.role.replace(/_/g, " ")} under your account.`}
+          actions={
+            <Button variant="outline" onClick={onBack}>
+              Back to list
+            </Button>
+          }
+        />
+      </Reveal>
 
       {error && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -1261,8 +1286,8 @@ function TransferReviewPage({ transfer, onBack }: { transfer: TransferRequest; o
       )}
 
       {/* Transfer Details */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-soft">
-        <h3 className="font-bold text-ink-900 mb-3">Transfer Details</h3>
+      <Panel className="shadow-soft">
+        <h3 className="mb-3 font-display text-base font-semibold text-ink-900">Transfer Details</h3>
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-ink-400 text-xs">User being transferred</p>
@@ -1302,13 +1327,15 @@ function TransferReviewPage({ transfer, onBack }: { transfer: TransferRequest; o
           By approving, you accept responsibility for this user in your network. Their scheme 
           will be cleared and you can assign a new one from your commission structure.
         </div>
-      </div>
+      </Panel>
 
       {/* Signature */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-soft">
+      <Panel className="shadow-soft">
         <div className="flex items-center gap-2 mb-3">
-          <PenTool className="h-5 w-5 text-brand-600" />
-          <h3 className="font-bold text-ink-900">Your Signature</h3>
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-soft">
+            <PenTool className="h-4 w-4" />
+          </span>
+          <h3 className="font-display text-base font-semibold text-ink-900">Your Signature</h3>
           {hasSigned && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
         </div>
         <div className="rounded-xl border-2 border-dashed border-ink-200 bg-ink-50">
@@ -1328,13 +1355,15 @@ function TransferReviewPage({ transfer, onBack }: { transfer: TransferRequest; o
         <button type="button" onClick={clearSignature} className="mt-2 text-xs text-brand-600 hover:underline">
           Clear signature
         </button>
-      </div>
+      </Panel>
 
       {/* Selfie */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-soft">
+      <Panel className="shadow-soft">
         <div className="flex items-center gap-2 mb-3">
-          <Camera className="h-5 w-5 text-brand-600" />
-          <h3 className="font-bold text-ink-900">Selfie Verification</h3>
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-violet-700 text-white shadow-soft">
+            <Camera className="h-4 w-4" />
+          </span>
+          <h3 className="font-display text-base font-semibold text-ink-900">Selfie Verification</h3>
           {selfieDataUrl && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
         </div>
 
@@ -1385,13 +1414,15 @@ function TransferReviewPage({ transfer, onBack }: { transfer: TransferRequest; o
             </button>
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* GPS */}
-      <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-soft">
+      <Panel className="shadow-soft">
         <div className="flex items-center gap-2 mb-3">
-          <MapPin className="h-5 w-5 text-brand-600" />
-          <h3 className="font-bold text-ink-900">Location Verification</h3>
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-soft">
+            <MapPin className="h-4 w-4" />
+          </span>
+          <h3 className="font-display text-base font-semibold text-ink-900">Location Verification</h3>
           {gps && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
         </div>
         {!gps && (
@@ -1410,7 +1441,7 @@ function TransferReviewPage({ transfer, onBack }: { transfer: TransferRequest; o
             </p>
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* Actions */}
       <div className="flex items-center gap-3">

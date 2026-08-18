@@ -13,7 +13,8 @@ import {
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import { FilterBar, TablePro, TableEmptyRow, TableSkeletonRows, StatusPill } from "@/components/dashboard/ui";
+import { Reveal } from "@/components/motion";
 import { formatINR } from "@/lib/utils";
 import { downloadCSV, downloadPDF, downloadZIP, type ReportColumn } from "@/lib/reports";
 
@@ -125,13 +126,15 @@ export default function LedgerPage() {
 
   return (
     <div>
-      <ServicePageHeader
-        icon={BookOpenCheck}
-        title="Wallet Ledger"
-        description="Every credit and debit on your wallet — commissions, transactions, payouts, settlements and more."
-      />
+      <Reveal distance={14} duration={0.4}>
+        <ServicePageHeader
+          icon={BookOpenCheck}
+          title="Wallet Ledger"
+          description="Every credit and debit on your wallet — commissions, transactions, payouts, settlements and more."
+        />
+      </Reveal>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-ink-100 bg-white p-3">
+      <FilterBar className="mb-4">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
           <Input
@@ -167,56 +170,62 @@ export default function LedgerPage() {
           <FileDown className="h-4 w-4" />
           ZIP
         </Button>
-      </div>
+      </FilterBar>
 
-      <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 px-5 py-4">
-          <p className="text-xs text-ink-500">
-            {data
+      <Reveal distance={16} duration={0.45}>
+        <TablePro
+          title="Ledger entries"
+          description={
+            data
               ? `${data.total.toLocaleString("en-IN")} total entries · showing ${data.txns.length} (page ${data.page} of ${totalPages})`
-              : "Loading…"}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={loading || page <= 1}
-            >
-              <ChevronLeft className="h-4 w-4" /> Prev
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={loading || page >= totalPages}
-            >
-              Next <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-ink-50/60 text-left text-xs uppercase tracking-wider text-ink-500">
+              : "Loading…"
+          }
+          action={
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={loading || page <= 1}
+              >
+                <ChevronLeft className="h-4 w-4" /> Prev
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={loading || page >= totalPages}
+              >
+                Next <ChevronRight className="h-4 w-4" />
+              </Button>
+            </>
+          }
+        >
+          <table>
+            <thead>
               <tr>
-                <th className="px-5 py-3 font-semibold">Type</th>
-                <th className="px-5 py-3 font-semibold">Description</th>
-                <th className="px-5 py-3 font-semibold text-right">Amount</th>
-                <th className="px-5 py-3 font-semibold text-right">Balance after</th>
-                <th className="px-5 py-3 font-semibold">Date</th>
+                <th>Type</th>
+                <th>Description</th>
+                <th className="text-right">Amount</th>
+                <th className="text-right">Balance after</th>
+                <th>Date</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-ink-100 text-ink-800">
+            <tbody>
               {!data?.txns.length ? (
-                <tr>
-                  <td colSpan={5} className="px-5 py-12 text-center text-sm text-ink-500">
-                    {loading ? "Loading..." : "No ledger entries match your filters."}
-                  </td>
-                </tr>
+                loading ? (
+                  <TableSkeletonRows rows={8} cols={5} />
+                ) : (
+                  <TableEmptyRow
+                    colSpan={5}
+                    icon={BookOpenCheck}
+                    message="No ledger entries match your filters."
+                  />
+                )
               ) : (
                 data.txns.map((t) => (
-                  <tr key={t.id} className="hover:bg-ink-50/40">
-                    <td className="px-5 py-3">
+                  <tr key={t.id}>
+                    <td>
                       <div className="flex items-center gap-2">
                         {t.direction === "CREDIT" ? (
                           <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-50 text-emerald-600">
@@ -227,28 +236,26 @@ export default function LedgerPage() {
                             <ArrowUpRight className="h-3.5 w-3.5" />
                           </span>
                         )}
-                        <Badge variant={t.direction === "CREDIT" ? "success" : "danger"}>
-                          {t.direction}
-                        </Badge>
+                        <StatusPill status={t.direction} />
                       </div>
                     </td>
-                    <td className="px-5 py-3">
+                    <td>
                       <div className="font-medium text-ink-900">
                         {REASON_LABELS[t.reason] ?? t.reason}
                       </div>
-                      {t.note && <div className="text-xs text-ink-500">{t.note}</div>}
+                      {t.note && <div className="whitespace-normal text-xs text-ink-500">{t.note}</div>}
                       {t.refId && <div className="text-[11px] text-ink-400 font-mono">{t.refId}</div>}
                     </td>
                     <td
-                      className={`px-5 py-3 text-right font-semibold ${
+                      className={`text-right font-semibold ${
                         t.direction === "CREDIT" ? "text-emerald-700" : "text-rose-700"
                       }`}
                     >
                       {t.direction === "CREDIT" ? "+" : "−"}
                       {formatINR(t.amount)}
                     </td>
-                    <td className="px-5 py-3 text-right text-ink-600">{formatINR(t.balanceAfter)}</td>
-                    <td className="px-5 py-3 text-xs text-ink-500 whitespace-nowrap">
+                    <td className="text-right text-ink-600">{formatINR(t.balanceAfter)}</td>
+                    <td className="text-xs text-ink-500 whitespace-nowrap">
                       {new Date(t.createdAt).toLocaleString("en-IN", {
                         dateStyle: "medium",
                         timeStyle: "short",
@@ -259,8 +266,8 @@ export default function LedgerPage() {
               )}
             </tbody>
           </table>
-        </div>
-      </div>
+        </TablePro>
+      </Reveal>
     </div>
   );
 }
