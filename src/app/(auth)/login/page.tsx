@@ -10,6 +10,9 @@ import {
   EyeOff,
   ShieldCheck,
   Store,
+  Users,
+  Network,
+  Crown,
   ArrowRight,
   AlertCircle,
   Clock,
@@ -24,6 +27,25 @@ import { LogoMark } from "@/components/layout/Logo";
 import { TwoFactorStep } from "@/components/auth/TwoFactorStep";
 import { LocationGate, type LocationData } from "@/components/auth/LocationGate";
 import { Turnstile, captchaConfigured } from "@/components/security/Turnstile";
+
+/**
+ * Public login roles. Values match the Prisma `Role` enum, so we can send
+ * them straight through to the login API which asserts the account's real
+ * role matches (server rejects with a generic 401 on mismatch).
+ */
+type PublicRole = "RETAILER" | "DISTRIBUTOR" | "MASTER_DISTRIBUTOR" | "SUPER_DISTRIBUTOR";
+
+const roleOptions: {
+  id: PublicRole;
+  label: string;
+  icon: typeof Store;
+  tagline: string;
+}[] = [
+  { id: "RETAILER",           label: "Retailer",           icon: Store,   tagline: "Run a single shop" },
+  { id: "DISTRIBUTOR",        label: "Distributor",        icon: Users,   tagline: "Manage a network of retailers" },
+  { id: "MASTER_DISTRIBUTOR", label: "Master Distributor", icon: Network, tagline: "White-label the platform, use the API" },
+  { id: "SUPER_DISTRIBUTOR",  label: "Super Distributor",  icon: Crown,   tagline: "Multi-state distribution network" },
+];
 
 const panelFigures = [
   { value: "60+", label: "Services" },
@@ -177,14 +199,33 @@ function LoginForm({ location }: { location: LocationData }) {
 
   const rateLimited = cooldownSec > 0;
 
-  // 2FA state
-  const [step, setStep] = useState<"credentials" | "2fa">("credentials");
+  // Multi-step flow: pick role -> enter credentials -> (optional) 2FA.
+  const [step, setStep] = useState<"role" | "credentials" | "2fa">("role");
+  const [selectedRole, setSelectedRole] = useState<PublicRole | null>(null);
   const [tempToken, setTempToken] = useState("");
   const [userName, setUserName] = useState("");
+
+  const selectedMeta = roleOptions.find((r) => r.id === selectedRole) ?? null;
+
+  function pickRole(r: PublicRole) {
+    setSelectedRole(r);
+    setStep("credentials");
+    setError("");
+  }
+
+  function backToRole() {
+    setStep("role");
+    setPassword("");
+    setError("");
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (rateLimited) return;
+    if (!selectedRole) {
+      setStep("role");
+      return;
+    }
     setLoading(true);
     setError("");
 
@@ -197,6 +238,7 @@ function LoginForm({ location }: { location: LocationData }) {
           password,
           location: { lat: location.latitude, lng: location.longitude, accuracy: location.accuracy },
           captchaToken,
+          role: selectedRole,
         }),
       });
 
@@ -240,6 +282,79 @@ function LoginForm({ location }: { location: LocationData }) {
       setError("Network error. Please try again.");
       setLoading(false);
     }
+  }
+
+  if (step === "role") {
+    return (
+      <div className="grid w-full max-w-5xl gap-6 lg:grid-cols-2">
+        <BrandPanel
+          eyebrow="Smart Payments · Trusted Solutions"
+          title={<>Welcome back<br />to the bridge.</>}
+          text="One login for retailers, distributors, master distributors and super distributors — each with its own purpose-built workspace."
+          points={[
+            "60+ services on one dashboard",
+            "Instant IMPS settlement, 24×7",
+            "Transparent, slab-wise commissions",
+            "Two-factor authentication for all users",
+          ]}
+        />
+
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+          className="rounded-[2rem] border border-ink-100 bg-white p-8 shadow-soft md:p-10"
+        >
+          <div className="flex items-center gap-3 lg:hidden">
+            <LogoMark size={36} />
+          </div>
+          <h1 className="heading-md mt-4 lg:mt-0">Sign in</h1>
+          <p className="mt-2 text-sm text-ink-500">
+            Choose your account type to continue.
+          </p>
+
+          <div className="mt-6 space-y-2.5">
+            {roleOptions.map((r, i) => {
+              const Icon = r.icon;
+              return (
+                <motion.button
+                  key={r.id}
+                  type="button"
+                  onClick={() => pickRole(r.id)}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.05 + i * 0.05, duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                  className="group flex w-full items-center gap-4 rounded-2xl border border-ink-100 bg-white p-4 text-left transition duration-200 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md focus:outline-none focus-visible:border-brand-500 focus-visible:ring-2 focus-visible:ring-brand-200"
+                >
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-50 to-accent-50 text-brand-700 ring-1 ring-inset ring-brand-100 transition group-hover:from-brand-100 group-hover:to-accent-100 group-hover:text-brand-800">
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-ink-900 sm:text-base">
+                      {r.label}
+                    </p>
+                    <p className="truncate text-xs text-ink-500">{r.tagline}</p>
+                  </div>
+                  <ArrowRight className="h-5 w-5 shrink-0 text-ink-400 transition group-hover:translate-x-0.5 group-hover:text-brand-600" />
+                </motion.button>
+              );
+            })}
+          </div>
+
+          <p className="mt-6 text-center text-sm text-ink-500">
+            New to Paybridgex?{" "}
+            <Link href="/register" className="font-semibold text-brand-700 hover:underline">
+              Request to join
+            </Link>
+          </p>
+
+          <p className="mt-6 flex items-center justify-center gap-1.5 text-center text-xs text-ink-400">
+            <ShieldCheck className="h-3.5 w-3.5 text-accent-600" />
+            256-bit encrypted · Location-verified sign-in
+          </p>
+        </motion.div>
+      </div>
+    );
   }
 
   if (step === "2fa") {
@@ -302,12 +417,27 @@ function LoginForm({ location }: { location: LocationData }) {
         <div className="flex items-center gap-3 lg:hidden">
           <LogoMark size={36} />
         </div>
-        <h1 className="heading-md mt-4 lg:mt-0">Sign in</h1>
-        <p className="mt-2 text-sm text-ink-500">
-          New to Paybridgex?{" "}
-          <Link href="/register" className="font-semibold text-brand-700 hover:underline">
-            Request to join
-          </Link>
+
+        {selectedMeta && (
+          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-brand-100 bg-brand-50/70 py-1 pl-1 pr-3 text-xs font-medium text-ink-700 lg:mt-0">
+            <span className="grid h-6 w-6 place-items-center rounded-full bg-white text-brand-700 ring-1 ring-brand-100">
+              <selectedMeta.icon className="h-3.5 w-3.5" />
+            </span>
+            Signing in as{" "}
+            <span className="font-semibold text-ink-900">{selectedMeta.label}</span>
+            <button
+              type="button"
+              onClick={backToRole}
+              className="ml-1 rounded-full text-brand-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-200"
+            >
+              · Change
+            </button>
+          </div>
+        )}
+
+        <h1 className="heading-md mt-3">Sign in</h1>
+        <p className="mt-1 text-sm text-ink-500">
+          Enter your credentials to continue.
         </p>
 
         {error && (

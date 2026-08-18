@@ -33,6 +33,14 @@ const Body = z.object({
   password: z.string().min(1).max(200),
   location: LocationSchema,
   captchaToken: z.string().max(4000).optional(),
+  // Optional role assertion. When the public login form sends this, the
+  // credentials must match a user whose role equals it — otherwise we return
+  // the same generic "Invalid credentials" so an attacker can never learn a
+  // real account's role. Admin/staff login pages omit this field and are
+  // unaffected.
+  role: z
+    .enum(["RETAILER", "DISTRIBUTOR", "MASTER_DISTRIBUTOR", "SUPER_DISTRIBUTOR"])
+    .optional(),
 });
 
 /**
@@ -59,7 +67,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const { identifier, password, location, captchaToken } = parsed.data;
+  const { identifier, password, location, captchaToken, role: assertedRole } = parsed.data;
   const normalized = normalizeIdentifier(identifier);
 
   try {
@@ -94,6 +102,26 @@ export async function POST(req: Request) {
         ip,
         userAgent,
         meta: { identifier: normalized, failedCount, locked, lockedUntil: lockedUntil?.toISOString() ?? null },
+      });
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    }
+
+    // Role assertion: if the public login form supplied a role, the account's
+    // real role must match. Return the SAME generic error as an invalid
+    // password to avoid leaking whether the account exists or what role it
+    // holds. We do NOT increment the brute-force counter here — reaching this
+    // branch already required a valid password, so an honest user who picked
+    // the wrong role card should be able to hit "change" and retry freely.
+    if (assertedRole && user.role !== assertedRole) {
+      await logSecurityEvent({
+        action: "auth.login_role_mismatch",
+        severity: "warn",
+        userId: user.id,
+        entity: "User",
+        entityId: user.id,
+        ip,
+        userAgent,
+        meta: { attemptedRole: assertedRole, actualRole: user.role },
       });
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
