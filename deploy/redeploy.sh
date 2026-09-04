@@ -30,9 +30,11 @@ npx prisma migrate deploy
 
 echo "[6/6] Building and restarting..."
 # ── Build memory guard ───────────────────────────────────────────────
-# `next build` (webpack + a TS type-check worker pool) peaks well above the
-# ~2 GB RAM on the small production instance, so a naked `npm run build` gets
-# OOM-killed mid type-check. Two protections:
+# The server build is COMPILE-ONLY: `typescript.ignoreBuildErrors` in
+# next.config.mjs disables the tsc type-check phase (it OOM-killed the build on
+# this ~2 GB-RAM box). Types are gated pre-push instead (.githooks/pre-push →
+# `npm run typecheck`), so nothing un-type-checked reaches here.
+# Even compile-only, webpack can spike near the RAM limit, so we keep two guards:
 #   1) Ensure a swap file exists so the kernel has runway beyond physical RAM.
 #   2) Cap V8's old-space heap via NODE_OPTIONS, sized from RAM+swap so the same
 #      script scales up automatically on a larger instance (and never shrinks a

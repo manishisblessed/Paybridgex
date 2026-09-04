@@ -28,6 +28,12 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   eslint: { ignoreDuringBuilds: true },
+  // Type-checking is intentionally NOT run during `next build`. The production
+  // instance has ~2 GB RAM and the `tsc` type-check phase OOM-kills the build
+  // (the webpack compile itself fits fine). Types are gated *before* deploy via
+  // `npm run typecheck` (run locally / in CI), so safety isn't lost — it just
+  // runs where there's enough memory. Do NOT flip this back on for the server build.
+  typescript: { ignoreBuildErrors: true },
   // pdfkit loads its built-in AFM font-data files from disk at runtime; bundling
   // it with webpack breaks those file reads, so keep it external on the server.
   experimental: { serverComponentsExternalPackages: ["pdfkit"] },

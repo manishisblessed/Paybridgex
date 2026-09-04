@@ -7,6 +7,7 @@
     "dev": "next dev --turbo",
     "dev:all": "concurrently -k -n web,worker -c cyan,magenta \"npm run dev\" \"npm run worker\"",
     "build": "next build",
+    "typecheck": "tsc --noEmit",
     "start": "next start",
     "start:all": "concurrently -k -n web,worker -c cyan,magenta \"npm run start\" \"npm run worker\"",
     "worker": "tsx scripts/worker.ts",

@@ -1,0 +1,21 @@
+#!/bin/sh
+# Pre-push gate: type-check before code ever reaches the server.
+#
+# The production instance builds with `typescript.ignoreBuildErrors` (it has
+# ~2 GB RAM and the tsc phase OOM-kills `next build`). Type safety is therefore
+# enforced HERE instead — no un-type-checked code can be pushed.
+#
+# Enabled via: git config core.hooksPath .githooks   (run deploy/setup-hooks.sh)
+# Bypass in an emergency with: git push --no-verify
+
+echo "[pre-push] Running type-check (npm run typecheck)..."
+
+if ! npm run --silent typecheck; then
+  echo ""
+  echo "[pre-push] ❌ Type errors found. Push aborted."
+  echo "[pre-push] Fix the errors above, or bypass with 'git push --no-verify' (not recommended)."
+  exit 1
+fi
+
+echo "[pre-push] ✅ Type-check passed."
+exit 0
