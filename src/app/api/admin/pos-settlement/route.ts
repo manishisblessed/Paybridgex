@@ -4,7 +4,8 @@ import { requireRole, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { toNumber } from "@/lib/money";
 import { getSetting, setSetting } from "@/lib/settings";
-import { runPosT1SettlementSweep, runPosInstantSettlementSweep } from "@/lib/settlement/pos";
+import { runPosT1SettlementSweep, runPosInstantSettlementSweep, getInstantLimitUsage } from "@/lib/settlement/pos";
+import { startOfTodayIst } from "@/lib/settlement/engine";
 import { runPosMirrorSettleSweep } from "@/lib/settlement/pos-mirror-settle";
 import { clientIp } from "@/lib/security/audit";
 import type { Prisma } from "@prisma/client";
@@ -37,30 +38,68 @@ export async function GET(req: Request) {
   if (userId) where.userId = userId;
   if (status) where.status = status;
 
-  const [total, entries, config, t1Config, ingestConfig, instantButton, counts] = await Promise.all([
-    prisma.posSettlementEntry.count({ where }),
-    prisma.posSettlementEntry.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      include: {
-        user: { select: { id: true, name: true, role: true } },
-      },
-    }),
-    getSetting("settlement.pos_instant"),
-    getSetting("settlement.pos_t1"),
-    getSetting("settlement.pos_ingest"),
-    getSetting("settlement.instant_button"),
-    prisma.posSettlementEntry.groupBy({
-      by: ["status"],
-      _count: true,
-      _sum: { netAmount: true },
-    }),
-  ]);
+  const [total, entries, config, t1Config, ingestConfig, instantButton, counts, instantLimit, instantByUser] =
+    await Promise.all([
+      prisma.posSettlementEntry.count({ where }),
+      prisma.posSettlementEntry.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          user: { select: { id: true, name: true, role: true } },
+        },
+      }),
+      getSetting("settlement.pos_instant"),
+      getSetting("settlement.pos_t1"),
+      getSetting("settlement.pos_ingest"),
+      getSetting("settlement.instant_button"),
+      prisma.posSettlementEntry.groupBy({
+        by: ["status"],
+        _count: true,
+        _sum: { netAmount: true },
+      }),
+      getInstantLimitUsage(),
+      // Per-user NET instant-settlement taken TODAY (IST) — powers the "who has
+      // used the instant limit" breakdown on the dashboard.
+      prisma.posSettlementEntry.groupBy({
+        by: ["userId"],
+        where: { mode: "INSTANT", status: "SETTLED", settledAt: { gte: startOfTodayIst() } },
+        _count: true,
+        _sum: { netAmount: true },
+      }),
+    ]);
+
+  // Attach names/roles + per-user cap to the instant usage breakdown.
+  const userIds = instantByUser.map((r) => r.userId);
+  const users = userIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, role: true, userLimit: { select: { instantDailyCap: true } } },
+      })
+    : [];
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const instantUsageByUser = instantByUser
+    .map((r) => {
+      const u = userById.get(r.userId);
+      const cap = u?.userLimit?.instantDailyCap != null ? toNumber(u.userLimit.instantDailyCap) : null;
+      const used = toNumber(r._sum.netAmount ?? 0);
+      return {
+        userId: r.userId,
+        name: u?.name ?? "—",
+        role: u?.role ?? "—",
+        count: r._count,
+        used,
+        cap,
+        remaining: cap != null ? Math.max(0, cap - used) : null,
+      };
+    })
+    .sort((a, b) => b.used - a.used);
 
   return NextResponse.json({
     config: { posInstant: config, posT1: t1Config, posIngest: ingestConfig, instantButton },
+    instantLimit,
+    instantUsageByUser,
     summary: counts.map((c) => ({
       status: c.status,
       count: c._count,

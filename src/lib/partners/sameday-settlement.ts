@@ -28,6 +28,14 @@ import { samedayCredentials, samedayRequest } from "./sameday-core";
 
 const P = "/api/partner/settlement";
 
+/**
+ * Same Day rejects an account whose contact_details.email (or mobile) is blank
+ * — the disbursal partner requires a contact on file, validated at transfer
+ * time. We don't collect a per-beneficiary email, so fall back to a company
+ * contact address to guarantee a non-blank, valid value on every add.
+ */
+const CONTACT_EMAIL_FALLBACK = "payouts@nxtgenpay.in";
+
 export type SettlementMode = "IMPS" | "NEFT" | "RTGS";
 
 export type VerificationStatus = "VERIFIED" | "NOT_VERIFIED" | "SKIPPED" | "PENDING" | "FAILED";
@@ -180,7 +188,7 @@ export async function settlementAddAccount(input: {
     ifsc_code: input.ifscCode,
     account_holder_name: input.accountHolderName,
     contact_name: input.contactName ?? input.accountHolderName,
-    contact_email: input.contactEmail ?? "",
+    contact_email: input.contactEmail?.trim() || CONTACT_EMAIL_FALLBACK,
     contact_mobile: input.contactMobile ?? "",
   });
   if (!r.ok) return r;
@@ -238,7 +246,7 @@ export async function settlementAddTrustedAccount(input: {
     ifsc_code: input.ifscCode,
     account_holder_name: input.accountHolderName,
     contact_name: input.contactName ?? input.accountHolderName,
-    contact_email: input.contactEmail ?? "",
+    contact_email: input.contactEmail?.trim() || CONTACT_EMAIL_FALLBACK,
     contact_mobile: input.contactMobile,
     skip_verification: true,
   });

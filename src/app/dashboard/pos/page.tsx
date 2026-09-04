@@ -124,10 +124,25 @@ function fmtTime(iso: string) {
 
 type Tab = "machines" | "transactions" | "settlements" | "report" | "free-rent";
 
+const VALID_TABS: Tab[] = ["machines", "transactions", "settlements", "report", "free-rent"];
+
+/** Read deep-link params (?tab=&from=&to=) from the URL once, SSR-safe. */
+function readPosDeepLink(): { tab: Tab | null; from: string | null; to: string | null } {
+  if (typeof window === "undefined") return { tab: null, from: null, to: null };
+  const sp = new URLSearchParams(window.location.search);
+  const tab = sp.get("tab");
+  return {
+    tab: tab && (VALID_TABS as string[]).includes(tab) ? (tab as Tab) : null,
+    from: sp.get("from"),
+    to: sp.get("to"),
+  };
+}
+
 export default function PosPage() {
   const { data: authSession } = useSession();
   const isRetailer = (authSession?.user as { role?: string } | undefined)?.role === "RETAILER";
-  const [activeTab, setActiveTab] = useState<Tab>("transactions");
+  const deepLink = useMemo(readPosDeepLink, []);
+  const [activeTab, setActiveTab] = useState<Tab>(deepLink.tab ?? "transactions");
 
   const tabs = useMemo(() => {
     const base: { id: Tab; label: string; icon: typeof ArrowLeftRight }[] = [
@@ -167,7 +182,7 @@ export default function PosPage() {
       ) : activeTab === "settlements" ? (
         <SettlementsTab />
       ) : activeTab === "report" ? (
-        <SettlementReportTab />
+        <SettlementReportTab initialFrom={deepLink.from} initialTo={deepLink.to} />
       ) : activeTab === "free-rent" ? (
         <FreeRentTab />
       ) : (
@@ -942,14 +957,16 @@ type PendingSettlement = {
 };
 
 function SettlementsTab() {
-  const { data, error, isLoading, mutate } = useSWR<{ entries: PendingSettlement[]; instantEnabled?: boolean }>(
-    "/api/pos/settlement/pending",
-    fetcher,
-    { revalidateOnFocus: false, refreshInterval: 15000 }
-  );
+  const { data, error, isLoading, mutate } = useSWR<{
+    entries: PendingSettlement[];
+    instantEnabled?: boolean;
+    instantBudget?: number | null;
+  }>("/api/pos/settlement/pending", fetcher, { revalidateOnFocus: false, refreshInterval: 15000 });
 
   const entries = useMemo(() => data?.entries ?? [], [data]);
   const instantEnabled = data?.instantEnabled ?? false;
+  // Remaining net a retailer may instant-settle today (null = no limit enforced).
+  const instantBudget = data?.instantBudget ?? null;
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -967,6 +984,10 @@ function SettlementsTab() {
     (s, e) => s + (e.instant ? e.instant.mdrAmount : 0),
     0
   );
+  // Client-side guard: block settling more than today's remaining instant limit
+  // (the server enforces this too, but this gives immediate feedback).
+  const overBudget = instantBudget != null && totalInstantNet > instantBudget;
+  const budgetExhausted = instantBudget != null && instantBudget <= 0;
 
   function toggle(id: string) {
     setSelected((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -1090,12 +1111,14 @@ function SettlementsTab() {
             {selectedEntries.length > 0 && (
               <span className="text-xs text-ink-600">
                 {selectedEntries.length} selected · fee {formatINR(totalInstantFee)} · you get{" "}
-                <span className="font-semibold text-emerald-700">{formatINR(totalInstantNet)}</span>
+                <span className={`font-semibold ${overBudget ? "text-rose-600" : "text-emerald-700"}`}>
+                  {formatINR(totalInstantNet)}
+                </span>
               </span>
             )}
             <Button
               size="sm"
-              disabled={selectedEntries.length === 0 || busy}
+              disabled={selectedEntries.length === 0 || busy || overBudget || budgetExhausted}
               onClick={() => setConfirmOpen(true)}
             >
               <Zap className="h-4 w-4" /> Instant settle
@@ -1103,6 +1126,38 @@ function SettlementsTab() {
           </div>
         )}
       </div>
+
+      {instantEnabled && instantBudget != null && (
+        <div
+          className={`flex items-center gap-2 rounded-xl border p-3 text-xs ${
+            budgetExhausted
+              ? "border-rose-200 bg-rose-50 text-rose-700"
+              : overBudget
+                ? "border-amber-200 bg-amber-50 text-amber-800"
+                : "border-emerald-100 bg-emerald-50/60 text-ink-600"
+          }`}
+        >
+          <Banknote className="h-4 w-4 shrink-0" />
+          {budgetExhausted ? (
+            <span>
+              You&apos;ve reached today&apos;s instant settlement limit. Remaining transactions will auto-settle on
+              T+1 — or try again after the daily limit resets.
+            </span>
+          ) : overBudget ? (
+            <span>
+              Your selection ({formatINR(totalInstantNet)}) exceeds your remaining instant limit today (
+              <span className="font-semibold">{formatINR(instantBudget)}</span>). Deselect some transactions to
+              continue.
+            </span>
+          ) : (
+            <span>
+              Remaining instant settlement limit today:{" "}
+              <span className="font-semibold text-emerald-700">{formatINR(instantBudget)}</span>. Anything above this
+              auto-settles on T+1.
+            </span>
+          )}
+        </div>
+      )}
 
       {instantEnabled ? (
         <div className="rounded-xl border border-brand-100 bg-gradient-to-r from-brand-50/70 to-accent-50/50 p-3 text-xs text-ink-600">

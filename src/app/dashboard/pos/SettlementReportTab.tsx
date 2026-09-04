@@ -165,10 +165,17 @@ function retailerCell(r: { retailer: ReportRetailer | null }) {
 
 type View = "transactions" | "rollup";
 
-export function SettlementReportTab() {
+export function SettlementReportTab({
+  initialFrom,
+  initialTo,
+}: {
+  /** Optional deep-link range (YYYY-MM-DD), e.g. from the "POS Today" card. */
+  initialFrom?: string | null;
+  initialTo?: string | null;
+} = {}) {
   const defaults = defaultDateRange();
-  const [dateFrom, setDateFrom] = useState(defaults.from);
-  const [dateTo, setDateTo] = useState(defaults.to);
+  const [dateFrom, setDateFrom] = useState(initialFrom || defaults.from);
+  const [dateTo, setDateTo] = useState(initialTo || defaults.to);
   const [statusFilter, setStatusFilter] = useState<"" | "PENDING" | "SETTLED" | "FAILED">("");
   const [modeFilter, setModeFilter] = useState("");
   const [retailerId, setRetailerId] = useState<string | null>(null);

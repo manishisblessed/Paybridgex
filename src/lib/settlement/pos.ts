@@ -246,7 +246,7 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
 
   // Price MDR against the brand rate card (or legacy scheme). Refuse to settle
   // unpriced money — park it so admin can add a rate and replay the webhook.
-  const priced = await priceMdr({
+  let priced = await priceMdr({
     userId,
     brandId,
     provider,
@@ -257,8 +257,30 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   });
   if (!priced) return { status: "NO_SCHEME" };
 
-  const netAmount = round(sub(input.grossAmount, priced.mdrAmount));
+  let netAmount = round(sub(input.grossAmount, priced.mdrAmount));
   if (!gt(netAmount, 0)) return { status: "SKIPPED" };
+
+  // Instant daily-limit gate: an auto-instant capture that would exceed the
+  // retailer's remaining instant budget (global pool ∩ per-user cap) is
+  // downgraded to the next-day T+1 sweep instead of crediting now. Re-price at
+  // the T1 rate so the parked entry carries the correct (cheaper) MDR/net.
+  let effectiveMode: "INSTANT" | "T1" = mode;
+  if (mode === "INSTANT" && toNumber(netAmount) > (await remainingInstantBudget(userId))) {
+    const t1Priced = await priceMdr({
+      userId,
+      brandId,
+      provider,
+      paymentMode,
+      grossAmount: input.grossAmount,
+      settlementType: "T1",
+      dims,
+    });
+    if (!t1Priced) return { status: "NO_SCHEME" };
+    effectiveMode = "T1";
+    priced = t1Priced;
+    netAmount = round(sub(input.grossAmount, priced.mdrAmount));
+    if (!gt(netAmount, 0)) return { status: "SKIPPED" };
+  }
 
   // NOTE: the company PAYIN monitor is credited at MIRROR INGEST (see
   // src/lib/pos/mirror.ts), the first time a capture row lands as CAPTURED, so
@@ -269,7 +291,7 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   const capturedAt = input.capturedAt ? new Date(input.capturedAt) : new Date();
   const capturedAtValid = !Number.isNaN(capturedAt.getTime());
 
-  if (mode === "INSTANT") {
+  if (effectiveMode === "INSTANT") {
     // Instant settlement — credit the wallet now. If the credit fails mid-flight
     // (e.g. a transient ledger error), park a PENDING/INSTANT entry so the
     // instant safety-net cron retries it; the pos-settle:<ref> idempotency key
@@ -388,6 +410,120 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   };
 }
 
+export type PosReversalInput = {
+  /** Canonical capture ref (SDPOS:<tid>:<rrn>) shared by capture + reversal. */
+  transactionRef: string;
+  /** New terminal state reported by Same Day. */
+  status: "VOIDED" | "REFUNDED";
+  reason?: string | null;
+  reversedAt?: Date | string | null;
+  /** Where the reversal was learned — audit only. */
+  source: "WEBHOOK" | "SWEEP";
+};
+
+export type PosReversalResult = {
+  outcome:
+    | "NO_ENTRY" // display-only reversal (never settled/queued) — mirror flipped
+    | "PENDING_CANCELLED" // a queued entry was voided before it could pay out
+    | "SETTLED_FLAGGED" // money already left — flagged for manual clawback
+    | "ALREADY_REVERSED"; // idempotent no-op
+  wasSettled?: boolean;
+  netAmount?: number;
+  userId?: string;
+};
+
+/**
+ * Reconcile a POS capture that was later VOIDED / REFUNDED upstream (Same Day
+ * POS API v2). Invoked by BOTH the real-time reversal webhook and the mirror
+ * reconciliation sweep, so it must be fully idempotent.
+ *
+ * It NEVER silently debits a wallet:
+ *   • No settlement entry  → the swipe never queued/settled; just flip the
+ *     display mirror to VOIDED/REFUNDED so it stops counting as success.
+ *   • PENDING entry        → move it to REVERSED so the T+1 / instant crons skip
+ *     it. No money moved — nothing to claw back.
+ *   • SETTLED entry        → the net was already credited (walletTxnId set). We
+ *     move it to REVERSED and stamp the reason, but leave the clawback to the
+ *     admin Reversals desk (the retailer may already have spent the funds, and
+ *     wallet balances are non-negative). `wasSettled` flags it for that queue.
+ *
+ * The display mirror is always flipped (best-effort) so a reversed swipe never
+ * shows as CAPTURED again, even when there is no settlement side.
+ */
+export async function handlePosReversal(input: PosReversalInput): Promise<PosReversalResult> {
+  const reversedAt = input.reversedAt ? new Date(input.reversedAt) : new Date();
+  const reversedAtValid = !Number.isNaN(reversedAt.getTime());
+  const at = reversedAtValid ? reversedAt : new Date();
+  const reason = input.reason?.trim() || `sameday:${input.status.toLowerCase()}`;
+
+  // 1. Flip the display read-model so it stops counting as a successful capture.
+  //    updateMany is a no-op when the row hasn't been mirrored yet; the sweep
+  //    will create it as VOIDED/REFUNDED on its next pass (v2 retains it).
+  await prisma.posTransactionMirror.updateMany({
+    where: { transactionRef: input.transactionRef },
+    data: { status: input.status, reversedAt: at, reversalReason: reason },
+  });
+
+  // 2. Reconcile the settlement side.
+  const entry = await prisma.posSettlementEntry.findUnique({
+    where: { transactionRef: input.transactionRef },
+  });
+
+  if (!entry) {
+    await auditReversal(input, "NO_ENTRY", at, reason, null);
+    return { outcome: "NO_ENTRY" };
+  }
+
+  if (entry.status === "REVERSED") {
+    return { outcome: "ALREADY_REVERSED", userId: entry.userId };
+  }
+
+  const wasSettled = entry.status === "SETTLED" && !!entry.walletTxnId;
+
+  await prisma.posSettlementEntry.update({
+    where: { id: entry.id },
+    data: { status: "REVERSED", reversedAt: at, reversalReason: reason },
+  });
+
+  const outcome = wasSettled ? "SETTLED_FLAGGED" : "PENDING_CANCELLED";
+  await auditReversal(input, outcome, at, reason, entry.userId);
+
+  return {
+    outcome,
+    wasSettled,
+    netAmount: toNumber(dec(entry.netAmount as never)),
+    userId: entry.userId,
+  };
+}
+
+async function auditReversal(
+  input: PosReversalInput,
+  outcome: PosReversalResult["outcome"],
+  reversedAt: Date,
+  reason: string,
+  userId: string | null
+): Promise<void> {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        action: "pos.reversal",
+        entity: "PosSettlementEntry",
+        entityId: input.transactionRef,
+        meta: {
+          status: input.status,
+          outcome,
+          reason,
+          reversedAt: reversedAt.toISOString(),
+          source: input.source,
+          userId,
+        },
+      },
+    });
+  } catch {
+    // Audit is best-effort — never fail the reconciliation on a log write.
+  }
+}
+
 /**
  * POS commission distribution (cascade model): each ancestor earns the MDR
  * margin between their child's Scheme MDR and their own, net of 2% TDS.
@@ -488,6 +624,81 @@ function startOfTodayIst(now = new Date()): Date {
   const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
   const startIstMs = Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate());
   return new Date(startIstMs - 5.5 * 60 * 60 * 1000);
+}
+
+/** Sentinel returned by {@link remainingInstantBudget} when no cap constrains the user. */
+export const INSTANT_BUDGET_UNLIMITED = Number.MAX_SAFE_INTEGER;
+
+/**
+ * NET POS instant-settlement (₹) already settled TODAY (IST). Counts only
+ * INSTANT-mode entries that actually credited (status SETTLED); reversed entries
+ * flip to REVERSED and so fall out automatically. Pass `userId` for a single
+ * user's usage, omit it for the platform-wide pool.
+ */
+export async function instantUsedToday(userId?: string): Promise<number> {
+  const agg = await prisma.posSettlementEntry.aggregate({
+    where: {
+      mode: "INSTANT",
+      status: "SETTLED",
+      settledAt: { gte: startOfTodayIst() },
+      ...(userId ? { userId } : {}),
+    },
+    _sum: { netAmount: true },
+  });
+  return toNumber(agg._sum.netAmount ?? 0);
+}
+
+export type InstantLimitUsage = {
+  /** Global pool enabled? */
+  globalEnabled: boolean;
+  /** Global pool size (₹ net) per IST day. */
+  globalLimit: number;
+  /** Global net instant-settled today across all users (₹). */
+  globalUsed: number;
+  /** Global remaining (₹, never negative). */
+  globalRemaining: number;
+};
+
+/** Platform-wide instant pool usage snapshot for the admin dashboard. */
+export async function getInstantLimitUsage(): Promise<InstantLimitUsage> {
+  const cfg = await getSetting("settlement.pos_instant");
+  const globalUsed = await instantUsedToday();
+  const globalRemaining = cfg.dailyLimitEnabled
+    ? Math.max(0, cfg.dailyLimitAmount - globalUsed)
+    : Infinity;
+  return {
+    globalEnabled: cfg.dailyLimitEnabled,
+    globalLimit: cfg.dailyLimitAmount,
+    globalUsed,
+    globalRemaining: globalRemaining === Infinity ? INSTANT_BUDGET_UNLIMITED : globalRemaining,
+  };
+}
+
+/**
+ * Remaining NET instant-settlement budget (₹) for `userId` right now — the
+ * MINIMUM of the global daily pool's remaining and this user's own daily cap's
+ * remaining (each ignored when not configured). Returns
+ * {@link INSTANT_BUDGET_UNLIMITED} when neither constrains the user.
+ */
+export async function remainingInstantBudget(userId: string): Promise<number> {
+  const cfg = await getSetting("settlement.pos_instant");
+  let remaining = Infinity;
+
+  if (cfg.dailyLimitEnabled) {
+    remaining = Math.min(remaining, cfg.dailyLimitAmount - (await instantUsedToday()));
+  }
+
+  const userLimit = await prisma.userLimit.findUnique({
+    where: { userId },
+    select: { instantDailyCap: true },
+  });
+  if (userLimit?.instantDailyCap != null) {
+    const cap = toNumber(dec(userLimit.instantDailyCap as never));
+    remaining = Math.min(remaining, cap - (await instantUsedToday(userId)));
+  }
+
+  if (remaining === Infinity) return INSTANT_BUDGET_UNLIMITED;
+  return Math.max(0, remaining);
 }
 
 type PendingEntry = {
@@ -649,7 +860,25 @@ export async function instantSettleEntries(
   let totalAmount = 0;
   const results: InstantSettleResult["results"] = [];
 
+  // Daily instant-settlement budget (min of global pool + this user's cap).
+  // Decremented as we credit so a single request can't blow past the cap; any
+  // entry that no longer fits is left PENDING for the next-day T+1 sweep.
+  let budget = await remainingInstantBudget(userId);
+
   for (const entry of entries) {
+    // Gate on the capture-time net (a close proxy for the instant net) so we
+    // stop before exhausting the pool. Once nothing fits, the rest roll to T+1.
+    const expectedNet = toNumber(entry.netAmount);
+    if (budget <= 0 || expectedNet > budget) {
+      skipped++;
+      results.push({
+        id: entry.id,
+        transactionRef: entry.transactionRef,
+        status: "SKIPPED",
+        reason: "daily instant settlement limit reached — will auto-settle on T+1",
+      });
+      continue;
+    }
     try {
       const net = await settleEntry(entry, "T0", SETTLED_VIA.INSTANT_BUTTON);
       if (net === null) {
@@ -664,6 +893,7 @@ export async function instantSettleEntries(
       }
       settled++;
       totalAmount += net;
+      budget -= net;
       results.push({ id: entry.id, transactionRef: entry.transactionRef, status: "SETTLED", netAmount: net });
     } catch {
       failed++;
@@ -819,6 +1049,12 @@ export async function runPosT1SettlementSweep(): Promise<{
  * an entry was replayed). Runs frequently; each entry settles at most once via
  * the pos-settle:<ref> ledger idempotency key. MDR is re-verified against the
  * brand's current instant (T0) rate before crediting.
+ *
+ * NOT gated by the daily instant limit: an INSTANT/PENDING entry only exists
+ * because a capture was already APPROVED for instant settlement (within budget)
+ * but its wallet credit failed mid-flight. Re-gating here could strand that
+ * money forever (the T+1 cron ignores INSTANT-mode rows). It still counts
+ * toward the pool once it settles, via instantUsedToday().
  */
 export async function runPosInstantSettlementSweep(): Promise<{
   processed: number;

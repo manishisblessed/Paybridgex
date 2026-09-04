@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Search,
@@ -213,8 +214,18 @@ export function ReportView({ type }: { type: ReportType }) {
   const monthAgo = useMemo(() => new Date(today.getTime() - 30 * 86_400_000), [today]);
   const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
-  const [from, setFrom] = useState(f.dateRange ? ymd(monthAgo) : "");
-  const [to, setTo] = useState(f.dateRange ? ymd(today) : "");
+  // Honor ?from=YYYY-MM-DD&to=YYYY-MM-DD so callers (e.g. the dashboard
+  // "Today's Business Overview" cards) can deep-link a pre-filtered range that
+  // matches the figure the user just clicked. Falls back to the default window.
+  const sp = useSearchParams();
+  const isYmd = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const spFrom = sp.get("from");
+  const spTo = sp.get("to");
+
+  const [from, setFrom] = useState(
+    f.dateRange ? (isYmd(spFrom) ? spFrom : ymd(monthAgo)) : ""
+  );
+  const [to, setTo] = useState(f.dateRange ? (isYmd(spTo) ? spTo : ymd(today)) : "");
   const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");

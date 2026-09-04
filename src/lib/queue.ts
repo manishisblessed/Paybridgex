@@ -115,14 +115,45 @@ function connectionString(): string {
 }
 
 /**
+ * SSL config for pg-boss's underlying node-postgres pool.
+ *
+ * Prisma's engine negotiates TLS on its own from the connection string, but
+ * node-postgres (what pg-boss uses) does NOT enable SSL unless it's told to —
+ * so a Supabase URL without an explicit `sslmode` makes the pool connect in
+ * cleartext and the server rejects it with `ESSLREQUIRED` ("SSL connection is
+ * required"), crash-looping the worker. Managed Postgres (Supabase pooler, RDS)
+ * requires TLS but presents a chain the system trust store won't verify, so we
+ * connect over TLS without CA verification (matches sslmode=require/no-verify
+ * semantics; the DB credentials still authenticate the session). Plain local
+ * dev (localhost, no sslmode) stays cleartext.
+ */
+function poolSsl(cs: string): boolean | { rejectUnauthorized: boolean } {
+  try {
+    const u = new URL(cs);
+    const mode = (u.searchParams.get("sslmode") || "").toLowerCase();
+    const host = u.hostname;
+    const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1";
+    if (mode === "disable") return false;
+    if (isLocal && !mode) return false;
+    return { rejectUnauthorized: false };
+  } catch {
+    return { rejectUnauthorized: false };
+  }
+}
+
+/**
  * Lazily construct, start, and memoize the pg-boss instance, and ensure all
  * known queues exist (required by pg-boss v10+ before send/work).
  */
 export async function getBoss(): Promise<PgBoss> {
   if (!bossPromise) {
     bossPromise = (async () => {
+      const cs = connectionString();
       const boss = new PgBoss({
-        connectionString: connectionString(),
+        connectionString: cs,
+        // node-postgres needs an explicit SSL config; the connection string
+        // alone won't enable TLS, and Supabase rejects cleartext (ESSLREQUIRED).
+        ssl: poolSsl(cs),
         // pg-boss creates and manages its own "pgboss" schema.
         schema: "pgboss",
         // Cap the pool FAR below the Supabase session pooler's 15-client limit

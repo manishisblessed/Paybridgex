@@ -1227,6 +1227,8 @@ function TxnSlipDrawer({ txn, showClassification, onClose }: { txn: PosTransacti
     ["Payer Name", txn.payer_name || null],
     ["Transaction Time", new Date(txn.txn_time).toLocaleString("en-IN")],
     ["Posting Date", txn.posting_date ? new Date(txn.posting_date).toLocaleDateString("en-IN") : null],
+    ["Reversed At", txn.reversed_at ? new Date(txn.reversed_at).toLocaleString("en-IN") : null],
+    ["Reversal Reason", txn.reversal_reason || null],
   ];
   const rows = rowsAll.filter(([label]) => showClassification || label !== "Card Classification");
 

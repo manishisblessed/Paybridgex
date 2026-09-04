@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { handlePosCapture } from "@/lib/settlement/pos";
+import { handlePosCapture, handlePosReversal } from "@/lib/settlement/pos";
 import { verifySamedayPosWebhook, canonicalPosCaptureRef } from "@/lib/partners/sameday-pos";
 import { prisma } from "@/lib/db";
 import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
@@ -48,6 +48,55 @@ export async function POST(req: Request) {
 
   // Same Day sends a FLAT payload (no {event,data} wrapper).
   const txnData = body;
+
+  // ── Reversal event (POS API v2): pos.transaction.reversed ────────────────
+  // A previously-CAPTURED swipe was voided/reversed/refunded at the terminal.
+  // Reconcile it (flip the mirror, cancel a PENDING settlement, or flag a
+  // settled one for clawback) and ack. handlePosReversal is idempotent, so a
+  // retried delivery (same X-Sameday-Delivery) is a safe no-op.
+  const eventType = (
+    req.headers.get("x-sameday-event") ?? String(txnData.event ?? "")
+  ).toLowerCase();
+  if (eventType === "pos.transaction.reversed" || String(txnData.action ?? "").toLowerCase() === "remove") {
+    const terminalId = String(txnData.terminal_id ?? txnData.tid ?? "");
+    const rrn = String(txnData.rrn ?? txnData.rrNumber ?? "");
+    const reversalRef = canonicalPosCaptureRef({
+      rrn,
+      terminalId,
+      fallbackId: String(txnData.txn_id ?? txnData.txnId ?? ""),
+    });
+    if (!reversalRef) {
+      return NextResponse.json({ error: "Missing transaction reference" }, { status: 400 });
+    }
+    const newStatus = String(txnData.status ?? "").toUpperCase() === "REFUNDED" ? "REFUNDED" : "VOIDED";
+    const result = await handlePosReversal({
+      transactionRef: reversalRef,
+      status: newStatus,
+      reason: String(txnData.reason ?? txnData.reversal_reason ?? "").trim() || null,
+      reversedAt: (txnData.reversed_at as string | undefined) ?? null,
+      source: "WEBHOOK",
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        action: "pos.webhook.reversal",
+        entity: "PosSettlementEntry",
+        entityId: reversalRef,
+        meta: {
+          status: newStatus,
+          outcome: result.outcome,
+          wasSettled: result.wasSettled ?? false,
+          previousStatus: String(txnData.previous_status ?? "") || null,
+          reason: String(txnData.reason ?? "") || null,
+          terminalId: terminalId || null,
+          signatureVerified: verified,
+          deliveryId: deliveryId ?? null,
+        },
+      },
+    });
+
+    return NextResponse.json({ ok: true, action: "reversed", ...result });
+  }
 
   // `mappedStatus` is the normalized lifecycle status (CAPTURED | FAILED |
   // PENDING); the raw `status` is the acquirer status (e.g. AUTHORIZED). Same

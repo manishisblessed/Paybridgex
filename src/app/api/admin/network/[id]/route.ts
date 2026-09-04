@@ -73,6 +73,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
                 u.userLimit.settlementPerTxnCap != null
                   ? toNumber(dec(u.userLimit.settlementPerTxnCap))
                   : null,
+              instantDailyCap:
+                u.userLimit.instantDailyCap != null
+                  ? toNumber(dec(u.userLimit.instantDailyCap))
+                  : null,
               settlementTier: u.userLimit.settlementTier,
               note: u.userLimit.note,
             }
@@ -109,6 +113,7 @@ const Body = z.discriminatedUnion("action", [
     dailyTxnCountCap: z.number().int().positive().nullable().optional(),
     settlementDailyCap: z.number().positive().nullable().optional(),
     settlementPerTxnCap: z.number().positive().nullable().optional(),
+    instantDailyCap: z.number().positive().nullable().optional(),
     settlementTier: z.string().max(40).nullable().optional(),
     note: z.string().max(300).nullable().optional(),
   }),

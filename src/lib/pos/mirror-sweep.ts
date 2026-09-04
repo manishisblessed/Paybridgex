@@ -2,6 +2,7 @@ import { flags } from "@/lib/env";
 import { getSetting } from "@/lib/settings";
 import { getPosTransactions } from "@/lib/partners/sameday-pos";
 import { upsertMirrorFromFeed } from "@/lib/pos/mirror";
+import { handlePosReversal } from "@/lib/settlement/pos";
 
 /**
  * POS transaction mirror reconciliation sweep (step D of the read-model design).
@@ -30,6 +31,8 @@ export type PosMirrorSweepResult = {
   scanned: number;
   written: number;
   skippedRows: number;
+  /** Captures that flipped to VOIDED/REFUNDED and were reconciled this run. */
+  reversed: number;
 };
 
 /** Start of the IST day `days` ago, as a UTC ISO string. */
@@ -51,6 +54,7 @@ export async function runPosMirrorSweep(opts?: {
     scanned: 0,
     written: 0,
     skippedRows: 0,
+    reversed: 0,
   };
 
   if (!flags.pos) return { ...base, skipped: true, reason: "POS partner disabled" };
@@ -84,9 +88,27 @@ export async function runPosMirrorSweep(opts?: {
     const rows = res.data.data ?? [];
     base.scanned += rows.length;
 
-    const { written, skipped } = await upsertMirrorFromFeed(rows);
+    const { written, skipped, reversals } = await upsertMirrorFromFeed(rows);
     base.written += written;
     base.skippedRows += skipped;
+
+    // Reconcile any capture that flipped to VOIDED/REFUNDED this page: cancel a
+    // still-PENDING settlement, or flag an already-settled one for clawback.
+    // Serialized + best-effort so one bad row never aborts the sweep.
+    for (const r of reversals) {
+      try {
+        await handlePosReversal({
+          transactionRef: r.transactionRef,
+          status: r.status,
+          reason: r.reason,
+          reversedAt: r.reversedAt,
+          source: "SWEEP",
+        });
+        base.reversed++;
+      } catch (e) {
+        console.error("[pos mirror sweep] reversal reconcile failed:", r.transactionRef, e);
+      }
+    }
 
     if (!res.data.pagination?.has_next || rows.length === 0) break;
   }

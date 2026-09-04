@@ -8,7 +8,7 @@
 // =====================================================================
 
 import { prisma } from "@/lib/db";
-import { SERVICE_KEYS } from "@/lib/services/catalog";
+import { SERVICE_KEYS, isConfigOnlyKey } from "@/lib/services/catalog";
 
 /** Service keys for which staff roles do NOT bypass the per-user allowlist.
  *  BBPS is retailer-only; payout is network-only — admins must not transact. */
@@ -79,6 +79,12 @@ export async function isServiceEnabledForUser(
   userId: string,
   role?: string
 ): Promise<boolean> {
+  // Master switches / config rows (type !== "SERVICE", e.g. the BBPS master
+  // switch) are never assignable per user — they are gated by the global
+  // On/Off panel only. Skip the allowlist check so a granted sub-rail
+  // (e.g. bbps_credit_card) is not blocked by an un-assignable master key.
+  if (isConfigOnlyKey(key)) return true;
+
   if (role && STAFF_ROLES.has(role) && !NO_STAFF_BYPASS_KEYS.has(key)) return true;
 
   const user = await prisma.user.findUnique({

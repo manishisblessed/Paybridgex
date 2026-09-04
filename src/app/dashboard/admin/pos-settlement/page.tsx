@@ -7,14 +7,36 @@ import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { formatINR } from "@/lib/utils";
-import { RefreshCw, Clock, PlayCircle, DownloadCloud, Zap, Save, CheckCircle2, XCircle, Layers } from "lucide-react";
+import { RefreshCw, Clock, PlayCircle, DownloadCloud, Zap, Save, CheckCircle2, XCircle, Layers, Gauge } from "lucide-react";
 import { Panel, DarkPanel, StatTile } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 
 type PosT1 = { enabled: boolean; hour: number; paused: boolean; minAmount: number };
-type PosInstant = { defaultEnabled: boolean; paused: boolean };
+type PosInstant = {
+  defaultEnabled: boolean;
+  paused: boolean;
+  dailyLimitEnabled: boolean;
+  dailyLimitAmount: number;
+};
 type PosIngest = { enabled: boolean; paused: boolean; lookbackDays: number; maxPages: number };
 type InstantButton = { posEnabled: boolean; qrEnabled: boolean };
+
+type InstantLimit = {
+  globalEnabled: boolean;
+  globalLimit: number;
+  globalUsed: number;
+  globalRemaining: number;
+};
+
+type InstantUsageUser = {
+  userId: string;
+  name: string;
+  role: string;
+  count: number;
+  used: number;
+  cap: number | null;
+  remaining: number | null;
+};
 
 type Entry = {
   id: string;
@@ -34,6 +56,8 @@ type SummaryRow = { status: string; count: number; totalNet: number };
 
 type ApiData = {
   config: { posInstant: PosInstant; posT1: PosT1; posIngest: PosIngest; instantButton: InstantButton };
+  instantLimit: InstantLimit;
+  instantUsageByUser: InstantUsageUser[];
   summary: SummaryRow[];
   entries: Entry[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
@@ -100,9 +124,16 @@ export default function PosSettlementPage() {
   const [t1, setT1] = useState<PosT1>({ enabled: true, hour: 10, paused: false, minAmount: 50 });
   const [ingest, setIngest] = useState<PosIngest>({ enabled: true, paused: false, lookbackDays: 3, maxPages: 50 });
   const [instantButton, setInstantButton] = useState<InstantButton>({ posEnabled: false, qrEnabled: false });
+  const [posInstant, setPosInstant] = useState<PosInstant>({
+    defaultEnabled: false,
+    paused: false,
+    dailyLimitEnabled: false,
+    dailyLimitAmount: 10_000_000,
+  });
   const [savingT1, setSavingT1] = useState(false);
   const [savingIngest, setSavingIngest] = useState(false);
   const [savingButton, setSavingButton] = useState(false);
+  const [savingLimit, setSavingLimit] = useState(false);
   const [running, setRunning] = useState<string | null>(null);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -122,6 +153,7 @@ export default function PosSettlementPage() {
       setT1(d.config.posT1);
       setIngest(d.config.posIngest);
       if (d.config.instantButton) setInstantButton(d.config.instantButton);
+      if (d.config.posInstant) setPosInstant(d.config.posInstant);
     } catch (e) {
       notify(e instanceof Error ? e.message : "Load failed", false);
     } finally {
@@ -202,6 +234,29 @@ export default function PosSettlementPage() {
       notify(e instanceof Error ? e.message : "Save failed", false);
     } finally {
       setSavingButton(false);
+    }
+  };
+
+  const saveLimit = async (next: PosInstant) => {
+    setSavingLimit(true);
+    try {
+      await post({
+        action: "configure",
+        key: "settlement.pos_instant",
+        value: {
+          defaultEnabled: next.defaultEnabled,
+          paused: next.paused,
+          dailyLimitEnabled: next.dailyLimitEnabled,
+          dailyLimitAmount: Number(next.dailyLimitAmount),
+        },
+      });
+      setPosInstant(next);
+      notify("Instant settlement limit updated.", true);
+      load();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Save failed", false);
+    } finally {
+      setSavingLimit(false);
     }
   };
 
@@ -320,6 +375,138 @@ export default function PosSettlementPage() {
           />
         </div>
       </DarkPanel>
+      </Reveal>
+
+      {/* Instant settlement DAILY LIMIT (global pool) + usage */}
+      <Reveal distance={16} duration={0.45}>
+      <Panel>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="max-w-2xl">
+            <h3 className="mb-1 flex items-center gap-2 font-display text-base font-bold text-ink-900">
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-soft">
+                <Gauge className="h-4 w-4" />
+              </span>
+              Instant settlement limit (daily pool)
+            </h3>
+            <p className="text-xs text-ink-500">
+              A platform-wide ceiling on how much (net) can be instant-settled across <strong>all</strong> users each
+              day (IST). Once used up, instant settlement is refused and transactions roll to the next-day T+1 sweep.
+              Per-user caps are set from Network Manager and further restrict individual users.
+            </p>
+          </div>
+          {savingLimit && (
+            <span className="flex items-center gap-1.5 text-xs text-ink-400">
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Saving…
+            </span>
+          )}
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          {/* Config */}
+          <div className="rounded-xl border border-ink-100 bg-ink-50/40 p-4">
+            <ToggleRow
+              label="Enforce daily instant pool"
+              hint="Cap total instant settlement per IST day across all users"
+              checked={posInstant.dailyLimitEnabled}
+              disabled={savingLimit}
+              onChange={(v) => setPosInstant((s) => ({ ...s, dailyLimitEnabled: v }))}
+            />
+            <label className="mt-3 block text-xs text-ink-500">
+              Daily pool amount (₹, net)
+              <input
+                type="number"
+                min={0}
+                className={`${inputCls} mt-1 w-full`}
+                value={posInstant.dailyLimitAmount}
+                onChange={(e) => setPosInstant((s) => ({ ...s, dailyLimitAmount: Number(e.target.value) }))}
+              />
+            </label>
+            <div className="mt-3">
+              <Button size="sm" onClick={() => saveLimit(posInstant)} isLoading={savingLimit} disabled={savingLimit}>
+                <Save className="mr-2 h-4 w-4" /> Save limit
+              </Button>
+            </div>
+          </div>
+
+          {/* Live usage */}
+          <div className="rounded-xl border border-ink-100 bg-white p-4">
+            {(() => {
+              const lim = data?.instantLimit;
+              const enabled = lim?.globalEnabled ?? false;
+              const limit = lim?.globalLimit ?? posInstant.dailyLimitAmount;
+              const used = lim?.globalUsed ?? 0;
+              const remaining = enabled ? Math.max(0, limit - used) : Infinity;
+              const pct = enabled && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+              const barColor = pct >= 90 ? "bg-rose-500" : pct >= 70 ? "bg-amber-500" : "bg-emerald-500";
+              return (
+                <>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">Used today (IST)</p>
+                    <Badge variant={enabled ? "success" : "default"}>{enabled ? "ENFORCED" : "UNLIMITED"}</Badge>
+                  </div>
+                  <p className="mt-2 text-2xl font-bold text-ink-900">
+                    {formatINR(used)}
+                    {enabled && <span className="text-sm font-medium text-ink-400"> / {formatINR(limit)}</span>}
+                  </p>
+                  {enabled ? (
+                    <>
+                      <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-ink-100">
+                        <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${Math.max(2, pct)}%` }} />
+                      </div>
+                      <div className="mt-1.5 flex justify-between text-[11px] text-ink-500">
+                        <span>{pct}% used</span>
+                        <span>{formatINR(remaining === Infinity ? 0 : remaining)} remaining</span>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs text-ink-400">
+                      No pool enforced — instant settlement is limited only by per-user caps (if any).
+                    </p>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        </div>
+
+        {/* Per-user usage breakdown */}
+        {data && data.instantUsageByUser.length > 0 && (
+          <div className="mt-4 overflow-x-auto rounded-xl border border-ink-100">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-ink-100 bg-ink-50/60 text-left text-[11px] uppercase tracking-wider text-ink-400">
+                  <th className="px-4 py-2 font-semibold">User</th>
+                  <th className="px-4 py-2 font-semibold">Role</th>
+                  <th className="px-4 py-2 text-right font-semibold">Txns</th>
+                  <th className="px-4 py-2 text-right font-semibold">Used today</th>
+                  <th className="px-4 py-2 text-right font-semibold">Per-user cap</th>
+                  <th className="px-4 py-2 text-right font-semibold">Remaining</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.instantUsageByUser.map((u) => (
+                  <tr key={u.userId} className="border-b border-ink-50 last:border-0">
+                    <td className="px-4 py-2 font-medium text-ink-800">{u.name}</td>
+                    <td className="px-4 py-2 text-ink-500">{u.role}</td>
+                    <td className="px-4 py-2 text-right text-ink-600">{u.count}</td>
+                    <td className="px-4 py-2 text-right font-semibold text-ink-900">{formatINR(u.used)}</td>
+                    <td className="px-4 py-2 text-right text-ink-500">{u.cap != null ? formatINR(u.cap) : "—"}</td>
+                    <td className="px-4 py-2 text-right">
+                      {u.remaining != null ? (
+                        <span className={u.remaining <= 0 ? "font-semibold text-rose-600" : "text-emerald-700"}>
+                          {formatINR(u.remaining)}
+                        </span>
+                      ) : (
+                        <span className="text-ink-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
       </Reveal>
 
       <Reveal distance={16} duration={0.45}>

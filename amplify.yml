@@ -29,7 +29,10 @@ applications:
             # were silently dropped and /api/auth/* 500ed at runtime.
             - >-
               printenv | grep -E '^(NEXT_PUBLIC_|NEXTAUTH_|JWT_SECRET|DATABASE_URL|DIRECT_URL|APP_ENCRYPTION_KEY|CLOUDINARY_|PARTNER_|TWILIO_|MSG91_|RESEND_|EMAIL_|EKYCHUB_|REKYC_|S3_|KYC_|FFMPEG_PATH|FFPROBE_PATH|BULKPE_|SAMEDAY_|LEEGALITY_|SETTLEMENT_|SECURITY_|RISK_|AML_|LOG_LEVEL|TRUSTED_PROXY_HOPS|PAYSPRINT_|RAZORPAY|RECHARGE_|TRIPJACK_|EXPO_|SENTRY_|UPSTASH_|ALERT_WEBHOOK_URL)[A-Z0-9_]*=' > .env.production || true
-            - npm run build
+            # Node caps the V8 old-space at ~2GB by default, so `next build`
+            # OOMs (exit 134) even though the Amplify container has 8GiB. Raise
+            # the heap to 6GB to leave headroom for the OS and worker threads.
+            - NODE_OPTIONS=--max-old-space-size=6144 npm run build
       artifacts:
         baseDirectory: .next
         files:

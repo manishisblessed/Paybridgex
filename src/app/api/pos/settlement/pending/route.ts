@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-server";
 import { toErrorResponse } from "@/lib/security/apiErrors";
-import { listPendingPosSettlements } from "@/lib/settlement/pos";
+import {
+  listPendingPosSettlements,
+  remainingInstantBudget,
+  INSTANT_BUDGET_UNLIMITED,
+} from "@/lib/settlement/pos";
 import { isInstantButtonEnabled } from "@/lib/settlement/engine";
 
 /**
@@ -22,9 +26,17 @@ export async function GET() {
     return toErrorResponse(e);
   }
 
-  const [entries, instantEnabled] = await Promise.all([
+  const [entries, instantEnabled, budget] = await Promise.all([
     listPendingPosSettlements(user.id),
     isInstantButtonEnabled("POS"),
+    remainingInstantBudget(user.id),
   ]);
-  return NextResponse.json({ entries, instantEnabled });
+  // A daily instant limit constrains the caller only when the remaining budget
+  // is below the sentinel (i.e. a global pool and/or per-user cap is enforced).
+  const instantLimited = budget < INSTANT_BUDGET_UNLIMITED;
+  return NextResponse.json({
+    entries,
+    instantEnabled,
+    instantBudget: instantLimited ? budget : null,
+  });
 }

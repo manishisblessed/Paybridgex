@@ -37,6 +37,7 @@ import {
   BookOpenCheck,
   Timer,
   Undo2,
+  RotateCcw,
   ReceiptText,
   LineChart,
   ScanSearch,
@@ -116,8 +117,16 @@ const staffAccountItems: NavItem[] = [
   { href: "/dashboard/disputes", label: "My Tickets", icon: LifeBuoy }
 ];
 
+/**
+ * Permission slug for the master-admin "Today's Business Overview" dashboard
+ * section. Not a sidebar route — it gates the additive Overview section only, and
+ * is grantable to an admin through the standard tab-assignment UI.
+ */
+export const BUSINESS_OVERVIEW_TAB = "business-overview";
+
 /** Canonical tab slugs (without role prefix) used for permission assignment */
 export const ASSIGNABLE_ADMIN_TABS = [
+  { href: BUSINESS_OVERVIEW_TAB, label: "Today's Business Overview" },
   { href: "invites", label: "Onboarding Invites" },
   { href: "join-requests", label: "Join Requests" },
   { href: "users", label: "User Directory" },
@@ -133,6 +142,7 @@ export const ASSIGNABLE_ADMIN_TABS = [
   { href: "brands", label: "Brands & MDR" },
   { href: "settlement-ops", label: "Settlement Desk" },
   { href: "pos-settlement", label: "POS Settlements" },
+  { href: "pos-reversals", label: "POS Reversals" },
   { href: "reversals", label: "Reversal Desk" },
   { href: "aeps", label: "AePS Centre" },
   { href: "qr", label: "QR Collections" },
@@ -193,6 +203,7 @@ const adminMoneyDesk: NavItem[] = [
   { href: "/dashboard/admin/ledger", label: "Ledger Explorer", icon: BookOpenCheck },
   { href: "/dashboard/admin/settlement-ops", label: "Settlement Desk", icon: Timer },
   { href: "/dashboard/admin/pos-settlement", label: "POS Settlements", icon: CreditCard },
+  { href: "/dashboard/admin/pos-reversals", label: "POS Reversals", icon: RotateCcw },
   { href: "/dashboard/admin/reversals", label: "Reversal Desk", icon: Undo2 },
   { href: "/dashboard/payout-approvals", label: "Payout Approvals", icon: ListChecks }
 ];

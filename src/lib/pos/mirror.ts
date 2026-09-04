@@ -103,6 +103,10 @@ function feedRowToMirrorData(
       txnTime,
       postingDate: toDate(t.posting_date),
       partnerCreatedAt: toDate(t.created_at),
+      // v2.0.0 reversal audit — the feed is authoritative, so these refresh on
+      // every sweep (null for live rows, set once voided/refunded upstream).
+      reversedAt: toDate(t.reversed_at),
+      reversalReason: clean(t.reversal_reason),
       raw: t as unknown as Prisma.InputJsonValue,
       source: "SWEEP",
     },
@@ -151,15 +155,28 @@ async function recordPosPayinForCaptures(
   }
 }
 
+/** A capture that flipped to VOIDED/REFUNDED in THIS sweep — the caller
+ *  reconciles each (cancel a PENDING settlement / flag a settled one). */
+export type MirrorReversal = {
+  transactionRef: string;
+  status: "VOIDED" | "REFUNDED";
+  reversedAt: Date | null;
+  reason: string | null;
+};
+
+const REVERSAL_STATUSES = new Set(["VOIDED", "REFUNDED"]);
+
 /**
  * Upsert a batch of partner feed rows into the mirror. Feed data is
  * authoritative, so existing rows are refreshed with the feed's values (this is
  * how the sweep repairs / completes rows first seen via the webhook). Returns
- * how many rows were written (created or updated) and how many were skipped.
+ * how many rows were written (created or updated), how many were skipped, and
+ * the refs that TRANSITIONED into a reversed state (VOIDED/REFUNDED) so the
+ * caller can reconcile the settlement side exactly once per flip.
  */
 export async function upsertMirrorFromFeed(
   rows: PosTransaction[]
-): Promise<{ written: number; skipped: number }> {
+): Promise<{ written: number; skipped: number; reversals: MirrorReversal[] }> {
   let written = 0;
   let skipped = 0;
 
@@ -169,7 +186,8 @@ export async function upsertMirrorFromFeed(
   skipped += rows.length - mapped.length;
 
   // Snapshot prior statuses BEFORE writing so the payin monitor can fire only on
-  // the first CAPTURED transition (forward-only; re-sweeps never backfill).
+  // the first CAPTURED transition (forward-only; re-sweeps never backfill) and
+  // so a reversal is detected only on the FLIP (not on every re-sweep).
   const priorStatus = await mirrorStatusByRef(mapped.map((m) => m.transactionRef));
 
   const BATCH = 25;
@@ -203,7 +221,23 @@ export async function upsertMirrorFromFeed(
     priorStatus
   );
 
-  return { written, skipped };
+  // Detect reversals: a row whose NEW status is VOIDED/REFUNDED and whose prior
+  // mirror status was NOT already that. `prior` is undefined for a row landing
+  // reversed for the first time, so it still fires exactly once.
+  const reversals: MirrorReversal[] = [];
+  for (const { transactionRef, data } of mapped) {
+    const status = String(data.status ?? "").toUpperCase();
+    if (!REVERSAL_STATUSES.has(status)) continue;
+    if (priorStatus.get(transactionRef) === status) continue; // already reconciled
+    reversals.push({
+      transactionRef,
+      status: status as "VOIDED" | "REFUNDED",
+      reversedAt: (data.reversedAt as Date | null | undefined) ?? null,
+      reason: (data.reversalReason as string | null | undefined) ?? null,
+    });
+  }
+
+  return { written, skipped, reversals };
 }
 
 /**
@@ -327,6 +361,8 @@ export function rowToFeedShape(row: MirrorRow): PosTransaction {
     posting_date: row.postingDate ? row.postingDate.toISOString() : "",
     txn_time: row.txnTime.toISOString(),
     created_at: (row.partnerCreatedAt ?? row.createdAt).toISOString(),
+    reversed_at: row.reversedAt ? row.reversedAt.toISOString() : null,
+    reversal_reason: row.reversalReason ?? null,
   };
 }
 
@@ -399,6 +435,7 @@ export async function summarizeMirror(
     captured_count: 0,
     failed_count: 0,
     refunded_count: 0,
+    voided_count: 0,
     captured_amount: "0.00",
     terminal_count: 0,
   };
@@ -437,6 +474,7 @@ export async function summarizeMirror(
     captured_count: counts.CAPTURED,
     failed_count: counts.FAILED,
     refunded_count: counts.REFUNDED,
+    voided_count: counts.VOIDED,
     captured_amount: capturedAmount.toFixed(2),
     terminal_count: byTerminal.length,
   };

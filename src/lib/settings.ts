@@ -95,6 +95,17 @@ const SETTING_SCHEMAS = {
     defaultEnabled: z.boolean().default(false),
     /** Pause the instant safety-net sweep (webhook path is unaffected). */
     paused: z.boolean().default(false),
+    /**
+     * Global instant-settlement DAILY POOL. When enabled, the platform will
+     * instant-settle at most `dailyLimitAmount` (₹, NET credited) of POS
+     * proceeds per IST day across ALL users combined. Once the pool is
+     * exhausted, further instant settlements are refused and simply roll to the
+     * next-day T+1 sweep. A per-user cap (UserLimit.instantDailyCap) can further
+     * restrict any single user; the stricter of the two applies.
+     */
+    dailyLimitEnabled: z.boolean().default(false),
+    /** Global instant-settlement pool per IST day (₹ net). Default ₹1 crore. */
+    dailyLimitAmount: z.number().nonnegative().max(1_000_000_000).default(10_000_000),
   }),
 
   /** POS T+1 settlement cron (for non-instant users). */

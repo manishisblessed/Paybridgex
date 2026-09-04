@@ -1525,6 +1525,13 @@ model PosTransactionMirror {
   postingDate      DateTime?
   partnerCreatedAt DateTime?
 
+  // Reversal audit (Same Day POS API v2): set when a previously-CAPTURED swipe is
+  // later VOIDED / REFUNDED at the terminal. `status` carries the new terminal
+  // state; these record WHEN it flipped and WHY (e.g. "pinelab:VOID"). Null for
+  // normal live transactions.
+  reversedAt     DateTime?
+  reversalReason String?
+
   // Full partner payload for audit / future fields, and row provenance.
   raw    Json?
   source String @default("SWEEP") // WEBHOOK | SWEEP
@@ -1536,6 +1543,7 @@ model PosTransactionMirror {
   @@index([terminalId, txnTime])
   @@index([status, txnTime])
   @@index([paymentMode])
+  @@index([reversedAt])
 }
 
 model PosAssignmentLog {
@@ -1888,6 +1896,11 @@ model UserLimit {
   settlementDailyCap   Decimal? @db.Decimal(14, 2)
   settlementPerTxnCap  Decimal? @db.Decimal(14, 2)
   settlementTier       String? // display label, e.g. "TIER_1", "GOLD"
+
+  // Max NET POS instant-settlement (₹) this user may take per IST day. Applied
+  // on top of the global instant pool (settlement.pos_instant.dailyLimitAmount);
+  // the stricter of the two wins. null = only the global pool constrains them.
+  instantDailyCap Decimal? @db.Decimal(14, 2)
 
   note        String?
   updatedById String?
@@ -2363,7 +2376,7 @@ model PosSettlementEntry {
   mdrAmount      Decimal  @db.Decimal(14, 2) // MDR deducted
   netAmount      Decimal  @db.Decimal(14, 2) // credited to retailer
   mode           String   // INSTANT | T1
-  status         String   @default("PENDING") // PENDING | SETTLED | FAILED
+  status         String   @default("PENDING") // PENDING | SETTLED | FAILED | REVERSED
   settledAt      DateTime?
   // How the entry was settled (audit / reporting):
   //   INSTANT_AUTO   — auto-instant at capture (per-user / per-brand / global flag)
@@ -2398,6 +2411,14 @@ model PosSettlementEntry {
   brand     Brand?  @relation(fields: [brandId], references: [id])
   provider  String? // acquiring/service provider (RAZORPAY | PAYTM | PINELAB | ...)
   mdrRateId String? // BrandMdrRate the MDR was resolved from (audit)
+
+  // Reversal audit (Same Day POS API v2). When the capture is later voided /
+  // refunded upstream the entry is moved to status REVERSED so the settlement
+  // crons skip it. A PENDING entry reversed this way never pays out. An entry
+  // that had ALREADY settled (walletTxnId set) is flagged here for MANUAL
+  // clawback via the Reversals desk — we never silently debit a spent wallet.
+  reversedAt     DateTime?
+  reversalReason String?
 
   createdAt DateTime @default(now())
 

@@ -168,10 +168,17 @@ function retailerCell(r: { retailer: ReportRetailer | null }) {
 
 type View = "transactions" | "rollup";
 
-export function QrSettlementReportTab() {
+export function QrSettlementReportTab({
+  initialFrom,
+  initialTo,
+}: {
+  /** Optional deep-link range (YYYY-MM-DD), e.g. from the "QR Today" card. */
+  initialFrom?: string | null;
+  initialTo?: string | null;
+} = {}) {
   const defaults = defaultDateRange();
-  const [dateFrom, setDateFrom] = useState(defaults.from);
-  const [dateTo, setDateTo] = useState(defaults.to);
+  const [dateFrom, setDateFrom] = useState(initialFrom || defaults.from);
+  const [dateTo, setDateTo] = useState(initialTo || defaults.to);
   const [statusFilter, setStatusFilter] = useState<"" | "UNDER_REVIEW" | "SETTLEABLE" | "SETTLED" | "REJECTED">("");
   const [retailerId, setRetailerId] = useState<string | null>(null);
   const [retailerLabel, setRetailerLabel] = useState<string | null>(null);

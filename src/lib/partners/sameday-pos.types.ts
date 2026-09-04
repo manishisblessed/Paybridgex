@@ -98,6 +98,10 @@ export interface PosTransaction {
   posting_date: string;
   txn_time: string;
   created_at: string;
+  // v2.0.0: populated when a previously-CAPTURED swipe was later voided/reversed/
+  // refunded upstream. Both null for normal live transactions.
+  reversed_at?: string | null;
+  reversal_reason?: string | null;
   retailer?: PosTransactionRetailer | null;
 }
 
@@ -117,6 +121,7 @@ export interface PosTransactionsSummary {
   captured_count: number;
   failed_count: number;
   refunded_count: number;
+  voided_count: number;
   captured_amount: string;
   terminal_count: number;
 }

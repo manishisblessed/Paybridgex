@@ -61,6 +61,19 @@ export const SERVICE_KEYS = {
 export type ServiceKey = (typeof SERVICE_KEYS)[keyof typeof SERVICE_KEYS];
 
 /**
+ * Keys that are NOT per-user assignable rails. These are master switches /
+ * config rows (type !== "SERVICE") — e.g. the BBPS master switch. They are
+ * gated ONLY by the global On/Off panel, never by a user's `enabledServices`
+ * allowlist (the "Manage Services" dialog never exposes them). The guard uses
+ * this to skip the per-user check for such keys. Populated lazily to avoid a
+ * temporal-dead-zone on KNOWN_SERVICE_ROUTES.
+ */
+export function isConfigOnlyKey(key: string): boolean {
+  const row = KNOWN_SERVICE_ROUTES.find((r) => r.key === key);
+  return row ? row.type !== "SERVICE" : false;
+}
+
+/**
  * Maps service keys to sidebar nav hrefs. Used by the Sidebar to hide disabled
  * services for network users (RT/DT/MD/SD).
  */
