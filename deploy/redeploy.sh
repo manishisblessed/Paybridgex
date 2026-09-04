@@ -35,10 +35,12 @@ echo "[6/6] Building and restarting..."
 # this ~2 GB-RAM box). Types are gated pre-push instead (.githooks/pre-push →
 # `npm run typecheck`), so nothing un-type-checked reaches here.
 # Even compile-only, webpack can spike near the RAM limit, so we keep two guards:
-#   1) Ensure a swap file exists so the kernel has runway beyond physical RAM.
-#   2) Cap V8's old-space heap via NODE_OPTIONS, sized from RAM+swap so the same
-#      script scales up automatically on a larger instance (and never shrinks a
-#      value the operator set explicitly).
+#   1) Ensure a swap file exists — but ONLY as an emergency cushion, never as
+#      something the heap is sized to fill.
+#   2) Cap V8's old-space heap via NODE_OPTIONS sized from PHYSICAL RAM (not
+#      RAM+swap). Sizing to swap makes V8 grow into swap and thrash the box to a
+#      near-halt (a "stuck" 30-minute build). ~75% of physical RAM keeps the heap
+#      resident in real memory; swap only catches transient spikes.
 if [ "$(swapon --show | wc -l)" -eq 0 ]; then
   echo "      No swap detected — creating 4G swapfile..."
   sudo fallocate -l 4G /swapfile
@@ -49,14 +51,10 @@ if [ "$(swapon --show | wc -l)" -eq 0 ]; then
 fi
 if [ -z "${NODE_OPTIONS:-}" ]; then
   mem_mb=$(free -m | awk '/^Mem:/{print $2}')
-  swap_mb=$(free -m | awk '/^Swap:/{print $2}')
-  # 60% of (RAM+swap), floored at 3584 MB, capped 1 GB below the total so the OS
-  # and the type-check worker pool keep breathing room.
-  budget=$(( (mem_mb + swap_mb) * 6 / 10 ))
-  ceiling=$(( mem_mb + swap_mb - 1024 ))
-  heap=$budget
-  [ "$heap" -lt 3584 ] && heap=3584
-  [ "$heap" -gt "$ceiling" ] && heap=$ceiling
+  # ~75% of PHYSICAL RAM, floored at 1536 MB. This scales up on bigger instances
+  # (e.g. 3072 on 4 GB, 6144 on 8 GB) without ever telling V8 it may grow into swap.
+  heap=$(( mem_mb * 3 / 4 ))
+  [ "$heap" -lt 1536 ] && heap=1536
   export NODE_OPTIONS="--max-old-space-size=${heap}"
 fi
 echo "      NODE_OPTIONS=${NODE_OPTIONS}"
