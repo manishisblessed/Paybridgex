@@ -1,7 +1,7 @@
 /**
  * Paybridgex background worker (PM2 process, separate from the Next.js server).
  *
- * Why a separate process: heavy / external / money-moving calls (BulkPe payout
+ * Why a separate process: heavy / external / money-moving calls (payout
  * initiation, status reconciliation) must NOT run inside an HTTP request. The
  * API enqueues a job and returns fast; this worker drains the queue from the
  * IP-whitelisted EC2 box and finalizes via the shared idempotent service.
@@ -10,8 +10,9 @@
  * Run on EC2:    pm2 start ecosystem.config.js   (app: paybridgex-worker)
  *
  * Env: needs DATABASE_URL/DIRECT_URL, APP_ENCRYPTION_KEY, PARTNER_PAYOUT_ENABLED
- * and BULKPE_* (see .env.example). We best-effort load a local .env via Node's
- * built-in loader; in production PM2/systemd supplies the environment.
+ * and the payout rail credentials (see .env.example). We best-effort load a
+ * local .env via Node's built-in loader; in production PM2/systemd supplies
+ * the environment.
  */
 try {
   // Node 20.12+ : load .env without a dependency. Ignore if unavailable/missing.
@@ -83,7 +84,7 @@ async function main() {
   const boss = await getBoss();
   log("pg-boss started; registering handlers…");
 
-  // QUEUES.PAYOUT_INITIATE — call BulkPe for an APPROVED payout.
+  // QUEUES.PAYOUT_INITIATE — call the payout rail for an APPROVED payout.
   await boss.work<{ payoutRequestId: string }>(QUEUES.PAYOUT_INITIATE, async (jobs) => {
     for (const job of jobs) {
       const { payoutRequestId } = job.data;
@@ -111,7 +112,7 @@ async function main() {
   // idempotent by queue name, so re-running on restart is safe.
   await boss.schedule(QUEUES.PAYOUT_RECONCILE, "*/5 * * * *");
 
-  // QUEUES.BBPS_RECONCILE — BulkPe BBPS has no webhooks; this sweep polls
+  // QUEUES.BBPS_RECONCILE — the BBPS rail has no webhooks; this sweep polls
   // all PROCESSING bill payments and settles/refunds them. Also verifies
   // recent terminal rows against the provider's books.
   await boss.work(QUEUES.BBPS_RECONCILE, async () => {

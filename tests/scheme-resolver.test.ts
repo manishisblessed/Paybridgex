@@ -185,9 +185,9 @@ describe("per-product BBPS price scope", () => {
   });
 
   it("does not cross-match a different partner family", async () => {
-    // A BulkPe-only slab must never price a Same Day product (no null slab).
+    // A Unified-platform slab must never price a Same Day product (no null slab).
     state.slabs = [
-      slab({ id: "bulkpe", service: "BILL_ELECTRICITY", provider: "bbps_bulkpe_svc", chargeValue: d(8) }),
+      slab({ id: "unified", service: "BILL_ELECTRICITY", provider: "bbps_bulkpe_svc", chargeValue: d(8) }),
     ];
     const rate = await getEffectiveRate("u1", "BILL_ELECTRICITY", 5000, "bbps_sameday");
     expect(rate.source).toBe("NONE");

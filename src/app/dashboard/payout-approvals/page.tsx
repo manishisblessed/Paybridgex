@@ -52,8 +52,8 @@ type Payout = {
 type PayoutDetail = Payout & {
   maskedAccount: string;
   ifsc: string | null;
-  bulkpeReferenceId: string;
-  bulkpeTxnId: string | null;
+  providerReferenceId: string;
+  providerTxnId: string | null;
   makerId: string;
   checker: { id: string; name: string } | null;
   approvedAt: string | null;
@@ -380,7 +380,7 @@ function DetailDrawer({ id, onClose }: { id: string; onClose: () => void }) {
           <div className="space-y-5 p-5">
             <div className="flex items-center justify-between">
               <StatusPill status={STATUS_LABEL[detail.status]} tone={STATUS_TONE[detail.status]} />
-              <span className="font-mono text-xs text-ink-500">{detail.bulkpeReferenceId}</span>
+              <span className="font-mono text-xs text-ink-500">{detail.providerReferenceId}</span>
             </div>
 
             <div className="rounded-xl border border-ink-100 bg-ink-50/50 p-4">
@@ -403,7 +403,7 @@ function DetailDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <Field label="Maker (owner)" value={`${detail.user.name} · ${detail.user.email}`} />
               {detail.checker && <Field label="Checker" value={detail.checker.name} />}
               {detail.utr && <Field label="UTR" value={detail.utr} mono />}
-              {detail.bulkpeTxnId && <Field label="Payout txn" value={detail.bulkpeTxnId} mono />}
+              {detail.providerTxnId && <Field label="Payout txn" value={detail.providerTxnId} mono />}
               {detail.failureReason && (
                 <Field label="Failure reason" value={detail.failureReason} />
               )}

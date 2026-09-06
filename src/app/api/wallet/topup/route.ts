@@ -14,7 +14,7 @@ import { initiateTopup, settleTopup } from "@/lib/wallet/topup";
  * Instant wallet top-up.
  *
  * POST — create a top-up intent: returns a hosted payment URL / UPI intent /
- *        collect request from the PG partner (BulkPe Simple PG).
+ *        collect request from the PG partner (Razorpay).
  * GET  — ?refId=TOPUPXXXX verify + settle: polls the provider and credits the
  *        wallet once PAID (idempotent; also driven by the PG webhook).
  */

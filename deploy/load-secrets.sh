@@ -15,7 +15,7 @@ set -euo pipefail
 #             Each app env var is a parameter, e.g.
 #               /paybridgex/prod/NEXTAUTH_SECRET      (SecureString)
 #               /paybridgex/prod/APP_ENCRYPTION_KEY   (SecureString)
-#               /paybridgex/prod/BULKPE_TOKEN         (SecureString)
+#               /paybridgex/prod/SAMEDAY_SETTLEMENT_API_KEY (SecureString)
 #               /paybridgex/prod/DATABASE_URL         (SecureString)
 #             Put them there once with:
 #               aws ssm put-parameter --name /paybridgex/prod/NEXTAUTH_SECRET \

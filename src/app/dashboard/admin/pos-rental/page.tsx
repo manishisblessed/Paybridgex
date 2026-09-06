@@ -849,7 +849,7 @@ function SubscriptionsTab({
                 </div>
               ) : sdMachines.length === 0 ? (
                 <div className="rounded-xl border border-ink-100 bg-ink-50 p-6 text-center text-sm text-ink-500">
-                  No machines in this user&apos;s fleet. Go to <span className="font-semibold text-brand-700">POS Fleet</span> to assign machines first.
+                  No machines in this user&apos;s fleet. Go to <span className="font-semibold text-brand-700">POS Transactions</span> to assign machines first.
                 </div>
               ) : (
                 <div className="max-h-64 overflow-y-auto rounded-xl border border-ink-100">

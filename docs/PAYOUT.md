@@ -1,7 +1,11 @@
-# Payout (BulkPe)
+# Payout
 
 End-to-end bank/UPI disbursal built on the Phase 0 foundation (ledger holds,
 field encryption, idempotency, rate limiting, queue worker, partner factory).
+
+Rails: bank transfers (IMPS/NEFT/RTGS) settle through the **Same Day
+Settlement** API; UPI payouts ride **RazorpayX** when configured. The app never
+calls a rail adapter directly — it resolves `getPartner("payout")`.
 
 ## 1. Charge model — service charge is ON TOP
 
@@ -55,8 +59,7 @@ PENDING_APPROVAL ──approve──▶ APPROVED ──worker──▶ PROCESSIN
 ```
 
 Every terminal transition uses a conditional `updateMany` claim so exactly one
-caller (worker, webhook, or poller) finalizes. All paths are idempotent and
-retry-safe.
+caller (worker or poller) finalizes. All paths are idempotent and retry-safe.
 
 ## 4. Flow
 
@@ -74,51 +77,52 @@ retry-safe.
      `QUEUES.PAYOUT_INITIATE`, audit `payout.approved`.
    - Reject → claim `→ REJECTED` + `releaseHold`, audit `payout.rejected`.
 3. **Worker (PM2)** — `scripts/worker.ts`, queue `payout.initiate`
-   - Claim `APPROVED → PROCESSING`, call BulkPe with
-     `reference_id = bulkpeReferenceId`, persist response + `bulkpeTxnId`.
+   - Claim `APPROVED → PROCESSING`, call the payout rail with
+     `reference_id = providerReferenceId`, persist response + `providerTxnId`.
    - Terminal success → `finalizePayoutSuccess` (capture + UTR); terminal
      failure → `finalizePayoutFailure` (release). PROCESSING is left for the
-     webhook/poller. Retry-safe: if already sent, it reconciles instead.
-4. **Webhook** — `POST /api/payout/webhook`
-   - Verify HMAC (`BULKPE_WEBHOOK_SECRET`) over the **raw** body, match by
-     `reference_id`/`transcation_id`, reconcile to terminal ledger state, audit
-     `payout.webhook`. Idempotent; unknown refs are 200-acked.
-5. **Poller** — scheduled `payout.reconcile` (cron `*/5 * * * *`)
-   - Sweeps `PROCESSING` rows older than 120s, polls BulkPe, finalizes. Fallback
-     for missed webhooks.
+     poller. Retry-safe: if already sent, it reconciles instead.
+4. **Poller** — scheduled `payout.reconcile` (cron `*/5 * * * *`)
+   - Sweeps `PROCESSING` rows older than 120s, polls the rail, finalizes. This
+     is the sole finalizer for in-flight payouts (no inbound webhook).
 
-## 5. Provider — BulkPe
+## 5. Providers
 
-- Adapter: `src/lib/partners/bulkpe.ts`, implements `PayoutProvider`. Business
-  code only ever calls `getPartner("payout")` — never the adapter directly.
-- Factory order (`src/lib/partners/index.ts`): BulkPe (if configured) →
-  RazorpayX (fallback) → MOCK. Gated by `flags.payout`
-  (`PARTNER_PAYOUT_ENABLED`).
-- Bearer auth (`BULKPE_TOKEN`). Unique `reference_id` per payout =
+- Adapters implement `PayoutProvider`; business code only ever calls
+  `getPartner("payout")` — never an adapter directly.
+- Routing (`src/lib/partners/index.ts`, gated by `flags.payout` /
+  `PARTNER_PAYOUT_ENABLED`):
+  - Bank modes (IMPS/NEFT/RTGS) → **Same Day Settlement**
+    (`src/lib/partners/sameday-payout.ts`), penny-drop-verified accounts.
+  - UPI → **RazorpayX** (`src/lib/partners/razorpay.ts`) when configured.
+  - Otherwise → MOCK.
+- Unique `reference_id` per payout (`providerReferenceId`, prefix `PO…`) =
   idempotency + reconciliation key.
-- Endpoints used: `POST /initiatePayout`, `POST /fetchTransactionDetails`.
 
 ### Env (`.env` / hosting secrets)
 
 ```
 PARTNER_PAYOUT_ENABLED="true"
-BULKPE_BASE_URL="https://api.bulkpe.in/client"
-BULKPE_TOKEN="..."
-BULKPE_WEBHOOK_SECRET="..."
+# Bank rail (Same Day Settlement; falls back to the POS key pair when unset)
+SAMEDAY_SETTLEMENT_API_KEY="..."
+SAMEDAY_SETTLEMENT_API_SECRET="..."
+# UPI rail (RazorpayX) — optional
+RAZORPAYX_ACCOUNT_NUMBER="..."
+RAZORPAYX_KEY_ID="..."
+RAZORPAYX_KEY_SECRET="..."
 APP_ENCRYPTION_KEY="..."   # required for PII encryption (Phase 0)
 ```
 
-## 6. ⚠️ EC2 static Elastic IP (BulkPe IP-whitelisting)
+## 6. ⚠️ EC2 static Elastic IP (rail IP-whitelisting)
 
-BulkPe only accepts API calls from **pre-registered source IPs**. The worker
-calls BulkPe, so the EC2 instance must egress from a **static Elastic IP**:
+The Same Day API only accepts calls from **pre-registered source IPs**. The
+worker makes the outbound payout calls, so the EC2 instance must egress from a
+**static Elastic IP**:
 
 1. Allocate an Elastic IP and associate it with the EC2 instance (or the NAT
    Gateway if the instance is in a private subnet — whitelist the NAT's EIP).
-2. Register that EIP in the BulkPe dashboard (IP allowlist).
-3. Configure the webhook URL `https://<app-domain>/api/payout/webhook` in BulkPe
-   and copy the signing secret into `BULKPE_WEBHOOK_SECRET`.
-4. Keep the EIP stable across redeploys (it stays associated through PM2
+2. Register that EIP with the provider (IP allowlist).
+3. Keep the EIP stable across redeploys (it stays associated through PM2
    restarts; only detach intentionally).
 
 Outbound payout calls run **only** from the worker process, so the whitelisted
@@ -158,8 +162,8 @@ pm2 logs paybridgex-worker
   `assertCanAccessUser`) on every read/write.
 - zod validation; rate limit on submit.
 - Audit logs: `payout.submitted`, `payout.approved`, `payout.rejected`,
-  `payout.success`, `payout.failed`, `payout.reversed`, `payout.webhook`.
+  `payout.success`, `payout.failed`, `payout.reversed`.
 - PII (account number, IFSC, UPI VPA) encrypted at rest (AES-256-GCM);
   `accountLast4` only for display; raw values never logged.
 - Maker-checker separation enforced server-side.
-- No secrets reach the client; BulkPe is called only from the worker.
+- No secrets reach the client; the payout rail is called only from the worker.

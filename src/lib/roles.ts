@@ -117,6 +117,16 @@ const staffAccountItems: NavItem[] = [
   { href: "/dashboard/disputes", label: "My Tickets", icon: LifeBuoy }
 ];
 
+/** Account block for platform admins (master-admin / admin / sub-admin). The
+ *  transactions feed is platform-wide for these roles (see isAdminRole), so it
+ *  is labelled "All Transactions" instead of "My Transactions". The ledger and
+ *  tickets pages stay personal (scoped to the signed-in user). */
+const adminAccountItems: NavItem[] = staffAccountItems.map((item) =>
+  item.href === "/dashboard/transactions"
+    ? { ...item, label: "All Transactions" }
+    : item
+);
+
 /**
  * Permission slug for the master-admin "Today's Business Overview" dashboard
  * section. Not a sidebar route — it gates the additive Overview section only, and
@@ -135,7 +145,7 @@ export const ASSIGNABLE_ADMIN_TABS = [
   { href: "wallet-ops", label: "Wallet Operations" },
   { href: "ledger", label: "Ledger Explorer" },
   { href: "pg", label: "Payment Gateway" },
-  { href: "pos", label: "POS Fleet" },
+  { href: "pos", label: "POS Transactions" },
   { href: "pos-rental", label: "POS Rental & Billing" },
   { href: "kyc", label: "KYC Approvals" },
   { href: "schemes", label: "Pricing Schemes" },
@@ -218,7 +228,7 @@ const masterMoneyDesk: NavItem[] = adminMoneyDesk.flatMap((item) =>
 
 const adminRails: NavItem[] = [
   { href: "/dashboard/admin/pg", label: "Payment Gateway", icon: CreditCard },
-  { href: "/dashboard/admin/pos", label: "POS Fleet", icon: Monitor },
+  { href: "/dashboard/admin/pos", label: "POS Transactions", icon: Monitor },
   { href: "/dashboard/admin/pos-rental", label: "POS Rental & Billing", icon: ReceiptText },
   { href: "/dashboard/admin/qr", label: "QR Collections", icon: QrCode },
   { href: "/dashboard/admin/aeps", label: "AePS Centre", icon: Fingerprint },
@@ -248,7 +258,7 @@ const adminGroups = (moneyDesk: NavItem[], extraCommand: NavItem[] = []): NavGro
   { heading: "Payment Rails", items: adminRails },
   { heading: "Risk & Compliance", items: adminRisk },
   { heading: "Insights & Growth", items: adminInsights },
-  { heading: "Account", items: staffAccountItems }
+  { heading: "Account", items: adminAccountItems }
 ];
 
 /* ──────────────────────────────────────────────────────────────────────

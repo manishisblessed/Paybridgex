@@ -195,7 +195,7 @@ export const samedaySettlementPayout: PayoutProvider = {
       return {
         ok: false,
         code: "UNSUPPORTED_MODE",
-        message: "Same Day settlement supports bank transfers (IMPS/NEFT/RTGS) only — UPI payouts need the BulkPe rail",
+        message: "Same Day settlement supports bank transfers (IMPS/NEFT/RTGS) only — UPI payouts route to the RazorpayX rail",
       };
     }
 

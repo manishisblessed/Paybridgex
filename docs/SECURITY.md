@@ -40,9 +40,10 @@ Phase 9 deliverable and is kept in sync with the code.
 - **Passwords**: bcrypt hash (cost 12) on registration + breached-password rejection.
 - **2FA secrets**: AES-256-GCM encrypted (`src/lib/two-factor.ts` → `encryptSecret`);
   backup codes bcrypt-hashed.
-- **Sensitive env vars**: `APP_ENCRYPTION_KEY`, `NEXTAUTH_SECRET`, `BULKPE_TOKEN`,
-  `BULKPE_WEBHOOK_SECRET` are server-only — never imported into client code; loaded
-  via `src/lib/env.ts` with `requireEnv()` at the call site.
+- **Sensitive env vars**: `APP_ENCRYPTION_KEY`, `NEXTAUTH_SECRET`,
+  `SAMEDAY_SETTLEMENT_API_KEY`, `RAZORPAY_KEY_SECRET` are server-only — never
+  imported into client code; loaded via `src/lib/env.ts` with `requireEnv()` at
+  the call site.
 - **Structured logger redaction** — `src/lib/logger.ts` redacts passwords, tokens,
   OTPs, and account numbers; PII (phone/email) is masked before it reaches the
   audit log (e.g. OTP send/verify).
@@ -79,8 +80,7 @@ Phase 9 deliverable and is kept in sync with the code.
   persisted to `AuditLog` for the admin audit view.
 - **Login anomaly flags** — impossible travel, new device, repeated failures.
 - **Webhook signature verification** — HMAC-SHA256, constant-time compare:
-  `verifyBulkpeWebhook` (`src/lib/partners/bulkpe.ts`) and `verifyRazorpayWebhook`
-  (`src/lib/partners/razorpay.ts`).
+  `verifyRazorpayWebhook` (`src/lib/partners/razorpay.ts`).
 
 ---
 
@@ -110,7 +110,6 @@ scope) · **Zod** (body/query validation) · **Audit** (`AuditLog` on mutation) 
 | `onboard/[token]/verify` | POST | 🔓 | token | ✅ | ❌ | ❌ | eKYC; rate limit recommended |
 | `healthz` | GET | 🔓 | — | — | — | — | probe |
 | `webhooks/razorpay` | POST | 🔓 | HMAC sig | — | ✅ | — | signature verified |
-| `payout/webhook` | POST | 🔓 | HMAC sig | — | ✅ | — | signature verified |
 
 ### Money & service routes
 
@@ -167,7 +166,6 @@ scope) · **Zod** (body/query validation) · **Audit** (`AuditLog` on mutation) 
 | `admin/stats` | GET | ✅ | requireRole | — | — | — | |
 | `admin/services` | GET/POST | ✅ | requireRole + isAdminRole | ✅ | ✅ | — | |
 | `admin/services/[id]` | PATCH | ✅ | requireRole + isAdminRole | ✅ | ✅ | — | |
-| `admin/services/bulkpe-balance` | GET | ✅ | requireRole + isAdminRole | — | ✅ | ✅ | live balance refresh |
 | `admin/users` | GET/POST | ✅ | requireRole | ✅ | ✅ | — | admins access all |
 | `admin/users/[id]` | PATCH | ✅ | requireRole | ✅ | ✅ | — | |
 | `admin/schemes` | GET/POST | ✅ | requireRole + isAdminRole | ✅ | ✅ | ✅ | |
@@ -488,8 +486,8 @@ limitation, security safeguards, and auditable access).
 
 ## Deployment Security Notes
 
-- **EC2 / BulkPe**: an Elastic IP is required so the egress IP is stable and can be
-  whitelisted in the BulkPe dashboard (BulkPe rejects non-whitelisted source IPs).
+- **EC2 / Same Day**: an Elastic IP is required so the egress IP is stable and can be
+  whitelisted with the provider (Same Day rejects non-whitelisted source IPs).
   See `docs/PAYOUT.md`.
 - **Secrets**: currently loaded from environment variables (PM2 / `ecosystem.config.js`).
   Migration to AWS Secrets Manager / SSM Parameter Store is recommended for

@@ -265,7 +265,7 @@ export async function releaseHold(m: HoldInput, tx?: Tx): Promise<{ heldBalance:
 }
 
 /**
- * Finalize a hold into a real debit (e.g. payout confirmed by BulkPe). Reduces
+ * Finalize a hold into a real debit (e.g. payout confirmed by the rail). Reduces
  * both heldBalance and walletBalance and writes the settling WalletTxn. This is
  * the entry that appears in the user's passbook.
  */

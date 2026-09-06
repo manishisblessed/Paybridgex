@@ -15,9 +15,17 @@ import type { Transaction } from "@/lib/data";
 
 export default function TransactionsPage() {
   const { data: session } = useSession();
+  const displayRole = toDisplayRole(session?.user?.role as any);
   // Retailers don't see commission here: on settlement rails the per-txn
   // commission is the upline's, not theirs. Their earnings live on My Earnings.
-  const showCommission = toDisplayRole(session?.user?.role as any) !== "retailer";
+  const showCommission = displayRole !== "retailer";
+  // Admin roles (master-admin / admin / sub-admin) get the platform-wide feed
+  // from /api/transactions (isAdminRole), not just their own — so the heading
+  // must not imply "your account". Everyone else sees only their own txns.
+  const isPlatformWide =
+    displayRole === "master-admin" ||
+    displayRole === "admin" ||
+    displayRole === "sub-admin";
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("All");
   const [rows, setRows] = useState<Transaction[]>([]);
@@ -56,8 +64,12 @@ export default function TransactionsPage() {
       <Reveal distance={14} duration={0.4}>
         <ServicePageHeader
           icon={History}
-          title="Transactions"
-          description="Search, filter and export every transaction processed through your account."
+          title={isPlatformWide ? "All Transactions" : "Transactions"}
+          description={
+            isPlatformWide
+              ? "Search, filter and export every transaction processed across the platform."
+              : "Search, filter and export every transaction processed through your account."
+          }
         />
       </Reveal>
 

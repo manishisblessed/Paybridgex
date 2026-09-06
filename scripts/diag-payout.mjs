@@ -14,7 +14,7 @@ const norm = (provider) => {
   if (s.startsWith("EKYCHUB")) return "EKYCHUB";
   return s;
 };
-const PAYOUT_MODE_PROVIDER = { IMPS: "SAMEDAY", NEFT: "SAMEDAY", RTGS: "SAMEDAY", UPI: "BULKPE" };
+const PAYOUT_MODE_PROVIDER = { IMPS: "SAMEDAY", NEFT: "SAMEDAY", RTGS: "SAMEDAY", UPI: "RAZORPAY" };
 
 console.log("=== RECENT PAYOUT REQUESTS ===");
 const payouts = await p.payoutRequest.findMany({
@@ -30,7 +30,7 @@ if (payouts.length === 0) { console.log("No payouts found."); await p.$disconnec
 
 const target = payouts.find((x) => x.status === "SUCCESS") ?? payouts[0];
 const amt = num(target.amount);
-const provider = PAYOUT_MODE_PROVIDER[target.mode] ?? "BULKPE";
+const provider = PAYOUT_MODE_PROVIDER[target.mode] ?? "SAMEDAY";
 console.log(`\n=== ANALYZING payout ${target.id} (user=${target.userId}, amount=${amt}, mode=${target.mode}, provider=${provider}) ===`);
 
 // Walk the chain (same logic as resolvePricingChain)

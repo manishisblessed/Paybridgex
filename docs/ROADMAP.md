@@ -39,10 +39,10 @@ kill-switch), and the money-safe transaction orchestrator
 (`src/lib/services/transaction.ts`) powering AePS, DMT, recharge, BBPS, PAN, UPI
 collect, and travel.
 
-### Phase 5 — Payouts (BulkPe) · COMPLETE
-Bank/UPI disbursals on BulkPe with maker-checker approval, fund holds, the PM2
-worker performing the IP-whitelisted external call, idempotent `reference_id`,
-HMAC webhook verification, and a polling reconciler (`/fetchStatus`) for stuck
+### Phase 5 — Payouts · COMPLETE
+Bank/UPI disbursals (Same Day settlement for bank rails, RazorpayX for UPI) with
+maker-checker approval, fund holds, the PM2 worker performing the IP-whitelisted
+external call, idempotent `reference_id`, and a polling reconciler for stuck
 payouts. Live vendor float surfaces on the admin dashboard via `fetchBalance`.
 Migration: `20260627120000_add_payout_request`. See `docs/PAYOUT.md`.
 
@@ -132,8 +132,8 @@ These are recommended next hardening / feature steps, not blockers for launch:
   per-request nonce on inline scripts.
 - **AWS Secrets Manager / SSM** — move secrets off PM2 environment variables for
   rotation and an access audit trail.
-- **BulkPe account statement integration** — wire `/client/accountStatement` for
-  automated vendor-side reconciliation.
+- **Vendor account statement integration** — wire the payout rail's account
+  statement API for automated vendor-side reconciliation.
 - **Dedicated QR collections data model** — first-class persistence for static /
   dynamic UPI QR collections (currently handled through the generic UPI rail).
 - **Defense-in-depth rate limits** — layer `RATE_LIMITS.sensitiveWrite` onto

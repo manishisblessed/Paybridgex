@@ -17,9 +17,9 @@ const BBPS_SERVICES: ServiceCode[] = [
 /**
  * BBPS reconciliation — polls PROCESSING BBPS transactions and settles them.
  *
- * Unlike payouts (which have webhooks), BulkPe BBPS does not push status
- * updates. This sweep is our only safety net for transactions that returned
- * PENDING at pay-time or whose response was ambiguous.
+ * The BBPS rail does not push status updates. This sweep is our only safety
+ * net for transactions that returned PENDING at pay-time or whose response was
+ * ambiguous.
  *
  * Three stages (mirrors the payout recon pattern):
  *   1. DRAIN   — poll every PROCESSING BBPS txn older than 2 minutes

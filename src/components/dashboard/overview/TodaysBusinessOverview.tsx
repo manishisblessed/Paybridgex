@@ -16,12 +16,11 @@ import {
   TrendingUp,
   TrendingDown,
   RefreshCw,
-  CheckCircle2,
-  Hourglass,
-  XCircle,
+  ArrowUpRight,
 } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { StatSkeleton } from "@/components/ui/Skeleton";
+import { CountUp } from "@/components/motion";
 import { formatINR, formatNumber, cn } from "@/lib/utils";
 
 type ServiceToday = {
@@ -63,6 +62,13 @@ const accents: Record<Accent, string> = {
   violet: "from-violet-500 to-violet-700",
 };
 
+const glows: Record<Accent, string> = {
+  brand: "bg-brand-500/10",
+  accent: "bg-accent-500/10",
+  emerald: "bg-emerald-500/10",
+  violet: "bg-violet-500/10",
+};
+
 /**
  * Every card drills into the unified report system pre-filtered to the SAME IST
  * day (`date`) the panel is summarising, so the detailed view always matches the
@@ -87,6 +93,19 @@ function cardLinks(date: string) {
     revenue: `/dashboard/reports/commission?${day}`,
     growth: `/dashboard/reports/summary?${day}`,
   } as const;
+}
+
+function prettyDate(iso: string) {
+  // `iso` is an IST calendar date (YYYY-MM-DD). Format without timezone drift.
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
 }
 
 export function TodaysBusinessOverview() {
@@ -124,13 +143,21 @@ export function TodaysBusinessOverview() {
   if (error === "forbidden") return null;
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="font-display text-lg font-semibold text-ink-900">
-            Today&apos;s Business Overview
-          </h2>
-          <p className="text-sm text-ink-500">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <h2 className="font-display text-lg font-semibold text-ink-900">
+              Today&apos;s Business Overview
+            </h2>
+            {data && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-0.5 text-[11px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-100">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent-500" />
+                {prettyDate(data.date)}
+              </span>
+            )}
+          </div>
+          <p className="max-w-2xl text-sm text-ink-500">
             Platform business done today across all major services. Headline amounts
             are <span className="font-semibold text-ink-600">completed</span> business;
             pending &amp; failed are shown separately.
@@ -140,7 +167,7 @@ export function TodaysBusinessOverview() {
           type="button"
           onClick={load}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-full border border-ink-100 bg-white px-3 py-1.5 text-xs font-semibold text-ink-600 transition hover:border-brand-200 hover:text-brand-700 disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 rounded-full border border-ink-100 bg-white px-3 py-1.5 text-xs font-semibold text-ink-600 shadow-sm transition hover:border-brand-200 hover:text-brand-700 hover:shadow-soft disabled:opacity-60"
         >
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
           Refresh
@@ -148,7 +175,7 @@ export function TodaysBusinessOverview() {
       </div>
 
       {loading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <StatSkeleton key={i} />
           ))}
@@ -164,8 +191,8 @@ export function TodaysBusinessOverview() {
         (() => {
           const links = cardLinks(data.date);
           return (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <TotalBusinessCard data={data.total} href={links.total} />
                 <ServiceBusinessCard label="QR Today" icon={QrCode} accent="violet" data={data.qr} href={links.qr} />
                 <ServiceBusinessCard label="POS Today" icon={Monitor} accent="emerald" data={data.pos} href={links.pos} />
@@ -178,6 +205,8 @@ export function TodaysBusinessOverview() {
                 <StatCard
                   label="Settled Today (net)"
                   value={formatINR(data.summary.settlementToday)}
+                  countTo={data.summary.settlementToday}
+                  prefix="₹"
                   icon={Banknote}
                   accent="emerald"
                   href={links.settlement}
@@ -185,6 +214,8 @@ export function TodaysBusinessOverview() {
                 <StatCard
                   label="Pending Settlement (today)"
                   value={formatINR(data.summary.pendingAmount)}
+                  countTo={data.summary.pendingAmount}
+                  prefix="₹"
                   icon={Clock}
                   accent="accent"
                   href={links.pending}
@@ -192,13 +223,15 @@ export function TodaysBusinessOverview() {
                 <StatCard
                   label="Commission / Revenue"
                   value={formatINR(data.summary.commissionRevenue)}
+                  countTo={data.summary.commissionRevenue}
+                  prefix="₹"
                   icon={CircleDollarSign}
                   accent="violet"
                   href={links.revenue}
                 />
                 <GrowthCard summary={data.summary} href={links.growth} />
               </div>
-            </>
+            </div>
           );
         })()
       ) : null}
@@ -240,21 +273,55 @@ function AmountBreakdown({ data, onDark = false }: { data: ServiceToday; onDark?
   );
 }
 
-function StatusPills({ data }: { data: ServiceToday }) {
+/**
+ * A single stacked bar (success / pending / failed) plus a compact one-line
+ * legend. This replaces the three wrapping pills that made narrow cards feel
+ * cramped: the bar communicates the mix at a glance and never wraps.
+ */
+function StatusBar({ data, onDark = false }: { data: ServiceToday; onDark?: boolean }) {
+  const total = data.success + data.pending + data.failed;
+  const pct = (n: number) => (total > 0 ? (n / total) * 100 : 0);
+
+  const track = onDark ? "bg-white/20" : "bg-ink-100";
+  const successBar = onDark ? "bg-white" : "bg-emerald-500";
+  const pendingBar = onDark ? "bg-white/70" : "bg-amber-400";
+  const failedBar = onDark ? "bg-white/40" : "bg-rose-500";
+
+  const dot = (cls: string) => (
+    <span className={cn("h-1.5 w-1.5 rounded-full", cls)} aria-hidden />
+  );
+
+  const numCls = onDark ? "text-white" : "text-ink-800";
+  const labelCls = onDark ? "text-white/70" : "text-ink-500";
+
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-1.5">
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-        <CheckCircle2 className="h-3 w-3" />
-        {formatNumber(data.success)} Success
-      </span>
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-        <Hourglass className="h-3 w-3" />
-        {formatNumber(data.pending)} Pending
-      </span>
-      <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
-        <XCircle className="h-3 w-3" />
-        {formatNumber(data.failed)} Failed
-      </span>
+    <div className="mt-3.5">
+      <div className={cn("flex h-1.5 w-full overflow-hidden rounded-full", track)}>
+        {total > 0 && (
+          <>
+            <span className={cn("h-full transition-all", successBar)} style={{ width: `${pct(data.success)}%` }} />
+            <span className={cn("h-full transition-all", pendingBar)} style={{ width: `${pct(data.pending)}%` }} />
+            <span className={cn("h-full transition-all", failedBar)} style={{ width: `${pct(data.failed)}%` }} />
+          </>
+        )}
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-1.5 text-[11px] font-semibold">
+        <span className="inline-flex items-center gap-1">
+          {dot(onDark ? "bg-white" : "bg-emerald-500")}
+          <span className={numCls}>{formatNumber(data.success)}</span>
+          <span className={labelCls}>Success</span>
+        </span>
+        <span className="inline-flex items-center gap-1">
+          {dot(onDark ? "bg-white/70" : "bg-amber-400")}
+          <span className={numCls}>{formatNumber(data.pending)}</span>
+          <span className={labelCls}>Pending</span>
+        </span>
+        <span className="inline-flex items-center gap-1">
+          {dot(onDark ? "bg-white/40" : "bg-rose-500")}
+          <span className={numCls}>{formatNumber(data.failed)}</span>
+          <span className={labelCls}>Failed</span>
+        </span>
+      </div>
     </div>
   );
 }
@@ -275,29 +342,39 @@ function ServiceBusinessCard({
   return (
     <Link
       href={href}
-      className="group block rounded-2xl border border-ink-100 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+      className="group relative block overflow-hidden rounded-2xl border border-ink-100 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
     >
-      <div className="flex items-start justify-between">
+      <div
+        className={cn(
+          "pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100",
+          glows[accent]
+        )}
+        aria-hidden
+      />
+      <div className="relative flex items-start justify-between">
         <span
           className={cn(
-            "grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br text-white shadow-soft",
+            "grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br text-white shadow-soft transition-transform duration-200 group-hover:scale-105",
             accents[accent]
           )}
         >
-          <Icon className="h-[18px] w-[18px]" />
+          <Icon className="h-5 w-5" />
         </span>
-        <span className="rounded-full bg-ink-50 px-2 py-0.5 text-[11px] font-semibold text-ink-600">
+        <span className="inline-flex items-center gap-1 rounded-full bg-ink-50 px-2.5 py-1 text-[11px] font-semibold text-ink-600">
           {formatNumber(data.count)} Txn
         </span>
       </div>
-      <p className="mt-3 text-[11px] font-semibold uppercase tracking-widest text-ink-500">
+      <p className="relative mt-4 text-[11px] font-semibold uppercase tracking-widest text-ink-500">
         {label}
       </p>
-      <p className="mt-0.5 font-display text-xl font-bold text-ink-900">
-        {formatINR(data.amount)}
+      <p className="relative mt-1 font-display text-2xl font-bold text-ink-900">
+        <CountUp value={data.amount} prefix="₹" duration={1.1} />
       </p>
-      <StatusPills data={data} />
+      <StatusBar data={data} />
       <AmountBreakdown data={data} />
+      <span className="pointer-events-none absolute bottom-4 right-4 text-ink-300 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 -translate-x-1">
+        <ArrowUpRight className="h-4 w-4" />
+      </span>
     </Link>
   );
 }
@@ -306,35 +383,25 @@ function TotalBusinessCard({ data, href }: { data: ServiceToday; href: string })
   return (
     <Link
       href={href}
-      className="group relative block overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 via-brand-600 to-accent-500 p-4 text-white shadow-glow transition-all hover:-translate-y-0.5 hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+      className="group relative block overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 via-brand-600 to-accent-500 p-5 text-white shadow-glow transition-all duration-200 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
     >
-      <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
-      <div className="flex items-start justify-between">
-        <span className="grid h-10 w-10 place-items-center rounded-xl bg-white/15">
-          <IndianRupee className="h-[18px] w-[18px]" />
+      <div className="pointer-events-none absolute -right-10 -top-10 h-36 w-36 rounded-full bg-white/10 blur-2xl transition-transform duration-500 group-hover:scale-125" />
+      <div className="pointer-events-none absolute -bottom-12 -left-8 h-32 w-32 rounded-full bg-accent-400/20 blur-2xl" />
+      <div className="relative flex items-start justify-between">
+        <span className="grid h-11 w-11 place-items-center rounded-xl bg-white/15 shadow-soft ring-1 ring-inset ring-white/20 backdrop-blur-sm transition-transform duration-200 group-hover:scale-105">
+          <IndianRupee className="h-5 w-5" />
         </span>
-        <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold">
+        <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ring-white/20">
           {formatNumber(data.count)} Txn
         </span>
       </div>
-      <p className="mt-3 text-[11px] font-semibold uppercase tracking-widest text-white/80">
+      <p className="relative mt-4 text-[11px] font-semibold uppercase tracking-widest text-white/80">
         Total Business Today
       </p>
-      <p className="mt-0.5 font-display text-xl font-bold">{formatINR(data.amount)}</p>
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold text-white">
-          <CheckCircle2 className="h-3 w-3" />
-          {formatNumber(data.success)} Success
-        </span>
-        <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold text-white">
-          <Hourglass className="h-3 w-3" />
-          {formatNumber(data.pending)} Pending
-        </span>
-        <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold text-white">
-          <XCircle className="h-3 w-3" />
-          {formatNumber(data.failed)} Failed
-        </span>
-      </div>
+      <p className="relative mt-1 font-display text-2xl font-bold">
+        <CountUp value={data.amount} prefix="₹" duration={1.1} />
+      </p>
+      <StatusBar data={data} onDark />
       <AmountBreakdown data={data} onDark />
     </Link>
   );
@@ -372,9 +439,16 @@ function GrowthCard({
   return (
     <Link
       href={href}
-      className="group block rounded-2xl border border-ink-100 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+      className="group relative block overflow-hidden rounded-2xl border border-ink-100 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
     >
-      <div className="flex items-start justify-between">
+      <div
+        className={cn(
+          "pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100",
+          glows[accent]
+        )}
+        aria-hidden
+      />
+      <div className="relative flex items-start justify-between">
         <span
           className={cn(
             "grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br text-white shadow-soft",
@@ -385,18 +459,25 @@ function GrowthCard({
         </span>
         <span
           className={cn(
-            "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold",
+            "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-semibold",
             positive ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
           )}
         >
           vs yesterday
         </span>
       </div>
-      <p className="mt-3 text-[11px] font-semibold uppercase tracking-widest text-ink-500">
+      <p className="relative mt-3 text-[11px] font-semibold uppercase tracking-widest text-ink-500">
         Yesterday vs Today Growth
       </p>
-      <p className="mt-0.5 font-display text-xl font-bold text-ink-900">{display}</p>
-      <p className="mt-1 text-[11px] text-ink-500">
+      <p
+        className={cn(
+          "relative mt-0.5 font-display text-xl font-bold",
+          positive ? "text-emerald-600" : "text-rose-600"
+        )}
+      >
+        {display}
+      </p>
+      <p className="relative mt-1 text-[11px] text-ink-500">
         Yesterday: {formatINR(summary.yesterdayTotal)}
       </p>
     </Link>

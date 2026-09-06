@@ -23,8 +23,9 @@ const Body = z.object({
   amount: z.number().positive().max(500000),
   idempotencyKey: z.string().min(8),
   // Product the payment was initiated from (ServiceRoute key). Prices the txn
-  // per product (Bharat BillPay vs Unified/BulkPe) even when the actual partner
-  // is category-routed. Falls back to the partner family when absent/unknown.
+  // per product (Bharat BillPay vs Unified Bill Payment Platform) even when the
+  // actual partner is category-routed. Falls back to the partner family when
+  // absent/unknown.
   route: z.string().trim().min(1).max(60).optional(),
   // Display-only snapshots captured from the bill-fetch step so the payment
   // record (and the Bill Payment Report) carries the human customer / biller
@@ -76,9 +77,10 @@ export async function POST(req: Request) {
     // sets the charge (fee). BBPS does not earn commission.
     const service = SERVICE[parsed.data.category];
     // Per-product pricing scope: the product route key (e.g. "bbps_sameday" vs
-    // "bbps_bulkpe_svc") is the slab/rate-card scope. Falls back to the partner
-    // family tag for the rate lookup when the client sends no (or an unknown)
-    // route; only a real product scope is snapshotted for per-product revenue.
+    // "bbps_bulkpe_svc") is the slab/rate-card scope. These keys are retained
+    // for backward compatibility with existing scheme slabs. Falls back to the
+    // partner family tag for the rate lookup when the client sends no (or an
+    // unknown) route; only a real product scope is snapshotted for revenue.
     const productScope = isBbpsPriceScope(parsed.data.route) ? parsed.data.route : null;
     const rate = await getEffectiveRate(user.id, service, parsed.data.amount, productScope ?? bbps.name);
     // Split the customer charge into base + GST so revenue math excludes the

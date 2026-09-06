@@ -76,7 +76,7 @@ export function ProviderWalletsCard({
   const money = (n: number | null | undefined) =>
     masked ? "₹ ●●●●●" : formatINRFull(n ?? 0);
 
-  const visibleProviders = (providers ?? []).filter((p) => p.key !== "bulkpe");
+  const visibleProviders = providers ?? [];
 
   const totalAvailable = visibleProviders.reduce(
     (a, p) => a + (typeof p.balance === "number" ? p.balance : 0),

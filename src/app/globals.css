@@ -112,6 +112,42 @@ button {
   }
 }
 
+/*
+ * Entrance animations — CSS driven.
+ *
+ * These run on the browser's first paint from the server-rendered HTML, WITHOUT
+ * waiting for React/framer-motion to hydrate. That guarantees page content is
+ * visible (and animating in) within one animation cycle even on slow devices /
+ * large JS bundles — instead of sitting blank until the JS finishes loading,
+ * which is what happens when the hidden `opacity:0` state is serialized by a JS
+ * motion library and only revealed on hydration.
+ *
+ * `animation-fill-mode: both` holds the `from` (hidden) state during any delay
+ * and the `to` (visible) state after, so staggered children reveal in sequence
+ * and everything ends fully visible.
+ */
+@keyframes pbx-reveal {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--reveal-x, 0px), var(--reveal-y, 12px), 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes pbx-page-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 @layer components {
   .container-x {
     @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
@@ -307,5 +343,17 @@ button {
   }
   .hover-lift:hover {
     transform: translateY(-3px);
+  }
+
+  /* Entrance animation utilities (see @keyframes above). Consumed by the
+     Reveal / Stagger / PageTransition components. Values are tuned per-instance
+     through CSS custom properties so a single class covers every direction,
+     distance, delay and duration. */
+  .pbx-reveal {
+    animation: pbx-reveal var(--reveal-duration, 0.5s) var(--ease-out-quart)
+      var(--reveal-delay, 0s) both;
+  }
+  .pbx-page-enter {
+    animation: pbx-page-enter 0.4s var(--ease-out-quart) both;
   }
 }

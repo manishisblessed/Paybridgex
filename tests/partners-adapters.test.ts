@@ -4,13 +4,6 @@ import { samedaySign, samedayAuthHeaders } from "@/lib/partners/sameday-core";
 import { mapPay2NewBill, mapPay2NewStatus } from "@/lib/partners/sameday-bbps";
 import { mapSettlementStatus, type SettlementAccount, type VerificationStatus } from "@/lib/partners/sameday-settlement";
 import { mapSettlementToPayoutStatus } from "@/lib/partners/sameday-payout";
-import { mapPgStatus } from "@/lib/partners/bulkpe";
-import {
-  buildCustParams,
-  mapBulkpeBbpsStatus,
-  mapBulkpeBill,
-  normalizeBulkpeBiller,
-} from "@/lib/partners/bulkpe-bbps";
 import { deriveEsignStatus } from "@/lib/partners/leegality";
 
 /**
@@ -176,123 +169,6 @@ describe("Same Day settlement → payout status mapping", () => {
     expect(mapSettlementToPayoutStatus("SUCCESS")).toBe("PAID");
     expect(mapSettlementToPayoutStatus("FAILED")).toBe("FAILED");
     expect(mapSettlementToPayoutStatus("PENDING")).toBe("PROCESSING");
-  });
-});
-
-describe("BulkPe Simple PG status mapping", () => {
-  it("maps paid variants to PAID", () => {
-    expect(mapPgStatus("SUCCESS")).toBe("PAID");
-    expect(mapPgStatus("paid")).toBe("PAID");
-    expect(mapPgStatus("COMPLETED")).toBe("PAID");
-  });
-  it("maps failure variants to FAILED and expiry to EXPIRED", () => {
-    expect(mapPgStatus("FAILED")).toBe("FAILED");
-    expect(mapPgStatus("CANCELLED")).toBe("FAILED");
-    expect(mapPgStatus("EXPIRED")).toBe("EXPIRED");
-  });
-  it("treats pending/unknown as CREATED (non-terminal — never credit on it)", () => {
-    expect(mapPgStatus("PENDING")).toBe("CREATED");
-    expect(mapPgStatus("INITIATED")).toBe("CREATED");
-    expect(mapPgStatus(undefined)).toBe("CREATED");
-  });
-});
-
-describe("BulkPe BBPS mapping", () => {
-  it("un-swaps selectBiller's billerId/billerName fields", () => {
-    // Documented response has the BBPS code under `billerName`.
-    const b = normalizeBulkpeBiller(
-      {
-        category: "DTH",
-        billerId: "Airtel DTH",
-        billerName: "AIRT00000NAT87",
-        customerparams: [{ paramName: "Customer Id", dataType: "NUMERIC", optional: false }],
-      },
-      "BROADBAND"
-    );
-    expect(b.code).toBe("AIRT00000NAT87");
-    expect(b.name).toBe("Airtel DTH");
-    expect(b.params).toEqual([{ name: "Customer Id", dataType: "NUMERIC", optional: false }]);
-  });
-
-  it("keeps the fields as-is when billerId already holds the code", () => {
-    const b = normalizeBulkpeBiller(
-      { billerId: "ICIC00000NATSI", billerName: "ICICI Credit card" },
-      "CREDIT_CARD"
-    );
-    expect(b.code).toBe("ICIC00000NATSI");
-    expect(b.name).toBe("ICICI Credit card");
-  });
-
-  it("maps the documented FetchBillSingle response", () => {
-    const bill = mapBulkpeBill({
-      fetchId: "REF00014",
-      reference: "test09",
-      billerId: "ICIC00000NATSI",
-      category: "Credit Card",
-      minAmount: 100,
-      amount: "99999",
-      status: "SUCCESS",
-      billDetails: {
-        customerName: "Steve Jobs",
-        amount: "99999",
-        dueDate: "2024-11-15",
-        billDate: "2024-10-28",
-        billNumber: null,
-      },
-      additionalData: {
-        tag: [
-          { name: "Minimum Amount Due", value: "7810.00" },
-          { name: "Current Outstanding Amount", value: "77798.63" },
-        ],
-      },
-    });
-    expect(bill).toEqual({
-      customerName: "Steve Jobs",
-      amount: 99999,
-      dueDate: "2024-11-15",
-      billDate: "2024-10-28",
-      billNumber: undefined,
-      minAmount: 100,
-      billFetchRef: "REF00014",
-    });
-  });
-
-  it("falls back to the Minimum Amount Due tag when minAmount is absent", () => {
-    const bill = mapBulkpeBill({
-      fetchId: "REF1",
-      amount: "500",
-      additionalData: { tag: [{ name: "Minimum Amount Due", value: "50.00" }] },
-    });
-    expect(bill.amount).toBe(500);
-    expect(bill.minAmount).toBe(50);
-  });
-
-  it("maps payment statuses, defaulting unknowns to PENDING", () => {
-    expect(mapBulkpeBbpsStatus("SUCCESS")).toBe("SUCCESS");
-    expect(mapBulkpeBbpsStatus("failed")).toBe("FAILED");
-    expect(mapBulkpeBbpsStatus("REVERSED")).toBe("REFUNDED");
-    expect(mapBulkpeBbpsStatus("PENDING")).toBe("PENDING");
-    expect(mapBulkpeBbpsStatus("SOMETHING_NEW")).toBe("PENDING");
-    expect(mapBulkpeBbpsStatus(undefined)).toBe("PENDING");
-  });
-
-  it("builds custParam from generic keys, translating known CC aliases", () => {
-    expect(
-      buildCustParams({
-        cardLast4: "1007",
-        mobile: "9999922222",
-        billFetchRef: "REF00014", // reserved — never sent to the biller
-      })
-    ).toEqual([
-      { name: "Last 4 digits of Credit Card Number", value: "1007" },
-      { name: "Registered Mobile Number", value: "9999922222" },
-    ]);
-  });
-
-  it("passes unknown biller param names straight through and drops empties", () => {
-    expect(buildCustParams({ "Consumer ID": "200123456789", udf: "" })).toEqual([
-      { name: "Consumer ID", value: "200123456789" },
-    ]);
   });
 });
 

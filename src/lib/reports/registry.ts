@@ -201,7 +201,7 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
     type: "payout",
     title: "Payout Report",
     short: "Payout",
-    description: "Bank / UPI disbursals via BulkPe with service charge, GST and settlement UTR.",
+    description: "Bank / UPI disbursals with service charge, GST and settlement UTR.",
     icon: Landmark,
     accent: "accent",
     columns: [

@@ -410,7 +410,7 @@ async function reportPg(user: SessionUser, params: ReportParams): Promise<Report
 }
 
 /* --------------------------------------------------------------------- */
-/*  4 · Payout (BulkPe disbursals)                                        */
+/*  4 · Payout (bank / UPI disbursals)                                    */
 /* --------------------------------------------------------------------- */
 
 async function reportPayout(user: SessionUser, params: ReportParams): Promise<ReportResult> {

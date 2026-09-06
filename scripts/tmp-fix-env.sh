@@ -8,8 +8,8 @@ sed -i 's|^NEXTAUTH_URL=.*|NEXTAUTH_URL="https://paybridgex.in"|' "$F"
 sed -i 's|^NEXT_PUBLIC_APP_URL=.*|NEXT_PUBLIC_APP_URL="https://paybridgex.in"|' "$F"
 # NODE_ENV is managed by PM2/Next.js; a value here triggers a Next.js warning.
 sed -i '/^NODE_ENV=/d' "$F"
-# Payout cannot go live without BULKPE_TOKEN — fail closed.
-if ! grep -qE '^[[:space:]]*BULKPE_TOKEN=.+' "$F"; then
+# Payout cannot go live without a Same Day settlement/POS key — fail closed.
+if ! grep -qE '^[[:space:]]*(SAMEDAY_SETTLEMENT_API_KEY|SAMEDAY_POS_API_KEY)=.+' "$F"; then
   sed -i 's|^PARTNER_PAYOUT_ENABLED=.*|PARTNER_PAYOUT_ENABLED="false"|' "$F"
 fi
 # Point KYC video tooling at the system ffmpeg we just installed.

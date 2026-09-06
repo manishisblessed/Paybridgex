@@ -43,7 +43,7 @@ export type PgCaptureInput = {
   /** UPI | CARD | NETBANKING | WALLET. Defaults to UPI. */
   paymentMode?: string;
   /**
-   * Rail scopeKey the acquirer cost is priced against (e.g. RAZORPAY / BULKPE).
+   * Rail scopeKey the acquirer cost is priced against (e.g. RAZORPAY).
    * Defaults to the enabled PG ServiceRoute provider.
    */
   provider?: string | null;

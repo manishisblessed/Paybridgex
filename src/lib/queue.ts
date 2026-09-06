@@ -3,7 +3,7 @@ import PgBoss from "pg-boss";
 /**
  * Async job queue (pg-boss, backed by Postgres — no extra infra on the EC2 box).
  *
- * Why a queue: payment "hits" (BulkPe payout, BBPS, etc.) must NOT be processed
+ * Why a queue: payment "hits" (payout, BBPS, etc.) must NOT be processed
  * synchronously inside the HTTP request. The API enqueues a job and returns fast;
  * a separate worker process (PM2) drains the queue, calls the provider (from the
  * IP-whitelisted box), and finalizes via webhook/poll. This is what lets us
@@ -69,7 +69,7 @@ export const QUEUES = {
   // T+1 settlement hour. See src/lib/settlement/pos-ingest.ts.
   POS_INGEST: "pos.ingest",
   // BBPS bill payment reconciliation — polls PROCESSING BBPS transactions
-  // and settles them. BulkPe BBPS has no webhooks, so this sweep is the
+  // and settles them. The BBPS rail has no webhooks, so this sweep is the
   // only way to finalize PENDING payments. Runs every 5 minutes.
   BBPS_RECONCILE: "bbps.reconcile",
   // QR collection T+1 settlement — sweeps approved (SETTLEABLE) claims the

@@ -1277,7 +1277,7 @@ model RateLimit {
 }
 
 // =====================================================================
-// Payouts (BulkPe) — bank/UPI disbursals with maker-checker + ledger holds
+// Payouts — bank/UPI disbursals with maker-checker + ledger holds
 // =====================================================================
 
 enum PayoutMode {
@@ -1291,11 +1291,11 @@ enum PayoutStatus {
   DRAFT // created but not submitted (reserved for future bulk uploads)
   PENDING_APPROVAL // submitted by maker, funds held, awaiting checker
   APPROVED // checker approved, queued for the worker
-  PROCESSING // sent to BulkPe, awaiting terminal state (webhook/poll)
-  SUCCESS // settled at BulkPe; hold captured into a real DEBIT
-  FAILED // BulkPe declined / failed; hold released back to spendable
+  PROCESSING // sent to the payout rail, awaiting terminal state (poll)
+  SUCCESS // settled at the rail; hold captured into a real DEBIT
+  FAILED // rail declined / failed; hold released back to spendable
   REJECTED // checker rejected before initiation; hold released
-  REVERSED // settled then reversed by bank/BulkPe; funds returned
+  REVERSED // settled then reversed by bank/rail; funds returned
 }
 
 /// A single disbursal to a beneficiary. The user pays
@@ -1335,11 +1335,12 @@ model PayoutRequest {
   checkerId String? // who approved/rejected
   remarks   String? // checker remarks on approve/reject
 
-  // Provider (BulkPe) correlation
-  bulkpeReferenceId String  @unique // our idempotency reference_id sent to BulkPe
-  bulkpeTxnId       String? // BulkPe's transaction id
-  utr               String? // bank UTR on success
-  failureReason     String?
+  // Provider correlation. Column names are retained (@map) to avoid a data
+  // migration; the fields are provider-neutral (payout rail = Same Day / RazorpayX).
+  providerReferenceId String  @unique @map("bulkpeReferenceId") // our idempotency reference_id sent to the rail
+  providerTxnId       String? @map("bulkpeTxnId") // the rail's transaction id
+  utr                 String? // bank UTR on success
+  failureReason       String?
 
   // Raw provider payloads for audit / reconciliation (never contains secrets).
   request  Json?
@@ -1348,7 +1349,7 @@ model PayoutRequest {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   approvedAt  DateTime?
-  processedAt DateTime? // when handed to BulkPe
+  processedAt DateTime? // when handed to the payout rail
   completedAt DateTime? // terminal (success/failed/reversed)
 
   @@index([userId, status])

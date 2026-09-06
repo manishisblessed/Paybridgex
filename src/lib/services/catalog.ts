@@ -152,7 +152,7 @@ export const KNOWN_SERVICE_ROUTES: ServiceRouteSeed[] = [
     kind: "PG",
     provider: "BULKPE",
     enabled: true,
-    note: "Hosted checkout / UPI collections (BulkPe Simple PG) — powers instant wallet top-ups.",
+    note: "Hosted checkout / UPI collections — powers instant wallet top-ups.",
     sortOrder: 20,
   },
   {
@@ -252,7 +252,7 @@ export const KNOWN_SERVICE_ROUTES: ServiceRouteSeed[] = [
     kind: "BBPS",
     provider: "BULKPE",
     enabled: false,
-    note: "Unified Bill Payment Platform (electricity, water, gas, and all non-credit-card categories). Enable once BulkPe IP whitelist is active.",
+    note: "Unified Bill Payment Platform (electricity, water, gas, and all non-credit-card categories) via the Same Day Bharat BillPay rail.",
     sortOrder: 92,
   },
   {

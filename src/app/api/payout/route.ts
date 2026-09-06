@@ -258,7 +258,7 @@ export async function POST(req: Request) {
       { key: idemKey, scope: "payout.create", userId: user.id },
       async () => {
         const accountLast4 = accountNumber.slice(-4);
-        const bulkpeReferenceId = `PO${nanoid(18).toUpperCase()}`;
+        const providerReferenceId = `PO${nanoid(18).toUpperCase()}`;
 
         // A payout always debits the requester's OWN held wallet balance —
         // it is their own money, so no second-party approval is required.
@@ -283,7 +283,7 @@ export async function POST(req: Request) {
               totalDebit: quote.totalDebit,
               vendorCharge: quote.vendorCharge,
               status: autoApprove ? "APPROVED" : "PENDING_APPROVAL",
-              bulkpeReferenceId,
+              providerReferenceId,
               ...(autoApprove ? { approvedAt: new Date() } : {}),
             },
           });

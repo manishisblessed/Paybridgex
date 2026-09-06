@@ -74,8 +74,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       utr: row.utr,
       failureReason: row.failureReason,
       remarks: row.remarks,
-      bulkpeReferenceId: row.bulkpeReferenceId,
-      bulkpeTxnId: row.bulkpeTxnId,
+      providerReferenceId: row.providerReferenceId,
+      providerTxnId: row.providerTxnId,
       makerId: row.makerId,
       checker,
       createdAt: row.createdAt.toISOString(),
@@ -145,7 +145,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 
   // Onboarding liveness + monthly Re-KYC gates — block a network-tier checker
-  // from releasing money (approval queues the BulkPe disbursal) until both pass.
+  // from releasing money (approval queues the disbursal) until both pass.
   if (parsed.data.action === "approve") {
     try {
       await assertLivenessReady(user);
@@ -214,7 +214,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     },
   });
 
-  // Hand off to the PM2 worker; it calls BulkPe from the IP-whitelisted box.
+  // Hand off to the PM2 worker; it calls the payout rail from the IP-whitelisted box.
   await enqueuePayoutInitiate(params.id);
 
   return NextResponse.json({ status: "APPROVED" });

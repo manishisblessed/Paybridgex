@@ -40,7 +40,7 @@ async function main() {
       mode: true,
       amount: true,
       serviceCharge: true,
-      bulkpeTxnId: true,
+      providerTxnId: true,
       completedAt: true,
     },
   });
@@ -58,7 +58,7 @@ async function main() {
       skipped++;
       continue;
     }
-    const provider = PAYOUT_MODE_PROVIDER[po.mode] ?? "BULKPE";
+    const provider = PAYOUT_MODE_PROVIDER[po.mode] ?? "SAMEDAY";
     const refId = `PYC${po.id.slice(-10).toUpperCase()}`;
 
     // Does a synthetic txn already exist, and does it already have credits?
@@ -97,7 +97,7 @@ async function main() {
           fee: po.serviceCharge,
           status: "SUCCESS",
           partner: provider,
-          partnerTxnId: po.bulkpeTxnId ?? po.id,
+          partnerTxnId: po.providerTxnId ?? po.id,
           createdAt: po.completedAt ?? undefined,
         },
       });

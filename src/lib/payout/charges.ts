@@ -22,14 +22,14 @@ export const GST_PERCENT = 18;
 /**
  * Route family that actually disburses each payout mode, used to resolve the
  * provider-scoped scheme slab (bank rails go via Same Day settlement, UPI via
- * BulkPe). Mirrors resolvePayout() in partners/index.ts. Matched loosely by
+ * RazorpayX). Mirrors resolvePayout() in partners/index.ts. Matched loosely by
  * normalizeProviderTag, so a slab pinned to "SAMEDAY" resolves here.
  */
 export const PAYOUT_MODE_PROVIDER: Record<PayoutMode, string> = {
   IMPS: "SAMEDAY",
   NEFT: "SAMEDAY",
   RTGS: "SAMEDAY",
-  UPI: "BULKPE",
+  UPI: "RAZORPAY",
 };
 
 type Slab = { upTo: number | null; charge: number };

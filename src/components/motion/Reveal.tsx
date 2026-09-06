@@ -1,16 +1,9 @@
-"use client";
-
-import {
-  motion,
-  useReducedMotion,
-  type HTMLMotionProps,
-  type Variants
-} from "framer-motion";
 import * as React from "react";
+import { cn } from "@/lib/utils";
 
 type Direction = "up" | "down" | "left" | "right" | "none";
 
-type RevealProps = Omit<HTMLMotionProps<"div">, "variants" | "children"> & {
+type RevealProps = Omit<React.HTMLAttributes<HTMLElement>, "children"> & {
   children?: React.ReactNode;
   /** Direction the element travels from. Default "up". */
   direction?: Direction;
@@ -20,15 +13,13 @@ type RevealProps = Omit<HTMLMotionProps<"div">, "variants" | "children"> & {
   delay?: number;
   /** Duration in seconds. Default 0.6. */
   duration?: number;
-  /** Trigger only once when entering view. Default true. */
+  /** @deprecated Kept for API compatibility — animation now runs once on mount. */
   once?: boolean;
-  /** IntersectionObserver amount in [0,1]. Default 0.2. */
+  /** @deprecated Kept for API compatibility — no longer viewport-gated. */
   amount?: number;
-  /** Render as a specific element. Default div. */
-  as?: keyof typeof motion;
+  /** Render as a specific element. Default "div". */
+  as?: keyof React.JSX.IntrinsicElements;
 };
-
-const easeOut = [0.22, 1, 0.36, 1] as const;
 
 function offset(direction: Direction, distance: number) {
   switch (direction) {
@@ -45,45 +36,49 @@ function offset(direction: Direction, distance: number) {
   }
 }
 
+/**
+ * Reveals its children with a fade + slide on mount.
+ *
+ * Implemented with a CSS animation (`.pbx-reveal`) rather than a JS motion
+ * library so the reveal runs on the browser's first paint from server-rendered
+ * HTML — content is never left invisible waiting for the page bundle to
+ * hydrate. See `globals.css` for the keyframes.
+ */
 export function Reveal({
   children,
   direction = "up",
   distance = 28,
   delay = 0,
   duration = 0.6,
-  once = true,
-  amount = 0.2,
+  // once / amount are accepted for backwards compatibility but no longer used:
+  // the animation is a one-shot mount reveal, not viewport-gated.
+  once,
+  amount,
   as = "div",
+  className,
+  style,
   ...rest
 }: RevealProps) {
-  const reduce = useReducedMotion();
-  const MotionTag = motion[as] as typeof motion.div;
-
-  const off = reduce ? { x: 0, y: 0 } : offset(direction, distance);
-
-  const variants: Variants = {
-    hidden: { opacity: 0, ...off },
-    show: {
-      opacity: 1,
-      x: 0,
-      y: 0,
-      transition: {
-        delay,
-        duration: reduce ? 0 : duration,
-        ease: easeOut
-      }
-    }
-  };
+  void once;
+  void amount;
+  const Tag = as as React.ElementType;
+  const off = offset(direction, distance);
 
   return (
-    <MotionTag
-      initial="hidden"
-      whileInView="show"
-      viewport={{ once, amount }}
-      variants={variants}
+    <Tag
+      className={cn("pbx-reveal", className)}
+      style={
+        {
+          "--reveal-x": `${off.x}px`,
+          "--reveal-y": `${off.y}px`,
+          "--reveal-delay": `${delay}s`,
+          "--reveal-duration": `${duration}s`,
+          ...style,
+        } as React.CSSProperties
+      }
       {...rest}
     >
       {children}
-    </MotionTag>
+    </Tag>
   );
 }

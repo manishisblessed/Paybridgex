@@ -2,9 +2,10 @@ import { SERVICE_KEYS } from "./catalog";
 
 /**
  * Resolve a BBPS bill category to the granular service key that gates it.
- * CREDIT_CARD routes through Same Day (BBPS-1 / Credit Card tab); everything
- * else routes through BulkPe (BBPS-2). Returns null for unknown categories so
- * the caller still sees the master BBPS gate.
+ * CREDIT_CARD routes through the Credit Card tab; every other category routes
+ * through the Unified Bill Payment Platform (BBPS-2). Both are served by the
+ * Same Day Bharat BillPay rail. Returns null for unknown categories so the
+ * caller still sees the master BBPS gate.
  */
 export function bbpsServiceKey(category: string | null | undefined): string | null {
   switch ((category || "").toUpperCase()) {

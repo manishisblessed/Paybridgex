@@ -56,29 +56,6 @@ async function probe() {
   const base = process.env.SAMEDAY_POS_BASE_URL || "https://api.samedaysolution.in";
   const results = [];
 
-  // 1) BulkPe fetchBalance
-  {
-    const name = "BulkPe fetchBalance";
-    if (!present("BULKPE_TOKEN")) {
-      results.push({ name, ok: false, detail: "BULKPE_TOKEN missing" });
-    } else {
-      try {
-        const res = await fetch("https://api.bulkpe.in/client/fetchBalance", {
-          headers: { authorization: `Bearer ${process.env.BULKPE_TOKEN}` },
-        });
-        const json = await res.json().catch(() => ({}));
-        const ok = res.ok && json.status !== false;
-        results.push({
-          name,
-          ok,
-          detail: `HTTP ${res.status} status=${json.status} msg=${json.message || ""}`.trim(),
-        });
-      } catch (e) {
-        results.push({ name, ok: false, detail: e.message });
-      }
-    }
-  }
-
   // 2) Same Day POS health (public)
   {
     const name = "SameDay POS /pos-health";
@@ -207,35 +184,6 @@ async function probe() {
           name,
           ok,
           detail: `HTTP ${res.status} status=${json.status} msg=${json.message || ""} balance=${json.balance ?? "n/a"}`.trim(),
-        });
-      } catch (e) {
-        results.push({ name, ok: false, detail: e.message });
-      }
-    }
-  }
-
-  // 8) BulkPe BBPS listBillCategory
-  {
-    const name = "BulkPe BBPS listBillCategory";
-    if (!present("BULKPE_TOKEN")) {
-      results.push({ name, ok: false, detail: "BULKPE_TOKEN missing" });
-    } else {
-      try {
-        const res = await fetch("https://api.bulkpe.in/client/bbps/listBillCategory", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${process.env.BULKPE_TOKEN}`,
-          },
-          body: "{}",
-        });
-        const json = await res.json().catch(() => ({}));
-        const ok = res.ok && json.status !== false;
-        const n = Array.isArray(json.data) ? json.data.length : 0;
-        results.push({
-          name,
-          ok,
-          detail: `HTTP ${res.status} status=${json.status} categories=${n} msg=${json.message || ""}`.trim(),
         });
       } catch (e) {
         results.push({ name, ok: false, detail: e.message });

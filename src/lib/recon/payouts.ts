@@ -92,11 +92,11 @@ export async function runDailyPayoutReconciliation(): Promise<PayoutReconSummary
     where: {
       status: { in: ["SUCCESS", "FAILED"] },
       completedAt: { gte: new Date(now - 48 * 3_600_000) },
-      bulkpeTxnId: { not: null },
+      providerTxnId: { not: null },
     },
     orderBy: { completedAt: "desc" },
     take: 500,
-    select: { id: true, status: true, bulkpeTxnId: true, bulkpeReferenceId: true, userId: true },
+    select: { id: true, status: true, providerTxnId: true, providerReferenceId: true, userId: true },
   });
 
   let verified = 0;
@@ -104,7 +104,7 @@ export async function runDailyPayoutReconciliation(): Promise<PayoutReconSummary
   for (const row of recentTerminal) {
     let providerStatus: "PROCESSING" | "PAID" | "FAILED" | null = null;
     try {
-      const res = await provider.status(row.bulkpeTxnId || row.bulkpeReferenceId);
+      const res = await provider.status(row.providerTxnId || row.providerReferenceId);
       if (!res.ok) continue; // transient; next run will retry
       providerStatus = res.data.status;
     } catch (err) {

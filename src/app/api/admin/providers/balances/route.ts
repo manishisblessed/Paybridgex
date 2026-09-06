@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireRole, AuthError } from "@/lib/auth-server";
-import { bulkpeConfigured, bulkpePayout } from "@/lib/partners/bulkpe";
 import {
   samedaySettlementConfigured,
   settlementBalance,
@@ -24,24 +23,16 @@ export type ProviderBalance = {
 
 /**
  * GET /api/admin/providers/balances — live float balances at every provider
- * with credentials on file (BulkPe, Same Day settlement wallet, eKYC Hub).
- * Feature flags gate traffic, not visibility — ops still need float even when
- * a rail is temporarily disabled. Each probe is best-effort and timed out so
- * one dead partner never blanks the panel.
+ * with credentials on file (Same Day settlement wallet, eKYC Hub). Feature
+ * flags gate traffic, not visibility — ops still need float even when a rail
+ * is temporarily disabled. Each probe is best-effort and timed out so one dead
+ * partner never blanks the panel.
  */
 export async function GET() {
   try {
     await requireRole("MASTER_ADMIN", "ADMIN", "FINANCE");
 
-    const [bulkpe, sameday, ekychub] = await Promise.all([
-      withTimeout(probeBulkpe(), {
-        key: "bulkpe",
-        name: "BulkPe",
-        provider: "BULKPE",
-        configured: bulkpeConfigured(),
-        balance: null,
-        error: "timed out",
-      }),
+    const [sameday, ekychub] = await Promise.all([
       withTimeout(probeSameday(), {
         key: "sameday_settlement",
         name: "Same Day wallet",
@@ -61,7 +52,7 @@ export async function GET() {
     ]);
 
     return NextResponse.json({
-      providers: [bulkpe, sameday, ekychub],
+      providers: [sameday, ekychub],
       asOf: new Date().toISOString(),
     });
   } catch (e) {
@@ -86,23 +77,6 @@ async function withTimeout(
     ]);
   } finally {
     if (timer) clearTimeout(timer);
-  }
-}
-
-async function probeBulkpe(): Promise<ProviderBalance> {
-  const base: ProviderBalance = {
-    key: "bulkpe",
-    name: "BulkPe",
-    provider: "BULKPE",
-    configured: bulkpeConfigured(),
-    balance: null,
-  };
-  if (!base.configured) return base;
-  try {
-    const r = await bulkpePayout.fetchBalance!();
-    return r.ok ? { ...base, balance: r.data } : { ...base, error: r.message };
-  } catch (e) {
-    return { ...base, error: e instanceof Error ? e.message : "probe failed" };
   }
 }
 

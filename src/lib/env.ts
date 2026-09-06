@@ -36,10 +36,6 @@ const schema = z.object({
   PARTNER_UPI_ENABLED: z.string().default("false"),
   PARTNER_PAYOUT_ENABLED: z.string().default("false"),
   PARTNER_BBPS_ENABLED: z.string().default("false"),
-  // Sub-toggle: hold ONLY the BulkPe BBPS rail (Same Day Pay2New keeps
-  // serving credit-card bills) without touching the BulkPe token, which the
-  // PG top-up and UPI payout rails still need.
-  PARTNER_BBPS_BULKPE_ENABLED: z.string().default("true"),
   PARTNER_RECHARGE_ENABLED: z.string().default("false"),
   PARTNER_TRAVEL_ENABLED: z.string().default("false"),
   PARTNER_PAN_ENABLED: z.string().default("false"),
@@ -118,17 +114,6 @@ const schema = z.object({
   // Absolute path to the ffmpeg/ffprobe binaries on EC2 (apt install ffmpeg).
   FFMPEG_PATH: z.string().default("ffmpeg"),
   FFPROBE_PATH: z.string().default("ffprobe"),
-
-  // BulkPe — Payouts, Simple PG and BBPS bill payments share this one token.
-  // Payouts gate on PARTNER_PAYOUT_ENABLED (flags.payout); BBPS gates on
-  // PARTNER_BBPS_ENABLED (flags.bbps). Needs a static Elastic IP whitelisted
-  // with BulkPe (see docs/PAYOUT.md).
-  BULKPE_BASE_URL: z.string().url().default("https://api.bulkpe.in/client"),
-  BULKPE_TOKEN: z.string().min(1).optional(),
-  // BBPS-scoped token. BulkPe issues a separate token for the BBPS product;
-  // when set it is used for all BBPS calls, otherwise BULKPE_TOKEN is used.
-  BULKPE_BBPS_TOKEN: z.string().min(1).optional(),
-  BULKPE_WEBHOOK_SECRET: z.string().min(1).optional(),
 
   // ---------- Security controls (see SECURITY.md) ----------
   // Cloudflare Turnstile (bot / CAPTCHA). When SECURITY_CAPTCHA_ENABLED="true"
@@ -241,7 +226,6 @@ export const flags = {
   upi: env.PARTNER_UPI_ENABLED === "true",
   payout: env.PARTNER_PAYOUT_ENABLED === "true",
   bbps: env.PARTNER_BBPS_ENABLED === "true",
-  bbpsBulkpe: env.PARTNER_BBPS_ENABLED === "true" && env.PARTNER_BBPS_BULKPE_ENABLED === "true",
   recharge: env.PARTNER_RECHARGE_ENABLED === "true",
   travel: env.PARTNER_TRAVEL_ENABLED === "true",
   pan: env.PARTNER_PAN_ENABLED === "true",
@@ -293,7 +277,6 @@ export function productionSecretIssues(): string[] {
   for (const [key, value] of Object.entries({
     NEXTAUTH_SECRET: env.NEXTAUTH_SECRET,
     APP_ENCRYPTION_KEY: env.APP_ENCRYPTION_KEY,
-    BULKPE_TOKEN: env.BULKPE_TOKEN,
     TURNSTILE_SECRET_KEY: env.TURNSTILE_SECRET_KEY,
     LEEGALITY_AUTH_TOKEN: env.LEEGALITY_AUTH_TOKEN,
   })) {

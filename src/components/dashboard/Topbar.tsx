@@ -12,8 +12,6 @@ import {
   LogOut,
   Activity,
   Landmark,
-  PanelLeftClose,
-  PanelLeftOpen,
   User,
   Settings,
   ChevronDown,
@@ -22,7 +20,7 @@ import { Input } from "@/components/ui/Input";
 import { formatINR } from "@/lib/utils";
 import { toDisplayRole } from "@/lib/auth";
 
-export function Topbar({ onOpenSidebar, collapsed, onToggleCollapse }: { onOpenSidebar: () => void; collapsed?: boolean; onToggleCollapse?: () => void }) {
+export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const router = useRouter();
   const { data: session } = useSession();
   const [open, setOpen] = useState(false);
@@ -132,18 +130,6 @@ export function Topbar({ onOpenSidebar, collapsed, onToggleCollapse }: { onOpenS
           <Menu className="h-5 w-5" />
         </button>
       </div>
-
-      {onToggleCollapse && (
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          className="hidden lg:inline-flex h-9 w-9 items-center justify-center rounded-lg text-ink-500 hover:bg-ink-100 hover:text-ink-700 transition-colors"
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed ? <PanelLeftOpen className="h-4.5 w-4.5" /> : <PanelLeftClose className="h-4.5 w-4.5" />}
-        </button>
-      )}
 
       <div className="hidden flex-1 max-w-md md:block">
         <div className="relative">

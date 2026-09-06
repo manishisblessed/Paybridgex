@@ -78,7 +78,7 @@ Put a managed edge in front of the EC2 origin and never expose Node directly:
   - Turnstile is issued/validated by Cloudflare; siteverify runs server-side.
 - **Nginx** terminates/forwards TLS to `127.0.0.1:3000`; security group allows
   inbound 80/443 only from the edge, and `:3000` only from localhost.
-- Egress to BulkPe is from a **static Elastic IP** (IP-allowlisted) — see
+- Egress to Same Day is from a **static Elastic IP** (IP-allowlisted) — see
   `docs/PAYOUT.md`.
 
 ## Secrets management (operations)
@@ -88,7 +88,7 @@ Put a managed edge in front of the EC2 origin and never expose Node directly:
   AWS keys on the box).
 - `deploy/load-secrets.sh` writes a root-only (`chmod 600`) `.env.production`
   at deploy time. `APP_ENCRYPTION_KEY`, `NEXTAUTH_SECRET`, `JWT_SECRET`,
-  `BULKPE_*` are **never** committed (verified: only `.env.example` is tracked).
+  `SAMEDAY_*` are **never** committed (verified: only `.env.example` is tracked).
 - Rotate `APP_ENCRYPTION_KEY` carefully — it decrypts PII at rest (envelope/
   re-encrypt migration required; do not rotate blindly).
 
@@ -131,7 +131,6 @@ Legend: **Auth** = `requireAuth`/`requireRole` (or public-by-design);
 ### Webhooks (signature-authenticated)
 | Route · method | Auth | Verdict |
 | --- | --- | --- |
-| `/api/payout/webhook` POST | HMAC (BulkPe) verified on raw body | PUBLIC-OK |
 | `/api/webhooks/razorpay` POST | HMAC verified | PUBLIC-OK (verify signature present) |
 
 ### Money-moving / services (require auth; step-up on withdrawals)

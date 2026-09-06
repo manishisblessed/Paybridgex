@@ -1,6 +1,6 @@
 /**
- * Instant wallet top-up via the UPI/PG partner (BulkPe Simple PG, or
- * Razorpay/mock fallback — whatever getPartner("upi") resolves).
+ * Instant wallet top-up via the UPI/PG partner (Razorpay, or mock fallback —
+ * whatever getPartner("upi") resolves).
  *
  * Lifecycle:
  *   initiateTopup  -> Transaction(WALLET_TOPUP, INITIATED) + provider collect

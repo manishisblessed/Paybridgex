@@ -472,7 +472,7 @@ function PayinTab({ money }: { money: (n: number) => string }) {
         <p className="mt-1.5 text-[13px] leading-relaxed text-sky-800">
           Every live acquiring inbound — POS captures, PG collections and QR settlements — is
           counted here in real time, read straight from each rail&rsquo;s source feed so it always
-          matches your operational screens (POS mirrors the POS Fleet volume exactly). Wallet
+          matches your operational screens (POS mirrors the POS Transactions volume exactly). Wallet
           top-ups are excluded (they are agent funds, not company business). It is a monitor only:
           it never moves retailer funds, and each period resets at IST midnight.
         </p>

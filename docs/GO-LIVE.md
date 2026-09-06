@@ -37,9 +37,9 @@ Each rail is dark until its flag is on AND its credentials are set:
 
 | Rail | Env keys | Also required |
 |---|---|---|
-| Payouts (BulkPe) | `BULKPE_TOKEN`, `BULKPE_WEBHOOK_SECRET`, `PARTNER_PAYOUT_ENABLED=true` | Whitelist your server's static IP with BulkPe; register webhook URL `https://<domain>/api/payout/webhook` |
-| Wallet top-up / UPI (BulkPe Simple PG) | same token, `PARTNER_UPI_ENABLED=true` | Register PG webhook `https://<domain>/api/webhooks/bulkpe-pg` |
-| BBPS credit-card bills (Same Day Pay2New) | `SAMEDAY_BBPS_API_KEY`, `SAMEDAY_BBPS_API_SECRET`, `PARTNER_BBPS_ENABLED=true` | IP whitelist with Same Day |
+| Payouts (Same Day settlement + RazorpayX) | `SAMEDAY_SETTLEMENT_API_KEY`, `SAMEDAY_SETTLEMENT_API_SECRET`, `PARTNER_PAYOUT_ENABLED=true`; UPI needs `RAZORPAYX_ACCOUNT_NUMBER`, `RAZORPAYX_KEY_ID`, `RAZORPAYX_KEY_SECRET` | Whitelist your server's static IP with Same Day |
+| Wallet top-up / UPI (Razorpay) | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `PARTNER_UPI_ENABLED=true` | Register PG webhook `https://<domain>/api/webhooks/razorpay` |
+| BBPS bills (Same Day Bharat BillPay) | `SAMEDAY_BBPS_API_KEY`, `SAMEDAY_BBPS_API_SECRET`, `PARTNER_BBPS_ENABLED=true` | IP whitelist with Same Day |
 | Settlement (Same Day) | `SAMEDAY_SETTLEMENT_API_KEY`, `SAMEDAY_SETTLEMENT_API_SECRET`, `PARTNER_SETTLEMENT_ENABLED=true` | Add + penny-verify a bank account in Dashboard → Settlements → Bank transfers |
 | eSign agreements (Leegality) | `LEEGALITY_AUTH_TOKEN`, `LEEGALITY_PROFILE_ID`, `LEEGALITY_BASE_URL=https://app1.leegality.com/api`, `PARTNER_ESIGN_ENABLED=true` | Register webhook `https://<domain>/api/webhooks/leegality` |
 | POS (Same Day) | `SAMEDAY_POS_API_KEY`, `SAMEDAY_POS_API_SECRET`, `PARTNER_POS_ENABLED=true` | — |
@@ -53,8 +53,8 @@ URLs/keys to production. Do a ₹10 "penny test" per rail on day one.
 
 ## 3. Infrastructure
 
-- [ ] **Server**: EC2 (or similar) with a **static Elastic IP** — BulkPe and
-      Same Day authorize by IP. Install Node 20+, nginx (TLS via certbot),
+- [ ] **Server**: EC2 (or similar) with a **static Elastic IP** — Same Day
+      authorizes by IP. Install Node 20+, nginx (TLS via certbot),
       `ffmpeg` (`apt install ffmpeg` — required by the KYC video pipeline).
 - [ ] **Two processes under PM2**: the Next.js app AND the worker
       (`npm run worker`). ⚠️ The worker is not optional — payouts, webhooks,
@@ -97,7 +97,7 @@ URLs/keys to production. Do a ₹10 "penny test" per rail on day one.
 
 ## 6. Compliance & legal (outside the codebase)
 
-- [ ] Execute agreements with BulkPe / Same Day / Leegality for production.
+- [ ] Execute agreements with Same Day / Razorpay / Leegality for production.
 - [ ] If operating under PMLA reporting obligations, register with FIU-IND;
       the STR worksheet / CTR CSV exports (Dashboard → AML Monitoring) are
       built to feed those filings.

@@ -143,9 +143,30 @@ export default function PlatformControlsPage() {
 
       {loading && !settings && <p className="text-sm text-ink-400">Loading settings…</p>}
 
-      <Stagger stagger={0.05} className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {settings &&
-          Object.keys(settings).map((key) => {
+      {!loading && !settings && (
+        <Panel className="text-center">
+          <p className="text-sm font-medium text-ink-700">Couldn’t load platform controls.</p>
+          <p className="mt-1 text-xs text-ink-400">
+            The settings service didn’t respond. Check your connection and try again.
+          </p>
+          <Button className="mt-4" variant="outline" size="sm" onClick={load}>
+            <RefreshCw className="mr-2 h-4 w-4" /> Retry
+          </Button>
+        </Panel>
+      )}
+
+      {settings && Object.keys(settings).length === 0 && (
+        <Panel className="text-center">
+          <p className="text-sm font-medium text-ink-700">No controls available.</p>
+          <p className="mt-1 text-xs text-ink-400">
+            No runtime settings are registered yet.
+          </p>
+        </Panel>
+      )}
+
+      {settings && Object.keys(settings).length > 0 && (
+        <Stagger stagger={0.05} className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {Object.keys(settings).map((key) => {
             const meta = LABELS[key] ?? { title: key, description: "" };
             const draft = drafts[key] ?? {};
             return (
@@ -211,7 +232,8 @@ export default function PlatformControlsPage() {
               </StaggerItem>
             );
           })}
-      </Stagger>
+        </Stagger>
+      )}
     </div>
   );
 }

@@ -178,7 +178,7 @@ export default function AdminPosPage() {
       <Reveal distance={14} duration={0.4}>
         <PageHeader
           eyebrow="Admin"
-          title="POS Fleet"
+          title="POS Transactions"
           description="Machine inventory, live transactions, exports and device health across all terminals."
         />
       </Reveal>
@@ -472,12 +472,12 @@ function MachinesTab() {
         </StaggerItem>
       </Stagger>
 
-      {/* Fleet by user */}
+      {/* POS Transactions by user */}
       {byUser.length > 0 && (
         <Panel>
           <SectionTitle
             className="mb-3"
-            title="Fleet by user"
+            title="POS Transactions by user"
             description="Machines held by each user and their outstanding rental dues. Click a user to filter the inventory."
             action={
               filteredUser && (
@@ -792,7 +792,7 @@ function AssignModal({
       open
       onClose={onClose}
       size="md"
-      eyebrow="POS Fleet"
+      eyebrow="POS Transactions"
       title={single ? "Assign terminal" : `Bulk assign ${machines.length} terminals`}
       subtitle={
         single

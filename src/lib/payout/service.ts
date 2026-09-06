@@ -10,9 +10,9 @@ import { emitWebhookEvent } from "@/lib/platform/webhooks";
 import { logger } from "@/lib/logger";
 
 /**
- * Shared, provider-agnostic payout lifecycle logic. Used by the queue worker,
- * the BulkPe webhook, and the reconciliation poller so that all three drive the
- * exact same idempotent state machine + ledger finalization.
+ * Shared, provider-agnostic payout lifecycle logic. Used by the queue worker
+ * and the reconciliation poller so that both drive the exact same idempotent
+ * state machine + ledger finalization.
  *
  * State machine (funds are HELD from submit until terminal):
  *   PENDING_APPROVAL --approve--> APPROVED --worker--> PROCESSING
@@ -36,7 +36,7 @@ function asJson(value: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull 
   return (value ?? Prisma.JsonNull) as Prisma.InputJsonValue | typeof Prisma.JsonNull;
 }
 
-/** Enqueue the worker job that actually calls BulkPe. */
+/** Enqueue the worker job that actually calls the payout rail. */
 export async function enqueuePayoutInitiate(payoutRequestId: string): Promise<void> {
   await enqueue(
     QUEUES.PAYOUT_INITIATE,
@@ -51,7 +51,7 @@ export async function enqueuePayoutInitiate(payoutRequestId: string): Promise<vo
  */
 export async function finalizePayoutSuccess(
   payoutRequestId: string,
-  data: { utr?: string | null; bulkpeTxnId?: string | null; response?: unknown }
+  data: { utr?: string | null; providerTxnId?: string | null; response?: unknown }
 ): Promise<{ finalized: boolean }> {
   const row = await prisma.payoutRequest.findUnique({ where: { id: payoutRequestId } });
   if (!row || TERMINAL.includes(row.status)) return { finalized: false };
@@ -62,7 +62,7 @@ export async function finalizePayoutSuccess(
       data: {
         status: "SUCCESS",
         utr: data.utr ?? row.utr ?? null,
-        bulkpeTxnId: data.bulkpeTxnId ?? row.bulkpeTxnId ?? null,
+        providerTxnId: data.providerTxnId ?? row.providerTxnId ?? null,
         response: asJson(data.response ?? row.response),
         completedAt: new Date(),
       },
@@ -185,7 +185,7 @@ export async function reversePayout(
       where: { id: payoutRequestId, status: "SUCCESS" },
       data: {
         status: "REVERSED",
-        failureReason: data.reason ?? "Reversed by bank/BulkPe",
+        failureReason: data.reason ?? "Reversed by bank/payout rail",
         response: asJson(data.response ?? row.response),
         completedAt: new Date(),
       },
@@ -263,9 +263,9 @@ function beneficiaryFor(row: PayoutRequest, contactMobile?: string) {
 
 /**
  * Worker entry for QUEUES.PAYOUT_INITIATE. Transitions APPROVED -> PROCESSING,
- * calls BulkPe with the unique reference_id, and finalizes immediately if the
- * provider returns a terminal state. Retry-safe: if already sent, it reconciles
- * instead of re-initiating.
+ * calls the payout rail with the unique reference_id, and finalizes immediately
+ * if the provider returns a terminal state. Retry-safe: if already sent, it
+ * reconciles instead of re-initiating.
  */
 export async function processPayoutInitiate(payoutRequestId: string): Promise<void> {
   const row = await prisma.payoutRequest.findUnique({ where: { id: payoutRequestId } });
@@ -273,8 +273,8 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
   if (TERMINAL.includes(row.status)) return;
   if (row.status === "PENDING_APPROVAL" || row.status === "DRAFT") return; // not approved yet
 
-  // Already handed to BulkPe on a previous attempt → reconcile, don't re-send.
-  if (row.bulkpeTxnId) {
+  // Already handed to the rail on a previous attempt → reconcile, don't re-send.
+  if (row.providerTxnId) {
     await reconcilePayout(payoutRequestId);
     return;
   }
@@ -300,7 +300,7 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
     () => new Error("Payout rail resolved to MOCK in production — refusing to send")
   );
   const res = await provider.payout({
-    idempotencyKey: row.bulkpeReferenceId,
+    idempotencyKey: row.providerReferenceId,
     userId: row.userId,
     mode: row.mode,
     amount: toNumber(row.amount),
@@ -319,11 +319,11 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
         amount: toNumber(row.amount),
         accountLast4: row.accountLast4,
         beneficiaryName: row.beneficiaryName,
-        referenceId: row.bulkpeReferenceId,
+        referenceId: row.providerReferenceId,
         provider: provider.name,
       },
       response: asJson(res.raw ?? res),
-      bulkpeTxnId: res.ok ? res.data.payoutId || row.bulkpeTxnId : row.bulkpeTxnId,
+      providerTxnId: res.ok ? res.data.payoutId || row.providerTxnId : row.providerTxnId,
     },
   });
 
@@ -338,7 +338,7 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
   if (res.data.status === "PAID") {
     await finalizePayoutSuccess(payoutRequestId, {
       utr: res.data.utr,
-      bulkpeTxnId: res.data.payoutId,
+      providerTxnId: res.data.payoutId,
       response: res.raw,
     });
   } else if (res.data.status === "FAILED") {
@@ -351,8 +351,8 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
 }
 
 /**
- * Poll BulkPe for the terminal state of a single in-flight payout and finalize.
- * Safe fallback when a webhook is missed.
+ * Poll the payout rail for the terminal state of a single in-flight payout and
+ * finalize. Safe fallback that finalizes payouts left in a non-terminal state.
  */
 export async function reconcilePayout(payoutRequestId: string): Promise<void> {
   const row = await prisma.payoutRequest.findUnique({ where: { id: payoutRequestId } });
@@ -365,7 +365,7 @@ export async function reconcilePayout(payoutRequestId: string): Promise<void> {
     provider,
     () => new Error("Payout rail resolved to MOCK in production — refusing to reconcile")
   );
-  const lookupId = row.bulkpeTxnId || row.bulkpeReferenceId;
+  const lookupId = row.providerTxnId || row.providerReferenceId;
   const res = await provider.status(lookupId);
   if (!res.ok) return; // transient; try again on the next poll
 

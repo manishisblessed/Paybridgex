@@ -2,7 +2,7 @@
  * Enable/disable the Payment Gateway service route (key `pg_razorpay`), which
  * gates self-service wallet top-ups (`assertServiceEnabled(SERVICE_KEYS.PG)`).
  *
- * Turn it OFF while no live PG (BulkPe/Razorpay) is configured, so users get a
+ * Turn it OFF while no live PG (Razorpay) is configured, so users get a
  * clean "unavailable" instead of hitting the mock provider.
  *
  *   npx tsx scripts/toggle-pg-service.ts off   # disable (default)

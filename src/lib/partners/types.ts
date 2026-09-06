@@ -103,9 +103,9 @@ export interface PayoutProvider {
   payout(input: PayoutInput): Promise<PartnerResult<PayoutOutput>>;
   /**
    * Poll the terminal state of a payout. Accepts the provider txn id when
-   * known, otherwise our reference_id (providers like BulkPe support lookup by
-   * either), so the reconciler can recover even if the initiate call's id was
-   * never persisted.
+   * known, otherwise our reference_id (some rails support lookup by either),
+   * so the reconciler can recover even if the initiate call's id was never
+   * persisted.
    */
   status(payoutIdOrReference: string): Promise<PartnerResult<{ status: PayoutOutput["status"]; utr?: string }>>;
   /**
@@ -152,9 +152,9 @@ export interface BbpsBiller {
   name: string;
   category: BbpsFetchInput["category"];
   /**
-   * Optional: the customer input fields this biller requires (BulkPe exposes
-   * these via selectBiller). UIs use them to render dynamic fetch-bill forms;
-   * absent for providers that don't publish param metadata.
+   * Optional: the customer input fields this biller requires. UIs use them to
+   * render dynamic fetch-bill forms; absent for providers that don't publish
+   * param metadata.
    */
   params?: Array<{ name: string; dataType: string; optional: boolean }>;
 }

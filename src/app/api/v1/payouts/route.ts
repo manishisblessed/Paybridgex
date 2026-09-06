@@ -179,7 +179,7 @@ export async function POST(req: Request) {
         const isUpi = body.mode === "UPI";
         const handle = isUpi ? body.vpa! : body.accountNumber!;
         const accountLast4 = handle.replace(/@.*/, "").slice(-4);
-        const bulkpeReferenceId = `PO${nanoid(18).toUpperCase()}`;
+        const providerReferenceId = `PO${nanoid(18).toUpperCase()}`;
 
         // A payout always debits the requester's OWN held wallet balance —
         // it is their own money, so no second-party approval is required.
@@ -202,7 +202,7 @@ export async function POST(req: Request) {
               totalDebit: quote.totalDebit,
               vendorCharge: quote.vendorCharge,
               status: autoApprove ? "APPROVED" : "PENDING_APPROVAL",
-              bulkpeReferenceId,
+              providerReferenceId,
               remarks: body.remarks ? `[API] ${body.remarks}` : "[API]",
               ...(autoApprove ? { approvedAt: new Date() } : {}),
             },
