@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, AuthError } from "@/lib/auth-server";
-import { isAdminRole } from "@/lib/security/ownership";
-import { enforceRateLimit, RateLimitError, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { uploadToCloudinary } from "@/lib/cloudinary";
 import { prisma } from "@/lib/db";
 
@@ -23,19 +23,17 @@ const Body = z.object({
 export async function POST(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN", "SUPPORT");
-  } catch (e: unknown) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    admin = await requireAdminActivity(req, {
+      action: "slider.upload",
+      roles: ["MASTER_ADMIN", "ADMIN", "SUPPORT"],
+      entity: "Slider",
+    });
+    await enforceRateLimit(`slider:upload:${admin.id}`, RATE_LIMITS.default);
+  } catch (e) {
+    return toErrorResponse(e);
   }
 
-  if (!isAdminRole(admin.role))
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
   try {
-    await enforceRateLimit(`slider:upload:${admin.id}`, RATE_LIMITS.default);
-
     const parsed = Body.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success)
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -65,11 +63,6 @@ export async function POST(req: Request) {
       format: result.format,
     });
   } catch (e: unknown) {
-    if (e instanceof RateLimitError)
-      return NextResponse.json(
-        { error: e.message, retryAfterSec: e.result.retryAfterSec },
-        { status: e.statusCode }
-      );
     console.error("[admin/sliders/upload] error:", e);
     return NextResponse.json({ error: "Image upload failed" }, { status: 500 });
   }

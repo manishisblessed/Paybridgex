@@ -167,6 +167,7 @@ export async function POST(req: Request) {
     allowedTabs: user.allowedTabs ?? [],
     enabledServices: user.enabledServices ?? [],
     twoFactorEnabled: true,
+    twoFactorExempt: (user as { twoFactorExempt?: boolean }).twoFactorExempt ?? false,
   };
 
   const token = createMobileToken(sessionUser);

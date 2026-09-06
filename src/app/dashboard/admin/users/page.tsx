@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
+import { useStepUp } from "@/components/security/StepUpProvider";
 import {
   Search,
   MoreHorizontal,
@@ -48,9 +50,14 @@ type UserRow = {
   monthlyTurnover: number;
   retailers: number;
   upline: { role: string; name: string; userCode: string | null }[];
+  pinLoginEnabled?: boolean;
+  twoFactorExempt?: boolean;
 };
 
 export default function AdminUsersPage() {
+  const { data: session } = useSession();
+  const isMasterAdmin = session?.user?.role === "MASTER_ADMIN";
+  const { fetchWithStepUp } = useStepUp();
   const [q, setQ] = useState("");
   const [role, setRole] = useState("all");
   const [status, setStatus] = useState("all");
@@ -69,6 +76,8 @@ export default function AdminUsersPage() {
   const [resettingPw, setResettingPw] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [pinLoginTarget, setPinLoginTarget] = useState<UserRow | null>(null);
+  const [pinLoginBusy, setPinLoginBusy] = useState(false);
   const notify = useCallback((text: string, ok: boolean) => {
     if (ok) toast.success(text);
     else toast.error(text);
@@ -109,7 +118,7 @@ export default function AdminUsersPage() {
     setActing(userId);
     try {
       const action = currentStatus === "Active" ? "suspend" : "activate";
-      const res = await fetch(`/api/admin/users/${userId}`, {
+      const res = await fetchWithStepUp(`/api/admin/users/${userId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
@@ -126,7 +135,7 @@ export default function AdminUsersPage() {
     setActing(user.id);
     setMoreUser(null);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}`, {
+      const res = await fetchWithStepUp(`/api/admin/users/${user.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "close", reason: "Closed by admin from Users" }),
@@ -145,7 +154,7 @@ export default function AdminUsersPage() {
   async function resetPassword(user: UserRow) {
     setResettingPw(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}`, {
+      const res = await fetchWithStepUp(`/api/admin/users/${user.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "resetPassword" }),
@@ -159,6 +168,34 @@ export default function AdminUsersPage() {
       notify(e instanceof Error ? e.message : "Reset failed", false);
     } finally {
       setResettingPw(false);
+    }
+  }
+
+  async function togglePinLogin(user: UserRow) {
+    setPinLoginBusy(true);
+    try {
+      const enabling = !user.pinLoginEnabled;
+      const res = await fetchWithStepUp(`/api/admin/users/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setPinLogin", enabled: enabling }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "Update failed");
+      notify(
+        data.warning
+          ? data.warning
+          : enabling
+          ? `PIN login enabled for ${user.name} (2FA waived).`
+          : `PIN login disabled for ${user.name} (2FA restored).`,
+        !data.warning
+      );
+      setPinLoginTarget(null);
+      fetchUsers();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Update failed", false);
+    } finally {
+      setPinLoginBusy(false);
     }
   }
 
@@ -387,6 +424,7 @@ export default function AdminUsersPage() {
       {moreUser && (
         <UserMoreMenu
           user={moreUser}
+          canManagePinLogin={isMasterAdmin}
           onClose={() => setMoreUser(null)}
           onManageServices={() => {
             setServicesUser(moreUser);
@@ -402,6 +440,10 @@ export default function AdminUsersPage() {
           }}
           onSetStatus={() => {
             setStatusTarget(moreUser);
+            setMoreUser(null);
+          }}
+          onTogglePinLogin={() => {
+            setPinLoginTarget(moreUser);
             setMoreUser(null);
           }}
           onCopied={() => {
@@ -470,6 +512,26 @@ export default function AdminUsersPage() {
           onClose={() => setResetPwResult(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={pinLoginTarget !== null}
+        onClose={() => setPinLoginTarget(null)}
+        busy={pinLoginBusy}
+        title={
+          pinLoginTarget?.pinLoginEnabled
+            ? `Disable PIN login for ${pinLoginTarget?.name}?`
+            : `Enable PIN login for ${pinLoginTarget?.name}?`
+        }
+        description={
+          pinLoginTarget?.pinLoginEnabled
+            ? "This restores mandatory two-factor authentication. The user will be signed out and must set up an authenticator on next login."
+            : "This waives mandatory 2FA and lets the user sign in with their transaction PIN. They accept all account risk without 2FA. The user must have a transaction PIN set."
+        }
+        confirmLabel={pinLoginTarget?.pinLoginEnabled ? "Disable PIN login" : "Enable PIN login"}
+        onConfirm={async () => {
+          if (pinLoginTarget) await togglePinLogin(pinLoginTarget);
+        }}
+      />
     </div>
   );
 }
@@ -478,19 +540,23 @@ export default function AdminUsersPage() {
 
 function UserMoreMenu({
   user,
+  canManagePinLogin,
   onClose,
   onManageServices,
   onResetPassword,
   onCloseAccount,
   onSetStatus,
+  onTogglePinLogin,
   onCopied,
 }: {
   user: UserRow;
+  canManagePinLogin: boolean;
   onClose: () => void;
   onManageServices: () => void;
   onResetPassword: () => void;
   onCloseAccount: () => void;
   onSetStatus: () => void;
+  onTogglePinLogin: () => void;
   onCopied: () => void;
 }) {
   useEffect(() => {
@@ -576,6 +642,18 @@ function UserMoreMenu({
             Reset password
           </button>
 
+          {canManagePinLogin && (
+            <button
+              type="button"
+              role="menuitem"
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-ink-800 transition hover:bg-ink-50"
+              onClick={onTogglePinLogin}
+            >
+              <KeyRound className="h-4 w-4 text-ink-500" />
+              {user.pinLoginEnabled ? "Disable PIN login (restore 2FA)" : "Enable PIN login (waive 2FA)"}
+            </button>
+          )}
+
           {user.status !== "Closed" && (
             <button
               type="button"
@@ -619,6 +697,7 @@ function ApprovalStatusDialog({
   onDone: (msg: string) => void;
   onError: (msg: string) => void;
 }) {
+  const { fetchWithStepUp } = useStepUp();
   const current = displayStatusToApproval(user.status);
   const [target, setTarget] = useState<ApprovalTarget>(current);
   const [reason, setReason] = useState("");
@@ -642,7 +721,7 @@ function ApprovalStatusDialog({
     }
     setBusy(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}`, {
+      const res = await fetchWithStepUp(`/api/admin/users/${user.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -838,6 +917,7 @@ function UserServicesDialog({
   userName: string;
   onClose: () => void;
 }) {
+  const { fetchWithStepUp } = useStepUp();
   const [allServices, setAllServices] = useState<ServiceItem[]>([]);
   const [enabledKeys, setEnabledKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -886,7 +966,7 @@ function UserServicesDialog({
     try {
       // Strict allowlist: persist exactly the selected keys. An empty selection
       // means NO services are enabled for this user (default-disabled).
-      const res = await fetch(`/api/admin/users/${userId}/services`, {
+      const res = await fetchWithStepUp(`/api/admin/users/${userId}/services`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabledServices: enabledKeys }),
@@ -1034,6 +1114,7 @@ function BulkServicesDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { fetchWithStepUp } = useStepUp();
   const [allServices, setAllServices] = useState<ServiceItem[]>([]);
   const [pickedKeys, setPickedKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1072,7 +1153,7 @@ function BulkServicesDialog({
   async function apply(action: "enable" | "disable") {
     setSaving(action);
     try {
-      const res = await fetch(`/api/admin/users/services/bulk`, {
+      const res = await fetchWithStepUp(`/api/admin/users/services/bulk`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userIds, serviceKeys: pickedKeys, action }),

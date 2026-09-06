@@ -3,6 +3,9 @@ import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
+import { requireStepUp, readStepUpCode } from "@/lib/security/stepUp";
+import { recordAdminActivity, readActionLocation } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { canManageJoinRequests } from "@/lib/onboarding/joinAccess";
 
 const PatchBody = z.object({
@@ -31,6 +34,19 @@ export async function PATCH(
 
   if (!canManageJoinRequests(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  try {
+    const { code, type } = readStepUpCode(req);
+    await requireStepUp(user, {
+      action: "join.request.update",
+      code,
+      type,
+      ip: clientIp(req),
+      userAgent: req.headers.get("user-agent"),
+    });
+  } catch (e) {
+    return toErrorResponse(e);
   }
 
   const parsed = PatchBody.safeParse(await req.json().catch(() => ({})));
@@ -72,6 +88,17 @@ export async function PATCH(
       meta: { status, notesChanged: notes !== undefined },
       ip: clientIp(req),
     },
+  });
+
+  await recordAdminActivity({
+    actor: user,
+    req,
+    action: "join.request.update",
+    kind: "write",
+    entity: "JoinRequest",
+    entityId: updated.id,
+    location: readActionLocation(req),
+    meta: { status: status ?? null },
   });
 
   return NextResponse.json({ ok: true, request: updated });

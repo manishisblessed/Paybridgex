@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 
@@ -19,7 +20,11 @@ const BulkBody = z.object({
  */
 export async function POST(req: Request) {
   try {
-    const admin = await requireRole("MASTER_ADMIN", "ADMIN", "SUPPORT");
+    const admin = await requireAdminActivity(req, {
+      action: "user.services.bulk-update",
+      roles: ["MASTER_ADMIN", "ADMIN", "SUPPORT"],
+      entity: "User",
+    });
 
     const parsed = BulkBody.safeParse(await req.json());
     if (!parsed.success)
@@ -92,9 +97,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, updated: targets.length, action, serviceKeys });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    console.error("[admin/users/services/bulk] POST error:", e);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return toErrorResponse(e);
   }
 }

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { toNumber } from "@/lib/money";
 import { getSetting, setSetting } from "@/lib/settings";
@@ -150,11 +152,13 @@ const ActionBody = z.discriminatedUnion("action", [
 export async function POST(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAdminActivity(req, {
+      action: "pos.settlement.ops",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "PosSettlementEntry",
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const parsed = ActionBody.safeParse(await req.json().catch(() => ({})));

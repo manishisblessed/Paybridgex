@@ -31,6 +31,8 @@ export type SessionUser = {
   allowedTabs: string[];
   enabledServices: string[];
   twoFactorEnabled: boolean;
+  /** Master-admin waived the mandatory-2FA gate for this account. */
+  twoFactorExempt: boolean;
 };
 
 declare module "next-auth" {
@@ -107,6 +109,7 @@ export const authOptions: NextAuthOptions = {
           allowedTabs: (user as any).allowedTabs ?? [],
           enabledServices: (user as any).enabledServices ?? [],
           twoFactorEnabled: user.twoFactorEnabled,
+          twoFactorExempt: (user as any).twoFactorExempt ?? false,
         };
       },
     }),
@@ -153,6 +156,11 @@ export const authOptions: NextAuthOptions = {
         // The frontend must use /api/auth/login → /api/auth/2fa/verify flow instead.
         if (user.twoFactorEnabled) return null;
 
+        // 2FA-exempt accounts with PIN login enabled must authenticate through
+        // the /api/auth/login → /api/auth/pin-login/verify flow (TPIN as the
+        // second factor), never via a bare password on this provider.
+        if ((user as any).twoFactorExempt && (user as any).pinLoginEnabled) return null;
+
         await recordSuccessfulLogin(identifier);
 
         return {
@@ -167,6 +175,7 @@ export const authOptions: NextAuthOptions = {
           allowedTabs: (user as any).allowedTabs ?? [],
           enabledServices: (user as any).enabledServices ?? [],
           twoFactorEnabled: user.twoFactorEnabled,
+          twoFactorExempt: (user as any).twoFactorExempt ?? false,
         };
       },
     }),
@@ -187,6 +196,7 @@ export const authOptions: NextAuthOptions = {
         token.allowedTabs = (user as any).allowedTabs ?? [];
         token.enabledServices = (user as any).enabledServices ?? [];
         token.twoFactorEnabled = (user as any).twoFactorEnabled ?? false;
+        token.twoFactorExempt = (user as any).twoFactorExempt ?? false;
         try {
           const seed = await prisma.user.findUnique({
             where: { id: user.id },
@@ -224,6 +234,7 @@ export const authOptions: NextAuthOptions = {
                 userCode: true,
                 tokenVersion: true,
                 twoFactorEnabled: true,
+                twoFactorExempt: true,
                 walletBalance: true,
                 status: true,
                 role: true,
@@ -243,6 +254,7 @@ export const authOptions: NextAuthOptions = {
           token.userCode = (fresh as any).userCode ?? null;
           token.tokenVersion = fresh.tokenVersion;
           token.twoFactorEnabled = fresh.twoFactorEnabled;
+          token.twoFactorExempt = fresh.twoFactorExempt;
           token.walletBalance = Number(fresh.walletBalance);
           token.status = fresh.status;
           token.role = fresh.role;
@@ -272,6 +284,7 @@ export const authOptions: NextAuthOptions = {
         allowedTabs: (token.allowedTabs as string[]) ?? [],
         enabledServices: (token.enabledServices as string[]) ?? [],
         twoFactorEnabled: (token.twoFactorEnabled as boolean) ?? false,
+        twoFactorExempt: (token.twoFactorExempt as boolean) ?? false,
       };
       return session;
     },
@@ -365,6 +378,7 @@ export function verifyMobileToken(token: string): SessionUser | null {
       allowedTabs: data.allowedTabs ?? [],
       enabledServices: data.enabledServices ?? [],
       twoFactorEnabled: data.twoFactorEnabled ?? false,
+      twoFactorExempt: data.twoFactorExempt ?? false,
     };
   } catch {
     return null;

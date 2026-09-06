@@ -48,6 +48,12 @@ model User {
   twoFactorBackupCodes String[]   @default([]) // bcrypt-hashed single-use recovery codes
   twoFactorVerifiedAt  DateTime? // when 2FA was first confirmed
 
+  // ── TPIN login / 2FA-exempt (master-admin controlled) ────────────────────
+  twoFactorExempt        Boolean   @default(false) // master-admin waived mandatory 2FA
+  pinLoginEnabled        Boolean   @default(false) // may authenticate with TPIN instead of TOTP
+  pinLoginRiskAcceptedAt DateTime? // when the user accepted the no-2FA liability
+  pinLoginRiskAcceptedIp String?   // IP that accepted the liability (audit)
+
   // Server-side session invalidation. Every issued JWT carries the tokenVersion
   // it was minted with; the jwt/session callbacks reject any token whose version
   // != this value. Incrementing it (logout, role/status change, forced sign-out)
@@ -952,10 +958,24 @@ model AuditLog {
   meta      Json?
   ip        String?
   userAgent String?
+  // ── Actor + geo snapshot (admin activity control) ────────────────────────
+  // actorName/actorRole are snapshotted at write time so the historical record
+  // survives a later rename/deletion of the acting user (the userId FK alone is
+  // not durable enough for a compliance trail). lat/lng/locationAccuracy record
+  // WHERE the action was performed (browser geolocation on writes; last-login
+  // location as fallback). kind = "write" | "read" to distinguish step-up-gated
+  // mutations from sensitive page views.
+  actorName        String?
+  actorRole        String?
+  lat              Float?
+  lng              Float?
+  locationAccuracy Float?
+  kind             String?
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([action, createdAt])
+  @@index([actorRole, createdAt])
 }
 
 model Notification {
@@ -2282,6 +2302,9 @@ model QrClaim {
   reviewedBy   User?     @relation("QrClaimReviewer", fields: [reviewedById], references: [id])
   reviewedAt   DateTime?
   reviewNote   String?
+  // Structured multi-select rejection reasons (stable identifiers from
+  // src/lib/qr/rejectionReasons.ts). reviewNote holds the composed human text.
+  rejectionReasons String[] @default([])
   // Admin attestation that the UTR was found in the provider's merchant portal.
   portalVerified Boolean @default(false)
 

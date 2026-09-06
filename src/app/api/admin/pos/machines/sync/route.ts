@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireRole, AuthError } from "@/lib/auth-server";
-import { isAdminRole } from "@/lib/security/ownership";
-import { enforceRateLimit, RATE_LIMITS, RateLimitError } from "@/lib/security/rateLimit";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { flags } from "@/lib/env";
@@ -24,19 +24,14 @@ export const maxDuration = 120;
 export async function POST(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
-    if (!isAdminRole(admin.role))
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    admin = await requireAdminActivity(req, {
+      action: "pos.machines.sync",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "PosMachine",
+    });
     await enforceRateLimit(`pos:sync:${admin.id}`, RATE_LIMITS.default);
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    if (e instanceof RateLimitError)
-      return NextResponse.json(
-        { error: e.message, retryAfterSec: e.result.retryAfterSec },
-        { status: 429 }
-      );
-    throw e;
+    return toErrorResponse(e);
   }
 
   if (!flags.pos)

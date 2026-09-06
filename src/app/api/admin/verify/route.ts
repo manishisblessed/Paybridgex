@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import {
@@ -93,11 +95,13 @@ const Body = z.discriminatedUnion("type", [
 export async function POST(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN", "SUPPORT");
+    admin = await requireAdminActivity(req, {
+      action: "verify.check_run",
+      roles: ["MASTER_ADMIN", "ADMIN", "SUPPORT"],
+      entity: "VerificationResult",
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   if (!ekychubConfigured())

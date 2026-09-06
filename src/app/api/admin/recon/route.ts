@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
 import { prisma } from "@/lib/db";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
@@ -69,7 +70,11 @@ const PostBody = z.object({ job: z.enum(["ledger", "payout"]) }).strict();
 
 export async function POST(req: Request) {
   try {
-    const user = await requireRole("MASTER_ADMIN", "ADMIN");
+    const user = await requireAdminActivity(req, {
+      action: "recon.triggered",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "System",
+    });
     await enforceRateLimit(`recon:trigger:${user.id}`, RATE_LIMITS.sensitiveWrite);
 
     const parsed = PostBody.safeParse(await req.json());

@@ -21,6 +21,8 @@ import { Modal } from "@/components/ui/Modal";
 import { Input, Label } from "@/components/ui/Input";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { formatINR } from "@/lib/utils";
+import { useStepUp } from "@/components/security/StepUpProvider";
+import { QR_REJECTION_REASONS } from "@/lib/qr/rejectionReasons";
 
 type Overview = {
   pendingCount: number;
@@ -88,6 +90,7 @@ type QrRow = {
 // ---------------------------------------------------------------------------
 
 function ReviewQueueTab() {
+  const { fetchWithStepUp } = useStepUp();
   const [claims, setClaims] = useState<ClaimRow[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [threshold, setThreshold] = useState(10000);
@@ -98,6 +101,7 @@ function ReviewQueueTab() {
   const [selected, setSelected] = useState<ClaimRow | null>(null);
   const [portalVerified, setPortalVerified] = useState(false);
   const [note, setNote] = useState("");
+  const [rejectReasons, setRejectReasons] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -125,21 +129,38 @@ function ReviewQueueTab() {
     setSelected(c);
     setPortalVerified(false);
     setNote("");
+    setRejectReasons([]);
+  }
+
+  function toggleReason(value: string) {
+    setRejectReasons((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
+    );
   }
 
   async function act(action: "approve" | "reject") {
     if (!selected) return;
-    if (action === "reject" && note.trim().length < 3) {
-      toast.error("A rejection note is required (shown to the retailer).");
-      return;
+    if (action === "reject") {
+      const hasReasons = rejectReasons.length > 0;
+      const hasNote = note.trim().length >= 3;
+      if (!hasReasons && !hasNote) {
+        toast.error("Select at least one reason, or add a note (min 3 characters).");
+        return;
+      }
+      if (rejectReasons.length === 1 && rejectReasons[0] === "OTHER" && !hasNote) {
+        toast.error("Please add a note when the only reason is 'Other'.");
+        return;
+      }
     }
     setBusy(true);
     try {
-      const res = await fetch(`/api/admin/qr/claims/${selected.id}/${action}`, {
+      const res = await fetchWithStepUp(`/api/admin/qr/claims/${selected.id}/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          action === "approve" ? { portalVerified, note: note.trim() || undefined } : { note: note.trim() }
+          action === "approve"
+            ? { portalVerified, note: note.trim() || undefined }
+            : { reasons: rejectReasons, note: note.trim() || undefined }
         ),
       });
       const d = await res.json();
@@ -398,7 +419,37 @@ function ReviewQueueTab() {
               </span>
             </label>
             <div>
-              <Label htmlFor="review-note">Note {`(required to reject)`}</Label>
+              <p className="mb-1.5 text-xs font-semibold text-ink-700">
+                Rejection reasons <span className="font-normal text-ink-400">(select all that apply — shown to the retailer)</span>
+              </p>
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {QR_REJECTION_REASONS.map((r) => {
+                  const checked = rejectReasons.includes(r.value);
+                  return (
+                    <label
+                      key={r.value}
+                      className={`flex cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 text-xs transition ${
+                        checked
+                          ? "border-rose-300 bg-rose-50 text-rose-800"
+                          : "border-ink-200 bg-white text-ink-600 hover:border-ink-300"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleReason(r.value)}
+                        className="mt-0.5 h-3.5 w-3.5 accent-rose-600"
+                      />
+                      <span>{r.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="review-note">
+                Note {`(optional; required for 'Other' or when no reason is selected)`}
+              </Label>
               <Input
                 id="review-note"
                 value={note}

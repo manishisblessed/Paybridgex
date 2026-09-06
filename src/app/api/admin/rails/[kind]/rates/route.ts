@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { validateRailRate } from "@/lib/rail/mdr";
@@ -83,11 +84,14 @@ const RateBody = z.object({
 export async function POST(req: Request, { params }: { params: { kind: string } }) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAdminActivity(req, {
+      action: "rail_rate.create",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "RailMdrRate",
+      entityId: params.kind,
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const rail = parseRail(params.kind);
@@ -182,11 +186,14 @@ const UpdateBody = z.object({
 export async function PATCH(req: Request, { params }: { params: { kind: string } }) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAdminActivity(req, {
+      action: "rail_rate.update",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "RailMdrRate",
+      entityId: params.kind,
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const rail = parseRail(params.kind);
@@ -281,11 +288,14 @@ const DeleteBody = z.object({ rateId: z.string().min(1) });
 export async function DELETE(req: Request, { params }: { params: { kind: string } }) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAdminActivity(req, {
+      action: "rail_rate.delete",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "RailMdrRate",
+      entityId: params.kind,
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const rail = parseRail(params.kind);

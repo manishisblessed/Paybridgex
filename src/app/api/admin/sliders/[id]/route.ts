@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { isAdminRole } from "@/lib/security/ownership";
 import { prisma } from "@/lib/db";
 import { deleteFromCloudinary } from "@/lib/cloudinary";
@@ -39,11 +40,14 @@ const UpdateBody = z
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN", "SUPPORT");
+    admin = await requireAdminActivity(req, {
+      action: "slider.update",
+      roles: ["MASTER_ADMIN", "ADMIN", "SUPPORT"],
+      entity: "Slider",
+      entityId: params.id,
+    });
   } catch (e: unknown) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   if (!isAdminRole(admin.role))
@@ -134,14 +138,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   return NextResponse.json({ ok: true, slider: serializeSlider(updated) });
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN", "SUPPORT");
+    admin = await requireAdminActivity(req, {
+      action: "slider.delete",
+      roles: ["MASTER_ADMIN", "ADMIN", "SUPPORT"],
+      entity: "Slider",
+      entityId: params.id,
+    });
   } catch (e: unknown) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   if (!isAdminRole(admin.role))

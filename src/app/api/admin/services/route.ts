@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { isAdminRole } from "@/lib/security/ownership";
 import { prisma } from "@/lib/db";
 import { seedServiceRoutes } from "@/lib/services/catalog";
@@ -94,11 +96,13 @@ const SeedBody = z.object({ action: z.literal("seed") });
 export async function POST(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN", "SUPPORT");
+    admin = await requireAdminActivity(req, {
+      action: "service.write",
+      roles: ["MASTER_ADMIN", "ADMIN", "SUPPORT"],
+      entity: "ServiceRoute",
+    });
   } catch (e: unknown) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   // Defense in depth: explicit admin-role gate (SUPPORT included).

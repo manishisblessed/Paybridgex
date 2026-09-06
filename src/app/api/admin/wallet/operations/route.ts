@@ -3,6 +3,9 @@ import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
+import { requireStepUp, readStepUpCode } from "@/lib/security/stepUp";
+import { recordAdminActivity, readActionLocation } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import {
   createWalletOperation,
   canManageWalletOps,
@@ -41,6 +44,19 @@ export async function POST(req: Request) {
   }
   if (!canManageWalletOps(admin))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  try {
+    const { code, type } = readStepUpCode(req);
+    await requireStepUp(admin, {
+      action: "wallet_op.create",
+      code,
+      type,
+      ip: clientIp(req),
+      userAgent: req.headers.get("user-agent"),
+    });
+  } catch (e) {
+    return toErrorResponse(e);
+  }
 
   const parsed = CreateBody.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)
@@ -83,6 +99,17 @@ export async function POST(req: Request) {
         },
         ip: clientIp(req),
       },
+    });
+
+    await recordAdminActivity({
+      actor: admin,
+      req,
+      action: op.status === "PENDING_APPROVAL" ? "wallet_op.staged" : "wallet_op.executed",
+      kind: "write",
+      entity: "WalletOperation",
+      entityId: op.id,
+      location: readActionLocation(req),
+      meta: { type: op.type, amount: toNumber(dec(op.amount)), targetUserId: op.targetUserId },
     });
 
     return NextResponse.json({ ok: true, operation: serialize(op) }, { status: 201 });

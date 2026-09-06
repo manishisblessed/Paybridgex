@@ -191,6 +191,24 @@ export async function POST(req: Request) {
       },
     });
 
+    // TPIN login: a master-admin has waived mandatory 2FA for this account and
+    // allowed authentication with the transaction PIN as the second factor. The
+    // frontend collects the PIN + risk acceptance and calls
+    // /api/auth/pin-login/verify with this tempToken. Requires a PIN to be set;
+    // if it isn't, fall through to the normal (setup) path.
+    if (user.twoFactorExempt && user.pinLoginEnabled && user.txnPinHash) {
+      const tempToken = createTempToken(user.id);
+      return NextResponse.json({
+        ok: true,
+        needsPinLogin: true,
+        needs2FA: false,
+        needsSetup: false,
+        riskAccepted: Boolean(user.pinLoginRiskAcceptedAt),
+        tempToken,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      });
+    }
+
     // 2FA is mandatory for all users.
     if (user.twoFactorEnabled && user.twoFactorSecret) {
       const tempToken = createTempToken(user.id);
@@ -218,6 +236,7 @@ export async function POST(req: Request) {
       allowedTabs: user.allowedTabs ?? [],
       enabledServices: user.enabledServices ?? [],
       twoFactorEnabled: user.twoFactorEnabled,
+      twoFactorExempt: user.twoFactorExempt,
     };
 
     const token = createMobileToken(sessionUser);

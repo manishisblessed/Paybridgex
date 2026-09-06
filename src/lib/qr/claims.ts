@@ -27,6 +27,7 @@ import { railScopeKey } from "../mdr/floor";
 import { distributeMdrCommission } from "../commission/distribute";
 import { recordPayin } from "../wallet/payin";
 import { isOverflowCollectQr, resolveLiveQr } from "./rotation";
+import { composeRejectionNote } from "./rejectionReasons";
 
 export class QrClaimError extends Error {
   public statusCode: number;
@@ -705,8 +706,17 @@ export async function listSettleableQrClaims(userId: string) {
   return rows;
 }
 
-export async function rejectQrClaim(input: QrClaimReviewInput & { note: string }): Promise<{ id: string; status: QrClaimStatus }> {
-  if (!input.note?.trim()) throw new QrClaimError("A rejection note is required", 400, "NOTE_REQUIRED");
+export async function rejectQrClaim(
+  input: QrClaimReviewInput & { reasons?: string[]; note?: string }
+): Promise<{ id: string; status: QrClaimStatus }> {
+  const reasons = (input.reasons ?? []).map((r) => r.trim()).filter(Boolean);
+  const note = input.note?.trim();
+  // At least one structured reason OR a free-text note must be present.
+  if (reasons.length === 0 && !note) {
+    throw new QrClaimError("At least one rejection reason is required", 400, "NOTE_REQUIRED");
+  }
+
+  const composedNote = composeRejectionNote(reasons, note);
 
   const claim = await prisma.qrClaim.findUnique({ where: { id: input.claimId } });
   if (!claim) throw new QrClaimError("Claim not found", 404, "NOT_FOUND");
@@ -720,7 +730,8 @@ export async function rejectQrClaim(input: QrClaimReviewInput & { note: string }
       status: "REJECTED",
       reviewedById: input.adminId,
       reviewedAt: new Date(),
-      reviewNote: input.note,
+      reviewNote: composedNote,
+      rejectionReasons: reasons,
     },
   });
   if (rejected.count === 0) throw new QrClaimError("Claim was reviewed by someone else — refresh", 409, "NOT_REVIEWABLE");
@@ -731,7 +742,7 @@ export async function rejectQrClaim(input: QrClaimReviewInput & { note: string }
       action: "qr_claim.rejected",
       entity: "QrClaim",
       entityId: claim.id,
-      meta: { amount: Number(claim.amount), utr: claim.utr, note: input.note },
+      meta: { amount: Number(claim.amount), utr: claim.utr, reasons, note: note ?? null },
     },
   });
 

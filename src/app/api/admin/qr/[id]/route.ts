@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import { requireRole } from "@/lib/auth-server";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
 import { prisma } from "@/lib/db";
 import { resolveLiveQr } from "@/lib/qr/rotation";
 
@@ -37,7 +37,12 @@ const Body = z
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAdminActivity(req, {
+      action: "qr.update",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "StaticQr",
+      entityId: params.id,
+    });
     await enforceRateLimit(`qr:manage:${admin.id}`, RATE_LIMITS.sensitiveWrite);
   } catch (e) {
     return toErrorResponse(e);

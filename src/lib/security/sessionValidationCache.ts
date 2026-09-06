@@ -18,6 +18,7 @@ export type SessionValidationSnapshot = {
   name: string;
   tokenVersion: number;
   twoFactorEnabled: boolean;
+  twoFactorExempt: boolean;
   walletBalance: unknown;
   status: string;
   role: string;

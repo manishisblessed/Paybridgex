@@ -205,6 +205,8 @@ export async function GET(req: Request) {
           state: true,
           walletBalance: true,
           createdAt: true,
+          pinLoginEnabled: true,
+          twoFactorExempt: true,
           _count: { select: { children: true } },
           ...uplineInclude,
         },
@@ -272,6 +274,8 @@ export async function GET(req: Request) {
       walletBalance: Number(u.walletBalance),
       monthlyTurnover: turnoverMap.get(u.id) ?? 0,
       retailers: u._count.children,
+      pinLoginEnabled: u.pinLoginEnabled,
+      twoFactorExempt: u.twoFactorExempt,
       upline: flattenUpline(u).map((n) => ({
         role: n.role,
         name: n.name,

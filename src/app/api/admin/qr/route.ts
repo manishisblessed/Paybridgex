@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { requireRole } from "@/lib/auth-server";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
 import { uploadToCloudinary } from "@/lib/cloudinary";
 import { prisma } from "@/lib/db";
 import { getQrClaimOverview } from "@/lib/qr/claims";
@@ -85,7 +86,11 @@ export async function GET() {
 export async function POST(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAdminActivity(req, {
+      action: "qr.create",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "StaticQr",
+    });
     await enforceRateLimit(`qr:manage:${admin.id}`, RATE_LIMITS.sensitiveWrite);
   } catch (e) {
     return toErrorResponse(e);

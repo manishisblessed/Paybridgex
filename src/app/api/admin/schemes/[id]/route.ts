@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { serializeScheme, serializeSlab } from "@/lib/scheme/serialize";
 import { resolveServiceVendorInfo } from "@/lib/scheme/serviceVendor";
 import { requireStepUp, readStepUpCode } from "@/lib/security/stepUp";
+import { recordAdminActivity, readActionLocation } from "@/lib/security/adminActivity";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { clientIp } from "@/lib/security/audit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
@@ -143,6 +144,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     },
   });
 
+  await recordAdminActivity({
+    actor: admin,
+    req,
+    action: "scheme.update",
+    kind: "write",
+    entity: "Scheme",
+    entityId: params.id,
+    location: readActionLocation(req, parsed.data),
+    meta: { changes: body },
+  });
+
   return NextResponse.json({ ok: true, scheme: serializeScheme(updated) });
 }
 
@@ -189,6 +201,17 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
       entityId: params.id,
       meta: { name: existing.name },
     },
+  });
+
+  await recordAdminActivity({
+    actor: admin,
+    req,
+    action: "scheme.deactivate",
+    kind: "write",
+    entity: "Scheme",
+    entityId: params.id,
+    location: readActionLocation(req),
+    meta: { name: existing.name },
   });
 
   return NextResponse.json({ ok: true });

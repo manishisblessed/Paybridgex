@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label } from "@/components/ui/Input";
 import { formatINR } from "@/lib/utils";
+import { rejectionReasonLabel } from "@/lib/qr/rejectionReasons";
 import { QrSettlementReportTab } from "./QrSettlementReportTab";
 
 type QrHeadroom = {
@@ -67,6 +68,7 @@ type Claim = {
   settledVia: string | null;
   settledAt: string | null;
   reviewNote: string | null;
+  rejectionReasons: string[];
   createdAt: string;
   reviewedAt: string | null;
 };
@@ -583,6 +585,18 @@ export default function QrCollectionsPage() {
         return (
           <div>
             <Badge variant={b.variant}>{b.label}</Badge>
+            {r.rejectionReasons && r.rejectionReasons.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {r.rejectionReasons.map((rr) => (
+                  <span
+                    key={rr}
+                    className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700"
+                  >
+                    {rejectionReasonLabel(rr)}
+                  </span>
+                ))}
+              </div>
+            )}
             {r.reviewNote && <div className="mt-1 text-xs text-ink-500">{r.reviewNote}</div>}
           </div>
         );

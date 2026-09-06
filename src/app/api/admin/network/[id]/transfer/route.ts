@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { getDescendantIds } from "@/lib/security/ownership";
@@ -34,11 +36,13 @@ export async function POST(
 ) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN");
+    admin = await requireAdminActivity(req, {
+      action: "hierarchy.transfer",
+      roles: ["MASTER_ADMIN"],
+      entity: "HierarchyTransfer",
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const { id: userId } = await params;

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, AuthError } from "@/lib/auth-server";
-import { isAdminRole } from "@/lib/security/ownership";
-import { enforceRateLimit, RATE_LIMITS, RateLimitError } from "@/lib/security/rateLimit";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 
 export const fetchCache = "force-no-store";
@@ -25,16 +25,14 @@ const AssignBody = z
 export async function POST(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
-    if (!isAdminRole(admin.role))
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    admin = await requireAdminActivity(req, {
+      action: "scheme.assign",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "Scheme",
+    });
     await enforceRateLimit(`scheme:assign:${admin.id}`, RATE_LIMITS.default);
   } catch (e: unknown) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    if (e instanceof RateLimitError)
-      return NextResponse.json({ error: e.message, retryAfterSec: e.result.retryAfterSec }, { status: 429 });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const parsed = AssignBody.safeParse(await req.json().catch(() => ({})));

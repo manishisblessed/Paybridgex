@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { bumpTokenVersion } from "@/lib/security/session";
@@ -23,11 +24,14 @@ export async function PATCH(
 ) {
   let caller;
   try {
-    caller = await requireRole("MASTER_ADMIN");
+    caller = await requireAdminActivity(req, {
+      action: "master_admin.update",
+      roles: ["MASTER_ADMIN"],
+      entity: "User",
+      entityId: params.id,
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   if (caller.id === params.id) {
@@ -136,11 +140,14 @@ export async function DELETE(
 ) {
   let caller;
   try {
-    caller = await requireRole("MASTER_ADMIN");
+    caller = await requireAdminActivity(req, {
+      action: "master_admin.delete",
+      roles: ["MASTER_ADMIN"],
+      entity: "User",
+      entityId: params.id,
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   if (caller.id === params.id) {

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { getAllSettings, isSettingKey, setSetting } from "@/lib/settings";
@@ -30,11 +32,13 @@ const PutBody = z.object({
 export async function PUT(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN");
+    admin = await requireAdminActivity(req, {
+      action: "platform_setting.update",
+      roles: ["MASTER_ADMIN"],
+      entity: "PlatformSetting",
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const parsed = PutBody.safeParse(await req.json().catch(() => ({})));

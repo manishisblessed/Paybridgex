@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { isAdminRole } from "@/lib/security/ownership";
-import { enforceRateLimit, RateLimitError, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { prisma } from "@/lib/db";
 import {
   SLIDER_ROLES,
@@ -53,11 +55,13 @@ const CreateBody = z
 export async function POST(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN", "SUPPORT");
+    admin = await requireAdminActivity(req, {
+      action: "slider.create",
+      roles: ["MASTER_ADMIN", "ADMIN", "SUPPORT"],
+      entity: "Slider",
+    });
   } catch (e: unknown) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   if (!isAdminRole(admin.role))
@@ -110,12 +114,6 @@ export async function POST(req: Request) {
       { status: 201 }
     );
   } catch (e: unknown) {
-    if (e instanceof RateLimitError)
-      return NextResponse.json(
-        { error: e.message, retryAfterSec: e.result.retryAfterSec },
-        { status: e.statusCode }
-      );
-    console.error("[admin/sliders] POST error:", e);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return toErrorResponse(e);
   }
 }

@@ -1,17 +1,20 @@
 import { NextResponse } from "next/server";
-import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { backfillUserCodes } from "@/lib/userCode";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
-    await requireRole("MASTER_ADMIN");
+    await requireAdminActivity(req, {
+      action: "user.backfill_codes",
+      roles: ["MASTER_ADMIN"],
+      entity: "User",
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const assigned = await backfillUserCodes();

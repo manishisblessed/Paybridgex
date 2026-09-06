@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { ServiceCode } from "@prisma/client";
-import { requireRole, AuthError } from "@/lib/auth-server";
-import { isAdminRole } from "@/lib/security/ownership";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { serializeSlab } from "@/lib/scheme/serialize";
 import { validateNonOverlapping } from "@/lib/scheme/resolver";
@@ -48,13 +48,14 @@ const SlabBody = z
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
-    if (!isAdminRole(admin.role))
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    admin = await requireAdminActivity(req, {
+      action: "scheme.slab.create",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "SchemeSlab",
+      entityId: params.id,
+    });
   } catch (e: unknown) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const scheme = await prisma.scheme.findUnique({ where: { id: params.id }, select: { id: true } });

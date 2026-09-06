@@ -79,6 +79,7 @@ export async function GET() {
       settledVia: c.settledVia,
       settledAt: c.settledAt?.toISOString() ?? null,
       reviewNote: c.status === "REJECTED" || c.status === "CLAWED_BACK" ? c.reviewNote : null,
+      rejectionReasons: c.status === "REJECTED" ? c.rejectionReasons ?? [] : [],
       createdAt: c.createdAt.toISOString(),
       reviewedAt: c.reviewedAt?.toISOString() ?? null,
     })),

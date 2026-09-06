@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 
 export const fetchCache = "force-no-store";
@@ -58,7 +60,11 @@ const CreateBody = z.object({
 
 export async function POST(req: Request) {
   try {
-    const admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    const admin = await requireAdminActivity(req, {
+      action: "commission.create",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "CommissionSlab",
+    });
     const parsed = CreateBody.safeParse(await req.json());
     if (!parsed.success)
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -93,9 +99,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ ok: true, slab: { ...slab, minAmount: Number(slab.minAmount), maxAmount: Number(slab.maxAmount), flat: slab.flat ? Number(slab.flat) : null, percent: slab.percent ? Number(slab.percent) : null } }, { status: 201 });
-  } catch (e: any) {
-    if (e?.name === "AuthError") return NextResponse.json({ error: e.message }, { status: 401 });
-    console.error("[admin/commissions] POST error:", e);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (e) {
+    return toErrorResponse(e);
   }
 }

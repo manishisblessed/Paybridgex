@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
@@ -76,7 +77,11 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAdminActivity(req, {
+      action: "aml.alert_review",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "AmlAlert",
+    });
     await enforceRateLimit(`aml:review:${admin.id}`, RATE_LIMITS.sensitiveWrite);
   } catch (e) {
     return toErrorResponse(e);

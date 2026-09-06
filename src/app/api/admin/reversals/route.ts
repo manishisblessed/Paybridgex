@@ -3,6 +3,9 @@ import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
+import { requireStepUp, readStepUpCode } from "@/lib/security/stepUp";
+import { recordAdminActivity, readActionLocation } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import {
   createReversal,
   reversalInputFromTransaction,
@@ -118,6 +121,19 @@ export async function POST(req: Request) {
   if (!canManageReversals(admin))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  try {
+    const { code, type } = readStepUpCode(req);
+    await requireStepUp(admin, {
+      action: "reversal.create",
+      code,
+      type,
+      ip: clientIp(req),
+      userAgent: req.headers.get("user-agent"),
+    });
+  } catch (e) {
+    return toErrorResponse(e);
+  }
+
   const parsed = CreateBody.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -140,6 +156,16 @@ export async function POST(req: Request) {
         },
         ip: clientIp(req),
       },
+    });
+    await recordAdminActivity({
+      actor: admin,
+      req,
+      action: "reversal.created",
+      kind: "write",
+      entity: "Reversal",
+      entityId: rev.id,
+      location: readActionLocation(req),
+      meta: { kind: rev.kind, amount: toNumber(dec(rev.amount)), targetUserId: rev.targetUserId },
     });
     return NextResponse.json({ ok: true, reversal: { id: rev.id, status: rev.status } }, { status: 201 });
   } catch (e) {

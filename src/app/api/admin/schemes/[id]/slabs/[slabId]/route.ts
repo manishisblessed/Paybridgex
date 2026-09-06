@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, AuthError } from "@/lib/auth-server";
-import { isAdminRole } from "@/lib/security/ownership";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { serializeSlab } from "@/lib/scheme/serialize";
 import { validateNonOverlapping } from "@/lib/scheme/resolver";
@@ -36,13 +36,14 @@ export async function PATCH(
 ) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
-    if (!isAdminRole(admin.role))
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    admin = await requireAdminActivity(req, {
+      action: "scheme.slab.update",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "SchemeSlab",
+      entityId: params.slabId,
+    });
   } catch (e: unknown) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const existing = await prisma.schemeSlab.findUnique({ where: { id: params.slabId } });
@@ -112,18 +113,19 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: { id: string; slabId: string } }
 ) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
-    if (!isAdminRole(admin.role))
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    admin = await requireAdminActivity(req, {
+      action: "scheme.slab.delete",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "SchemeSlab",
+      entityId: params.slabId,
+    });
   } catch (e: unknown) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const existing = await prisma.schemeSlab.findUnique({ where: { id: params.slabId } });

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { getSetting, setSetting } from "@/lib/settings";
@@ -46,7 +48,12 @@ const PutBody = z.object({
  */
 export async function PUT(req: Request) {
   try {
-    const admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    const admin = await requireAdminActivity(req, {
+      action: "network.default-services.update",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "PlatformSetting",
+      entityId: "network.default_services",
+    });
 
     const parsed = PutBody.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success)
@@ -88,9 +95,6 @@ export async function PUT(req: Request) {
 
     return NextResponse.json({ ok: true, defaults: updated });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    console.error("[admin/network/default-services] PUT error:", e);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return toErrorResponse(e);
   }
 }

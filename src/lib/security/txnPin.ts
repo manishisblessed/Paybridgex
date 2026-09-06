@@ -59,8 +59,52 @@ export type TxnPinOptions = {
  *   - 401 TXN_PIN_INVALID   — wrong PIN (attempt counted)
  */
 export async function requireTxnPin(user: SessionUser, req: Request, opts: TxnPinOptions): Promise<void> {
+  const pin = readTxnPin(req);
+  if (!pin) {
+    // Distinguish "no PIN configured" from "PIN not supplied" so the client can
+    // route the user to setup vs. prompt for entry. Requires a cheap existence
+    // check before we can tell them apart.
+    const dbUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { txnPinHash: true },
+    });
+    if (!dbUser?.txnPinHash) {
+      throw new TxnPinError(
+        "Set your transaction PIN in Settings before making transactions.",
+        412,
+        "TXN_PIN_NOT_SET"
+      );
+    }
+    throw new TxnPinError("Transaction PIN required.", 401, "TXN_PIN_REQUIRED");
+  }
+
+  await verifyUserPin(user.id, pin, {
+    action: opts.action,
+    ip: opts.ip,
+    userAgent: opts.userAgent,
+  });
+}
+
+export type VerifyUserPinOptions = {
+  action: string; // for audit, e.g. "auth.pin_login"
+  ip?: string | null;
+  userAgent?: string | null;
+};
+
+/**
+ * Core transaction-PIN verification, independent of HTTP transport. Verifies
+ * `pin` against the user's stored hash with the SAME failure-counting and
+ * lockout semantics as {@link requireTxnPin}. Reused by TPIN login so the login
+ * path benefits from the shared 5-attempt / 15-minute lockout. Throws
+ * {@link TxnPinError} on not-set / locked / invalid.
+ */
+export async function verifyUserPin(
+  userId: string,
+  pin: string,
+  opts: VerifyUserPinOptions
+): Promise<void> {
   const dbUser = await prisma.user.findUnique({
-    where: { id: user.id },
+    where: { id: userId },
     select: { txnPinHash: true, txnPinFailedAttempts: true, txnPinLockedUntil: true },
   });
 
@@ -82,17 +126,12 @@ export async function requireTxnPin(user: SessionUser, req: Request, opts: TxnPi
     );
   }
 
-  const pin = readTxnPin(req);
-  if (!pin) {
-    throw new TxnPinError("Transaction PIN required.", 401, "TXN_PIN_REQUIRED");
-  }
-
   const valid = TXN_PIN_RE.test(pin) && (await bcrypt.compare(pin, dbUser.txnPinHash));
   if (!valid) {
     const attempts = dbUser.txnPinFailedAttempts + 1;
     const lock = attempts >= MAX_ATTEMPTS;
     await prisma.user.update({
-      where: { id: user.id },
+      where: { id: userId },
       data: {
         txnPinFailedAttempts: lock ? 0 : attempts,
         txnPinLockedUntil: lock ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000) : null,
@@ -101,9 +140,9 @@ export async function requireTxnPin(user: SessionUser, req: Request, opts: TxnPi
     await logSecurityEvent({
       action: "txnpin.failed",
       severity: lock ? "warn" : "info",
-      userId: user.id,
+      userId,
       entity: "User",
-      entityId: user.id,
+      entityId: userId,
       ip: opts.ip,
       userAgent: opts.userAgent,
       meta: { action: opts.action, attempts, locked: lock },
@@ -126,7 +165,7 @@ export async function requireTxnPin(user: SessionUser, req: Request, opts: TxnPi
   // Success — reset the failure counter if it was non-zero.
   if (dbUser.txnPinFailedAttempts > 0 || dbUser.txnPinLockedUntil) {
     await prisma.user.update({
-      where: { id: user.id },
+      where: { id: userId },
       data: { txnPinFailedAttempts: 0, txnPinLockedUntil: null },
     });
   }

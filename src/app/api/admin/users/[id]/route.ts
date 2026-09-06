@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { requireRole } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { bumpTokenVersion } from "@/lib/security/session";
 import { generateRandomPassword } from "@/lib/utils";
 import { NETWORK_TIERS } from "@/lib/hierarchy";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 
 const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("suspend"), reason: z.string().optional() }),
@@ -23,6 +24,14 @@ const Body = z.discriminatedUnion("action", [
     target: z.enum(["APPROVED", "PENDING", "REJECTED"]),
     reason: z.string().max(500).optional(),
   }),
+  // Master-admin only: waive mandatory 2FA and allow TPIN login (or revoke it).
+  z.object({
+    action: z.literal("setPinLogin"),
+    enabled: z.boolean(),
+    reason: z.string().max(500).optional(),
+    stepUpCode: z.string().max(20).optional(),
+    stepUpType: z.enum(["totp", "backup"]).optional(),
+  }),
 ]);
 
 export const fetchCache = "force-no-store";
@@ -33,15 +42,28 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const admin = await requireRole("MASTER_ADMIN", "ADMIN");
     const parsed = Body.safeParse(await req.json());
     if (!parsed.success)
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
     const body = parsed.data;
+
+    let admin;
+    try {
+      admin = await requireAdminActivity(req, {
+        action: `user.${body.action}`,
+        roles: ["MASTER_ADMIN", "ADMIN"],
+        entity: "User",
+        entityId: params.id,
+        body,
+      });
+    } catch (e) {
+      return toErrorResponse(e);
+    }
+
     const targetUser = await prisma.user.findUnique({
       where: { id: params.id },
-      select: { id: true, role: true, status: true, email: true },
+      select: { id: true, role: true, status: true, email: true, name: true, txnPinHash: true },
     });
 
     if (!targetUser)
@@ -49,6 +71,57 @@ export async function PATCH(
 
     if (targetUser.role === "ADMIN")
       return NextResponse.json({ error: "Cannot modify admin users" }, { status: 403 });
+
+    if (body.action === "setPinLogin") {
+      // Only a MASTER_ADMIN may waive 2FA / grant TPIN login (not ADMIN).
+      if (admin.role !== "MASTER_ADMIN") {
+        return NextResponse.json({ error: "Only a master-admin can change TPIN login." }, { status: 403 });
+      }
+      if (targetUser.role === "MASTER_ADMIN") {
+        return NextResponse.json({ error: "Cannot change TPIN login for a master-admin." }, { status: 403 });
+      }
+
+      const enabling = body.enabled;
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { id: params.id },
+          data: enabling
+            ? { twoFactorExempt: true, pinLoginEnabled: true }
+            : {
+                twoFactorExempt: false,
+                pinLoginEnabled: false,
+                pinLoginRiskAcceptedAt: null,
+                pinLoginRiskAcceptedIp: null,
+              },
+        }),
+        prisma.auditLog.create({
+          data: {
+            userId: admin.id,
+            action: enabling ? "user.pin_login_enabled" : "user.pin_login_disabled",
+            entity: "User",
+            entityId: params.id,
+            actorName: admin.name,
+            actorRole: admin.role,
+            meta: { email: targetUser.email, reason: body.reason, hadPin: Boolean(targetUser.txnPinHash) },
+            ip: clientIp(req),
+          },
+        }),
+      ]);
+
+      // Force a fresh session so twoFactorExempt propagates and the mandatory-2FA
+      // gate stops (or resumes) prompting immediately.
+      await bumpTokenVersion(params.id, { swallow: true });
+
+      return NextResponse.json({
+        ok: true,
+        pinLoginEnabled: enabling,
+        twoFactorExempt: enabling,
+        warning:
+          enabling && !targetUser.txnPinHash
+            ? "This user has not set a transaction PIN yet. They must set one before they can log in with a PIN."
+            : undefined,
+      });
+    }
 
     if (body.action === "resetPassword") {
       const password = generateRandomPassword(12);

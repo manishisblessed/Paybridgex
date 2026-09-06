@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { verifyAuditDay, anchorAuditDay } from "@/lib/audit/anchor";
@@ -50,10 +51,14 @@ export async function GET(req: Request) {
   });
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAdminActivity(req, {
+      action: "audit.anchor_run",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "AuditAnchor",
+    });
     await enforceRateLimit(`audit:anchor-run:${admin.id}`, RATE_LIMITS.sensitiveWrite);
   } catch (e) {
     return toErrorResponse(e);

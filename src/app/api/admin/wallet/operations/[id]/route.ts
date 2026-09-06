@@ -3,6 +3,9 @@ import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
+import { requireStepUp, readStepUpCode } from "@/lib/security/stepUp";
+import { recordAdminActivity, readActionLocation } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import {
   approveWalletOperation,
   closeWalletOperation,
@@ -31,6 +34,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!canManageWalletOps(admin))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  try {
+    const { code, type } = readStepUpCode(req);
+    await requireStepUp(admin, {
+      action: "wallet_op.review",
+      code,
+      type,
+      ip: clientIp(req),
+      userAgent: req.headers.get("user-agent"),
+    });
+  } catch (e) {
+    return toErrorResponse(e);
+  }
+
   const parsed = ActionBody.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -55,6 +71,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         meta: { status: op.status, note: parsed.data.note ?? null },
         ip: clientIp(req),
       },
+    });
+
+    await recordAdminActivity({
+      actor: admin,
+      req,
+      action: `wallet_op.${parsed.data.action}`,
+      kind: "write",
+      entity: "WalletOperation",
+      entityId: op.id,
+      location: readActionLocation(req),
+      meta: { status: op.status },
     });
 
     return NextResponse.json({ ok: true, status: op.status });

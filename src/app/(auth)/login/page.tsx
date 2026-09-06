@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { LogoMark } from "@/components/layout/Logo";
 import { TwoFactorStep } from "@/components/auth/TwoFactorStep";
+import { PinLoginStep } from "@/components/auth/PinLoginStep";
 import { LocationGate, type LocationData } from "@/components/auth/LocationGate";
 import { Turnstile, captchaConfigured } from "@/components/security/Turnstile";
 
@@ -200,10 +201,11 @@ function LoginForm({ location }: { location: LocationData }) {
   const rateLimited = cooldownSec > 0;
 
   // Multi-step flow: pick role -> enter credentials -> (optional) 2FA.
-  const [step, setStep] = useState<"role" | "credentials" | "2fa">("role");
+  const [step, setStep] = useState<"role" | "credentials" | "2fa" | "pinlogin">("role");
   const [selectedRole, setSelectedRole] = useState<PublicRole | null>(null);
   const [tempToken, setTempToken] = useState("");
   const [userName, setUserName] = useState("");
+  const [pinRiskAccepted, setPinRiskAccepted] = useState(false);
 
   const selectedMeta = roleOptions.find((r) => r.id === selectedRole) ?? null;
 
@@ -252,6 +254,15 @@ function LoginForm({ location }: { location: LocationData }) {
           startCooldown(retrySec);
         }
         setError(data.error || "Invalid email/phone or password.");
+        setLoading(false);
+        return;
+      }
+
+      if (data.needsPinLogin) {
+        setTempToken(data.tempToken);
+        setUserName(data.user?.name || "");
+        setPinRiskAccepted(Boolean(data.riskAccepted));
+        setStep("pinlogin");
         setLoading(false);
         return;
       }
@@ -352,6 +363,43 @@ function LoginForm({ location }: { location: LocationData }) {
             <ShieldCheck className="h-3.5 w-3.5 text-accent-600" />
             256-bit encrypted · Location-verified sign-in
           </p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (step === "pinlogin") {
+    return (
+      <div className="grid w-full max-w-5xl gap-6 lg:grid-cols-2">
+        <BrandPanel
+          eyebrow="PIN login"
+          title={<>Sign in with<br />your PIN.</>}
+          text="Two-factor authentication has been waived for your account by an administrator. Enter your transaction PIN to continue."
+          points={[
+            "Your transaction PIN is your second factor",
+            "5 wrong attempts locks it for 15 minutes",
+            "You accept all account risk without 2FA",
+            "Ask an admin to re-enable 2FA anytime",
+          ]}
+        />
+
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+          className="rounded-[2rem] border border-ink-100 bg-white p-8 shadow-soft md:p-10"
+        >
+          <PinLoginStep
+            tempToken={tempToken}
+            userName={userName}
+            riskAlreadyAccepted={pinRiskAccepted}
+            onBack={() => {
+              setStep("credentials");
+              setTempToken("");
+              setPassword("");
+              setError("");
+            }}
+          />
         </motion.div>
       </div>
     );

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth-server";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
 import { approveQrClaim } from "@/lib/qr/claims";
 
 /**
@@ -25,7 +25,12 @@ const Body = z
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN", "SUPPORT");
+    admin = await requireAdminActivity(req, {
+      action: "qr.claim.approve",
+      roles: ["MASTER_ADMIN", "ADMIN", "SUPPORT"],
+      entity: "QrClaim",
+      entityId: params.id,
+    });
     await enforceRateLimit(`qr:review:${admin.id}`, RATE_LIMITS.sensitiveWrite);
   } catch (e) {
     return toErrorResponse(e);

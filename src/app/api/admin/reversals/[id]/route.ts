@@ -3,6 +3,9 @@ import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
+import { requireStepUp, readStepUpCode } from "@/lib/security/stepUp";
+import { recordAdminActivity, readActionLocation } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import {
   approveReversal,
   closeReversal,
@@ -31,6 +34,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!canManageReversals(admin))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  try {
+    const { code, type } = readStepUpCode(req);
+    await requireStepUp(admin, {
+      action: "reversal.review",
+      code,
+      type,
+      ip: clientIp(req),
+      userAgent: req.headers.get("user-agent"),
+    });
+  } catch (e) {
+    return toErrorResponse(e);
+  }
+
   const parsed = Body.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -50,6 +66,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         meta: { status: rev.status, note: parsed.data.note ?? null },
         ip: clientIp(req),
       },
+    });
+    await recordAdminActivity({
+      actor: admin,
+      req,
+      action: `reversal.${parsed.data.action.toLowerCase()}`,
+      kind: "write",
+      entity: "Reversal",
+      entityId: rev.id,
+      location: readActionLocation(req),
+      meta: { status: rev.status },
     });
     return NextResponse.json({ ok: true, status: rev.status });
   } catch (e) {

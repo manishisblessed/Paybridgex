@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { requireAuth, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { getPartner } from "@/lib/partners";
@@ -32,15 +34,13 @@ export async function PATCH(
 ) {
   let user;
   try {
-    user = await requireAuth();
+    user = await requireAdminActivity(req, {
+      action: "invite.manage",
+      roles: ["MASTER_ADMIN", "ADMIN", "SUPPORT"],
+      entity: "Invite",
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
-  }
-
-  if (!["MASTER_ADMIN", "ADMIN", "SUPPORT"].includes(user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return toErrorResponse(e);
   }
   if (adminLacksInvitePermission(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { requireRole, AuthError } from "@/lib/auth-server";
+import { requireAdminActivity } from "@/lib/security/adminActivity";
+import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { bumpTokenVersion } from "@/lib/security/session";
@@ -149,11 +151,14 @@ const Body = z.discriminatedUnion("action", [
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   let admin;
   try {
-    admin = await requireRole("MASTER_ADMIN", "ADMIN");
+    admin = await requireAdminActivity(req, {
+      action: "network.user.update",
+      roles: ["MASTER_ADMIN", "ADMIN"],
+      entity: "User",
+      entityId: params.id,
+    });
   } catch (e) {
-    if (e instanceof AuthError)
-      return NextResponse.json({ error: e.message }, { status: e.statusCode });
-    throw e;
+    return toErrorResponse(e);
   }
 
   const parsed = Body.safeParse(await req.json().catch(() => ({})));
