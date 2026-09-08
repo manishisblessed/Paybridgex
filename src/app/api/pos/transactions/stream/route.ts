@@ -64,7 +64,12 @@ export async function GET(req: Request) {
     const scope = await resolvePosScope(user, { company, terminalId: q.get("terminal_id") });
     if (!scope.ok) throw new Error(scope.error);
 
-    const rawStatus = (q.get("status") ?? "").toUpperCase() as PosTransactionStatus;
+    // `status` may be a single value or a comma-separated set (e.g.
+    // "REFUNDED,VOIDED" for the Reversals view). Keep only valid statuses.
+    const validStatuses = (q.get("status") ?? "")
+      .split(",")
+      .map((s) => s.trim().toUpperCase() as PosTransactionStatus)
+      .filter((s) => STATUSES.includes(s));
     const rawMode = (q.get("payment_mode") ?? "").toUpperCase() as PosPaymentMode;
     page = Math.max(1, Number(q.get("page")) || 1);
     pageSize = Math.min(100, Math.max(1, Number(q.get("page_size")) || 50));
@@ -72,7 +77,7 @@ export async function GET(req: Request) {
     filters = {
       dateFrom,
       dateTo,
-      status: STATUSES.includes(rawStatus) ? rawStatus : null,
+      status: validStatuses.length === 0 ? null : validStatuses.length === 1 ? validStatuses[0] : validStatuses,
       paymentMode: MODES.includes(rawMode) ? rawMode : null,
       terminals: scope.terminals,
     };

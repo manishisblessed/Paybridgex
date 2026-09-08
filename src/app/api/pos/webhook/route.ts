@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { handlePosCapture, handlePosReversal } from "@/lib/settlement/pos";
 import { verifySamedayPosWebhook, canonicalPosCaptureRef } from "@/lib/partners/sameday-pos";
+import type { WebhookVerifyResult } from "@/lib/partners/sameday-pos";
 import { prisma } from "@/lib/db";
 import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
 import { isCardClassificationEnabled } from "@/lib/settings";
@@ -9,36 +10,43 @@ import { upsertMirrorFromWebhook } from "@/lib/pos/mirror";
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
 
+const REVERSED_STATUSES = new Set(["FAILED", "VOIDED", "REFUNDED"]);
+
 /**
  * POST /api/pos/webhook
  *
  * Webhook endpoint for Same Day Solution POS transaction notifications.
- * When a transaction is CAPTURED, this triggers the settlement flow
- * (instant or T+1 depending on the retailer's configuration).
  *
- * Security: the raw body is HMAC-verified against SAMEDAY_POS_WEBHOOK_SECRET
- * before it is trusted. While that secret is unset (bootstrap phase, before
- * Same Day supplies it) the request is accepted but flagged unverified so
- * captures keep saving; once the secret is set, an invalid/absent signature is
- * rejected 401.
+ * Handles two event types:
+ *   - "pos.transaction"          — normal capture notification (existing flow)
+ *   - "pos.transaction.reversed" — a prior CAPTURED swipe was voided/failed/refunded
  *
- * The webhook payload shape follows Same Day's documentation. If your
- * provider uses a different shape, adapt the mapping below.
+ * Security:
+ *   1. Raw body read BEFORE JSON parsing (HMAC over exact bytes).
+ *   2. Stale timestamps (|now − X-Sameday-Timestamp| > 300s) → 400.
+ *   3. HMAC-SHA256 signature verified (constant-time) → 401 on mismatch.
+ *   4. Idempotency on X-Sameday-Delivery (durable PosWebhookDelivery table).
+ *   5. Always returns 2xx once processed; non-2xx triggers Same Day retries.
  */
 export async function POST(req: Request) {
-  // Read the RAW body first — HMAC must be computed over the exact bytes sent.
+  // ── 1. Read the RAW body first — HMAC must be computed over the exact bytes.
   const rawBody = await req.text();
   const signature = req.headers.get("x-sameday-signature");
   const timestamp = req.headers.get("x-sameday-timestamp");
-  // Stable across retries — Same Day's idempotency id for the delivery.
   const deliveryId = req.headers.get("x-sameday-delivery");
+  const eventHeader = req.headers.get("x-sameday-event");
 
-  const verdict = verifySamedayPosWebhook(rawBody, signature, timestamp);
-  if (verdict === false) {
+  // ── 2–3. Verify signature with granular rejection.
+  const verdict: WebhookVerifyResult = verifySamedayPosWebhook(rawBody, signature, timestamp);
+  if (verdict === "STALE") {
+    return NextResponse.json({ error: "Stale timestamp" }, { status: 400 });
+  }
+  if (verdict === "INVALID") {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
-  const verified = verdict === true;
+  const verified = verdict === "VALID";
 
+  // ── Parse JSON body.
   let body: Record<string, unknown>;
   try {
     body = JSON.parse(rawBody) as Record<string, unknown>;
@@ -46,18 +54,45 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // ── 4. Idempotency: dedupe on X-Sameday-Delivery (stable across retries).
+  if (deliveryId) {
+    const existing = await prisma.posWebhookDelivery.findUnique({
+      where: { deliveryId },
+    });
+    if (existing) {
+      return NextResponse.json({ ok: true, action: "duplicate" }, { status: 200 });
+    }
+    // Persist BEFORE processing so a crash mid-flight doesn't double-process
+    // on the retry (the business logic is idempotent anyway, but this is belt
+    // and suspenders).
+    try {
+      await prisma.posWebhookDelivery.create({
+        data: {
+          deliveryId,
+          event: eventHeader ?? String(body.event ?? "unknown"),
+        },
+      });
+    } catch (e) {
+      // P2002 = unique constraint race: another request beat us — treat as duplicate.
+      if ((e as { code?: string }).code === "P2002") {
+        return NextResponse.json({ ok: true, action: "duplicate" }, { status: 200 });
+      }
+      throw e;
+    }
+  }
+
   // Same Day sends a FLAT payload (no {event,data} wrapper).
   const txnData = body;
 
-  // ── Reversal event (POS API v2): pos.transaction.reversed ────────────────
-  // A previously-CAPTURED swipe was voided/reversed/refunded at the terminal.
-  // Reconcile it (flip the mirror, cancel a PENDING settlement, or flag a
-  // settled one for clawback) and ack. handlePosReversal is idempotent, so a
-  // retried delivery (same X-Sameday-Delivery) is a safe no-op.
-  const eventType = (
-    req.headers.get("x-sameday-event") ?? String(txnData.event ?? "")
-  ).toLowerCase();
-  if (eventType === "pos.transaction.reversed" || String(txnData.action ?? "").toLowerCase() === "remove") {
+  // ── Reversal event: pos.transaction.reversed ────────────────────────────
+  // A previously-CAPTURED swipe was voided/failed/refunded at the terminal.
+  // ANY "pos.transaction.reversed" with action "remove" is treated as a reversal
+  // regardless of the specific status value (FAILED | VOIDED | REFUNDED).
+  const eventType = (eventHeader ?? String(txnData.event ?? "")).toLowerCase();
+  if (
+    eventType === "pos.transaction.reversed" ||
+    String(txnData.action ?? "").toLowerCase() === "remove"
+  ) {
     const terminalId = String(txnData.terminal_id ?? txnData.tid ?? "");
     const rrn = String(txnData.rrn ?? txnData.rrNumber ?? "");
     const reversalRef = canonicalPosCaptureRef({
@@ -68,7 +103,14 @@ export async function POST(req: Request) {
     if (!reversalRef) {
       return NextResponse.json({ error: "Missing transaction reference" }, { status: 400 });
     }
-    const newStatus = String(txnData.status ?? "").toUpperCase() === "REFUNDED" ? "REFUNDED" : "VOIDED";
+
+    // Map the terminal status to our internal reversal status.
+    // FAILED, VOIDED, and REFUNDED are all treated as reversals.
+    const rawStatus = String(txnData.status ?? "").toUpperCase();
+    const newStatus: "VOIDED" | "REFUNDED" =
+      rawStatus === "REFUNDED" ? "REFUNDED" : "VOIDED";
+
+    const wasSettledFlag = Boolean(txnData.was_settled);
     const result = await handlePosReversal({
       transactionRef: reversalRef,
       status: newStatus,
@@ -84,8 +126,11 @@ export async function POST(req: Request) {
         entityId: reversalRef,
         meta: {
           status: newStatus,
+          rawStatus,
           outcome: result.outcome,
           wasSettled: result.wasSettled ?? false,
+          wasSettledUpstream: wasSettledFlag,
+          needsManualReview: wasSettledFlag || result.wasSettled,
           previousStatus: String(txnData.previous_status ?? "") || null,
           reason: String(txnData.reason ?? "") || null,
           terminalId: terminalId || null,
@@ -98,19 +143,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, action: "reversed", ...result });
   }
 
+  // ── Normal capture: "pos.transaction" ───────────────────────────────────
   // `mappedStatus` is the normalized lifecycle status (CAPTURED | FAILED |
-  // PENDING); the raw `status` is the acquirer status (e.g. AUTHORIZED). Same
-  // Day fires one callback on authorize and one on capture — only settle the
-  // capture. Everything else is acknowledged so retries stop.
+  // PENDING); only settle captures. Everything else is acked so retries stop.
+  // Additionally, reject any capture whose status is FAILED/VOIDED/REFUNDED or
+  // has a non-null reversed_at — these are never settleable.
   const mappedStatus = String(txnData.mappedStatus ?? "").toUpperCase();
   if (mappedStatus !== "CAPTURED") {
     return NextResponse.json({ ok: true, action: "ignored", status: mappedStatus });
   }
 
+  const rawCaptureStatus = String(txnData.status ?? "").toUpperCase();
+  if (REVERSED_STATUSES.has(rawCaptureStatus) || txnData.reversed_at != null) {
+    return NextResponse.json({ ok: true, action: "ignored", reason: "reversed upstream" });
+  }
+
   const terminalId = String(txnData.tid ?? "");
-  // Canonical, cross-path idempotency ref (RRN-based) so this webhook and the
-  // ingest sweep converge on the SAME transactionRef for one physical swipe —
-  // the @unique constraint then makes a double settlement/commission impossible.
   const rrn = String(txnData.rrNumber ?? txnData.rrn ?? "");
   const transactionRef = canonicalPosCaptureRef({
     rrn,
@@ -127,17 +175,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
   }
   const paymentMode = "CARD";
-  // Card dimensions (optional in the payload) drive company/card-wise MDR.
   const cardType = String(txnData.paymentCardType ?? "").toUpperCase() || undefined;
   const brandType = String(txnData.paymentCardBrand ?? "").toUpperCase() || undefined;
   let classification = String(txnData.cardClassification ?? "").toUpperCase() || undefined;
-  // Acquiring bank / provider that handled the swipe. Falls back to the
-  // machine's configured provider in the engine when absent.
   const providerRaw = String(txnData.acquiringBank ?? "").trim();
   const provider = providerRaw ? providerRaw.toUpperCase() : undefined;
 
-  // BIN enrichment: when the feed omits card classification, derive it from the
-  // (masked) PAN's leading BIN digits via eKYC Hub so MDR is priced accurately.
+  // BIN enrichment: derive card classification from masked PAN when not provided.
   const cardNumber = String(txnData.formattedPan ?? txnData.maskedCardNumber ?? "").replace(/\D/g, "");
   if (!classification && cardNumber.length >= 6 && paymentMode === "CARD" && (await isCardClassificationEnabled())) {
     try {
@@ -161,10 +205,8 @@ export async function POST(req: Request) {
     classification,
   });
 
-  // Mirror the capture into the display read-model so the dashboard feed shows
-  // it instantly (the periodic sweep later reconciles/completes it). Masked PAN
-  // only, exactly what the feed returns. Best-effort: a mirror write must never
-  // fail the webhook or block settlement.
+  // Mirror the capture into the display read-model. Best-effort: a mirror write
+  // must never fail the webhook or block settlement.
   const maskedPan = String(txnData.formattedPan ?? txnData.maskedCardNumber ?? "").trim() || null;
   const capturedAt = (() => {
     for (const raw of [txnData.txnTime, txnData.transactionTime, txnData.txnDate, txnData.createdAt]) {

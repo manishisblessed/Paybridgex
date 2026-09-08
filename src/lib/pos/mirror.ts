@@ -369,7 +369,9 @@ export function rowToFeedShape(row: MirrorRow): PosTransaction {
 export type MirrorQueryFilters = {
   dateFrom: Date;
   dateTo: Date;
-  status?: PosTransactionStatus | null;
+  // A single status, or a set of statuses (OR-matched) — e.g. the "Reversals"
+  // view filters on both REFUNDED and VOIDED.
+  status?: PosTransactionStatus | PosTransactionStatus[] | null;
   paymentMode?: string | null;
   /**
    * Terminal scope. `null` = tenant-wide (admin only, no terminal filter).
@@ -388,7 +390,9 @@ function buildWhere(filters: MirrorQueryFilters): Prisma.PosTransactionMirrorWhe
   const base: Prisma.PosTransactionMirrorWhereInput = {
     txnTime: { gte: filters.dateFrom, lte: filters.dateTo },
   };
-  if (filters.status) base.status = filters.status;
+  if (filters.status) {
+    base.status = Array.isArray(filters.status) ? { in: filters.status } : filters.status;
+  }
   if (filters.paymentMode) base.paymentMode = filters.paymentMode;
 
   if (filters.terminals === null) return base; // tenant-wide (admin)

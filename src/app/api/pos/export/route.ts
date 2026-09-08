@@ -16,10 +16,13 @@ export const maxDuration = 60;
 // Hard safety cap so a single export can never build an unbounded payload.
 const MAX_ROWS = 10000;
 
+const statusEnum = z.enum(["AUTHORIZED", "CAPTURED", "FAILED", "REFUNDED", "VOIDED"]);
+
 const schema = z.object({
   date_from: z.string().min(1, "date_from is required"),
   date_to: z.string().min(1, "date_to is required"),
-  status: z.enum(["AUTHORIZED", "CAPTURED", "FAILED", "REFUNDED", "VOIDED"]).nullable().optional(),
+  // Single status or a set (OR-matched) — e.g. ["REFUNDED","VOIDED"].
+  status: z.union([statusEnum, z.array(statusEnum)]).nullable().optional(),
   terminal_id: z.string().nullable().optional(),
   // Admin-only: export every terminal booked under an acquiring company.
   company: z.string().nullable().optional(),

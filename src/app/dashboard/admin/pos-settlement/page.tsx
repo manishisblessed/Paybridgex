@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { formatINR } from "@/lib/utils";
+import { formatINR, istDayRangeUtc } from "@/lib/utils";
 import { RefreshCw, Clock, PlayCircle, DownloadCloud, Zap, Save, CheckCircle2, XCircle, Layers, Gauge } from "lucide-react";
 import { Panel, DarkPanel, StatTile } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
@@ -283,8 +283,9 @@ export default function PosSettlementPage() {
 
   const runIngest = () => {
     const extra: Record<string, unknown> = {};
-    if (from) extra.dateFrom = `${from}T00:00:00.000Z`;
-    if (to) extra.dateTo = `${to}T23:59:59.999Z`;
+    // Ingest bounds follow IST business days, consistent with the POS feeds.
+    if (from) extra.dateFrom = istDayRangeUtc(from, from).from;
+    if (to) extra.dateTo = istDayRangeUtc(to, to).to;
     runAction("run_ingest", "Ingestion", extra);
   };
 

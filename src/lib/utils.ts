@@ -28,6 +28,39 @@ export function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ── IST business-day helpers ────────────────────────────────────────────────
+// The platform's operating timezone is Asia/Kolkata (fixed +05:30, no DST), and
+// the live payin monitor resets at IST midnight (see `istPeriodStart` in
+// src/lib/wallet/payin.ts). These helpers give every date-windowed feed the SAME
+// IST day boundary so, e.g., POS Fleet "Captured Volume" reconciles exactly with
+// the top-bar "Payin · Today" chip instead of drifting by the 5.5h UTC offset.
+
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/** Today's date as `YYYY-MM-DD` in IST (the business day, not the UTC day). */
+export function istToday(): string {
+  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** The IST date `days` days before today, as `YYYY-MM-DD`. */
+export function istDaysAgo(days: number): string {
+  return new Date(Date.now() + IST_OFFSET_MS - days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Convert an inclusive IST calendar-day range (`YYYY-MM-DD` strings) into the
+ * UTC instants that bound it, returned as `Z` ISO strings. IST midnight →
+ * `${from}T00:00:00.000+05:30`; IST end-of-day → `${to}T23:59:59.999+05:30`.
+ * Emitting the UTC (`Z`) form keeps it safe to drop into query strings (no `+`
+ * to url-encode) and into JSON bodies alike.
+ */
+export function istDayRangeUtc(fromDate: string, toDate: string): { from: string; to: string } {
+  return {
+    from: new Date(`${fromDate}T00:00:00.000+05:30`).toISOString(),
+    to: new Date(`${toDate}T23:59:59.999+05:30`).toISOString(),
+  };
+}
+
 /** Role-based user code prefixes (production format). */
 export const USER_CODE_PREFIX: Record<string, string> = {
   RETAILER: "RT",

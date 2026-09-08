@@ -23,6 +23,7 @@ import {
   Trophy,
   PartyPopper,
   Receipt,
+  XCircle,
 } from "lucide-react";
 import { SettlementReportTab } from "./SettlementReportTab";
 import { PageHeader } from "@/components/dashboard/PageHeader";
@@ -39,7 +40,7 @@ import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { formatINR } from "@/lib/utils";
+import { formatINR, istToday, istDaysAgo, istDayRangeUtc } from "@/lib/utils";
 import { posClassificationLabel } from "@/lib/pos/classification";
 import { type ReportColumn } from "@/lib/reports";
 import { ReportActions } from "@/components/dashboard/ReportActions";
@@ -85,15 +86,14 @@ async function postFetcher<T>([url, body]: readonly [string, unknown]): Promise<
   return json as T;
 }
 
+// Date pickers work in the IST business day (matching the payin monitor's IST
+// reset), so the default 30-day window and "Today" resolve to IST calendar days.
 function defaultDateRange() {
-  const to = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - 30);
-  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+  return { from: istDaysAgo(30), to: istToday() };
 }
 
 function todayRange() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istToday();
   return { from: today, to: today };
 }
 
@@ -122,9 +122,26 @@ function fmtTime(iso: string) {
   });
 }
 
-type Tab = "machines" | "transactions" | "settlements" | "report" | "free-rent";
+type Tab = "machines" | "transactions" | "pending" | "failed" | "reversals" | "settlements" | "report" | "free-rent";
 
-const VALID_TABS: Tab[] = ["machines", "transactions", "settlements", "report", "free-rent"];
+const VALID_TABS: Tab[] = ["machines", "transactions", "pending", "failed", "reversals", "settlements", "report", "free-rent"];
+
+type TxnView = {
+  key: string;
+  statuses: PosTransactionStatus[];
+  noun: string;
+  liveWord: string;
+  icon: typeof ArrowLeftRight;
+  countTone: "brand" | "emerald" | "violet" | "amber" | "rose" | "sky";
+  volTone: "brand" | "emerald" | "violet" | "amber" | "rose";
+};
+
+const TXN_VIEWS: Record<"captured" | "pending" | "failed" | "reversals", TxnView> = {
+  captured: { key: "captured", statuses: ["CAPTURED"], noun: "Captured", liveWord: "captured", icon: ArrowLeftRight, countTone: "brand", volTone: "emerald" },
+  pending: { key: "pending", statuses: ["AUTHORIZED"], noun: "Pending", liveWord: "pending / authorized", icon: Clock, countTone: "amber", volTone: "brand" },
+  failed: { key: "failed", statuses: ["FAILED"], noun: "Failed", liveWord: "failed", icon: XCircle, countTone: "rose", volTone: "violet" },
+  reversals: { key: "reversals", statuses: ["REFUNDED", "VOIDED"], noun: "Reversed", liveWord: "reversed / voided", icon: RotateCcw, countTone: "violet", volTone: "amber" },
+};
 
 /** Read deep-link params (?tab=&from=&to=) from the URL once, SSR-safe. */
 function readPosDeepLink(): { tab: Tab | null; from: string | null; to: string | null } {
@@ -147,6 +164,9 @@ export default function PosPage() {
   const tabs = useMemo(() => {
     const base: { id: Tab; label: string; icon: typeof ArrowLeftRight }[] = [
       { id: "transactions", label: "Live Transactions", icon: ArrowLeftRight },
+      { id: "pending", label: "Pending", icon: Clock },
+      { id: "failed", label: "Failed Transactions", icon: XCircle },
+      { id: "reversals", label: "Reversals & Voids", icon: RotateCcw },
       { id: "settlements", label: "Instant Settlement", icon: Banknote },
       { id: "report", label: "Settlement Report", icon: Receipt },
       { id: "machines", label: "POS Machines", icon: Monitor },
@@ -178,7 +198,13 @@ export default function PosPage() {
       />
 
       {activeTab === "transactions" ? (
-        <TransactionsTab />
+        <TransactionsTab view={TXN_VIEWS.captured} />
+      ) : activeTab === "pending" ? (
+        <TransactionsTab view={TXN_VIEWS.pending} />
+      ) : activeTab === "failed" ? (
+        <TransactionsTab view={TXN_VIEWS.failed} />
+      ) : activeTab === "reversals" ? (
+        <TransactionsTab view={TXN_VIEWS.reversals} />
       ) : activeTab === "settlements" ? (
         <SettlementsTab />
       ) : activeTab === "report" ? (
@@ -551,12 +577,12 @@ function getSubtreeIds(rootId: string, members: TerminalTreeMember[]): Set<strin
   return result;
 }
 
-function TransactionsTab() {
+function TransactionsTab({ view }: { view: TxnView }) {
+  const isCapturedView = view.key === "captured";
   const today = todayRange();
   const defaults = defaultDateRange();
   const [dateFrom, setDateFrom] = useState(defaults.from);
   const [dateTo, setDateTo] = useState(defaults.to);
-  const [statusFilter, setStatusFilter] = useState<PosTransactionStatus | "">("");
   const [modeFilter, setModeFilter] = useState<PosPaymentMode | "">("");
   const [terminalFilter, setTerminalFilter] = useState("");
   const [hierSelections, setHierSelections] = useState<Record<string, string>>({});
@@ -652,10 +678,11 @@ function TransactionsTab() {
     ? assignedAtDate
     : dateFrom;
 
+  const feedRange = istDayRangeUtc(clampedDateFrom, dateTo);
   const body = {
-    date_from: `${clampedDateFrom}T00:00:00.000Z`,
-    date_to: `${dateTo}T23:59:59.999Z`,
-    status: statusFilter || null,
+    date_from: feedRange.from,
+    date_to: feedRange.to,
+    status: view.statuses,
     payment_mode: modeFilter || null,
     terminal_id: activeTerminal || null,
     page,
@@ -726,13 +753,14 @@ function TransactionsTab() {
   // complete (the server paginates the partner feed), not just this page.
   // Uses the same day boundaries as the live feed so "Today" includes today.
   const fetchAllRows = useCallback(async (): Promise<PosTransaction[]> => {
+    const range = istDayRangeUtc(clampedDateFrom, dateTo);
     const res = await fetch("/api/pos/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        date_from: `${clampedDateFrom}T00:00:00.000Z`,
-        date_to: `${dateTo}T23:59:59.999Z`,
-        status: statusFilter || null,
+        date_from: range.from,
+        date_to: range.to,
+        status: view.statuses,
         payment_mode: modeFilter || null,
         terminal_id: activeTerminal || null,
       }),
@@ -747,11 +775,11 @@ function TransactionsTab() {
       toast.warning(`Report capped at ${Number(d.returned).toLocaleString("en-IN")} rows — narrow the date range for the rest.`);
     }
     return (d.rows as PosTransaction[]) ?? [];
-  }, [clampedDateFrom, dateTo, statusFilter, modeFilter, activeTerminal, transactions]);
+  }, [clampedDateFrom, dateTo, view.statuses, modeFilter, activeTerminal, transactions]);
 
   const reportSubtitle =
     `${dateFrom} to ${dateTo}` +
-    (statusFilter ? ` · ${statusFilter}` : "") +
+    ` · ${view.statuses.join(" / ")}` +
     (activeTerminal ? ` · TID ${activeTerminal}` : "");
 
   const colsAll: Column<PosTransaction>[] = [
@@ -778,13 +806,19 @@ function TransactionsTab() {
     <>
       <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StaggerItem distance={14} duration={0.35}>
-          <StatTile label="Total Transactions" value={summary ? String(summary.total_transactions) : "..."} icon={ArrowLeftRight} tone="brand" loading={!summary} />
+          <StatTile label={`${view.noun} Transactions`} value={summary ? String(summary.total_transactions) : "..."} icon={view.icon} tone={view.countTone} loading={!summary} />
         </StaggerItem>
         <StaggerItem distance={14} duration={0.35}>
-          <StatTile label="Total Volume" value={summary ? formatINR(parseFloat(summary.total_amount)) : "..."} icon={IndianRupee} tone="emerald" loading={!summary} />
+          <StatTile label={`${view.noun} Volume`} value={summary ? formatINR(parseFloat(summary.total_amount)) : "..."} icon={IndianRupee} tone={view.volTone} loading={!summary} />
         </StaggerItem>
         <StaggerItem distance={14} duration={0.35}>
-          <StatTile label="Captured" value={summary ? String(summary.captured_count) : "..."} icon={CreditCard} tone="violet" loading={!summary} />
+          <StatTile
+            label={isCapturedView ? "Captured" : "Terminals (in view)"}
+            value={summary ? String(isCapturedView ? summary.captured_count : summary.terminal_count) : "..."}
+            icon={isCapturedView ? CreditCard : Monitor}
+            tone="violet"
+            loading={!summary}
+          />
         </StaggerItem>
         <StaggerItem distance={14} duration={0.35}>
           <StatTile label="Terminals" value={allTerminals.length ? String(allTerminals.length) : "..."} icon={Monitor} tone="sky" loading={!treeData} />
@@ -839,7 +873,7 @@ function TransactionsTab() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
           </span>
-          <span className="text-xs font-semibold text-emerald-700">Live — auto-refreshing</span>
+          <span className="text-xs font-semibold text-emerald-700">Live — {view.liveWord} only · auto-refreshing</span>
         </span>
         <FilterField label="From">
           <input type="date" value={dateFrom} min={assignedAtDate ?? undefined}
@@ -854,17 +888,6 @@ function TransactionsTab() {
         <FilterField label="To">
           <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
             className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
-        </FilterField>
-        <FilterField label="Status">
-          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value as PosTransactionStatus | ""); setPage(1); }}
-            className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400">
-            <option value="">All</option>
-            <option value="CAPTURED">Captured</option>
-            <option value="AUTHORIZED">Authorized</option>
-            <option value="FAILED">Failed</option>
-            <option value="REFUNDED">Refunded</option>
-            <option value="VOIDED">Voided</option>
-          </select>
         </FilterField>
         <FilterField label="Mode">
           <select value={modeFilter} onChange={(e) => { setModeFilter(e.target.value as PosPaymentMode | ""); setPage(1); }}
@@ -895,8 +918,8 @@ function TransactionsTab() {
         </Button>
         <div className="ml-auto flex flex-wrap gap-2">
           <ReportActions<PosTransaction>
-            filename={`pos-transactions-${dateFrom}-to-${dateTo}`}
-            title="POS Transactions Report"
+            filename={`pos-${view.key}-${dateFrom}-to-${dateTo}`}
+            title={`${view.noun} POS Transactions Report`}
             subtitle={reportSubtitle}
             columns={posExportCols}
             rows={transactions}
@@ -917,7 +940,7 @@ function TransactionsTab() {
       ) : (
         <Reveal distance={16} duration={0.45}>
           <DataTable
-            title={showingAllTerminals ? "POS Transactions · All terminals" : "POS Transactions"}
+            title={`${view.noun} POS Transactions${showingAllTerminals ? " · All terminals" : ""}`}
             description={
               pagination
                 ? `${pagination.total_records} total · page ${pagination.page} of ${pagination.total_pages}${showingAllTerminals ? ` · ${filteredTerminals.length} terminals` : ""}`
@@ -928,7 +951,7 @@ function TransactionsTab() {
             columns={cols}
             data={transactions}
             loading={isLoading}
-            empty="No transactions for the selected filters."
+            empty={`No ${view.noun.toLowerCase()} transactions for the selected filters.`}
           />
         </Reveal>
       )}

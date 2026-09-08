@@ -155,8 +155,14 @@ export function canonicalPosCaptureRef(input: {
 /** Max age (seconds) accepted for a webhook timestamp — replay protection. */
 const WEBHOOK_MAX_SKEW_SEC = 300; // 5 minutes
 
+export type WebhookVerifyResult =
+  | "SKIP"      // no secret configured — bootstrap phase, accept unverified
+  | "VALID"     // signature present, fresh timestamp, HMAC valid
+  | "STALE"     // timestamp outside tolerance (> 5 min skew) — caller returns 400
+  | "INVALID";  // secret configured but signature missing/wrong — caller returns 401
+
 /**
- * Verify an INCOMING Same Day POS capture webhook (POST /api/pos/webhook).
+ * Verify an INCOMING Same Day POS webhook (POST /api/pos/webhook).
  *
  * Same Day's confirmed scheme:
  *   X-Sameday-Signature = HMAC-SHA256( secret, `${X-Sameday-Timestamp}.${rawBody}` )  (hex)
@@ -166,33 +172,47 @@ const WEBHOOK_MAX_SKEW_SEC = 300; // 5 minutes
  * time; stale timestamps (> 5 min skew) are rejected to blunt replay attacks.
  *
  * Return value:
- *   "SKIP" — SAMEDAY_POS_WEBHOOK_SECRET is not configured yet. The caller
- *            ACCEPTS the webhook but flags it unverified. This is the bootstrap
- *            phase: captures keep saving while we await Same Day's signing
- *            secret. Set the env var to turn enforcement on (fail-closed).
- *   true   — signature present, timestamp fresh, and HMAC valid.
- *   false  — secret configured but signature/timestamp missing, stale, or invalid
- *            → caller rejects 401.
+ *   "SKIP"    — SAMEDAY_POS_WEBHOOK_SECRET is not configured yet. The caller
+ *               ACCEPTS the webhook but flags it unverified. This is the bootstrap
+ *               phase: captures keep saving while we await Same Day's signing
+ *               secret. Set the env var to turn enforcement on (fail-closed).
+ *   "VALID"   — signature present, timestamp fresh, and HMAC valid.
+ *   "STALE"   — timestamp missing or outside the tolerance window → caller rejects 400.
+ *   "INVALID" — secret configured but signature missing or incorrect → caller rejects 401.
  */
 export function verifySamedayPosWebhook(
   rawBody: string,
   signature: string | null,
   timestamp: string | null
-): boolean | "SKIP" {
+): WebhookVerifyResult {
   const secret = process.env.SAMEDAY_POS_WEBHOOK_SECRET;
   if (!secret) return "SKIP";
-  if (!signature || !timestamp) return false;
+  if (!signature || !timestamp) return "INVALID";
 
   // Replay protection: reject timestamps outside the tolerance window.
   const skewSec = Math.abs(Date.now() / 1000 - Number(timestamp));
-  if (!Number.isFinite(skewSec) || skewSec > WEBHOOK_MAX_SKEW_SEC) return false;
+  if (!Number.isFinite(skewSec) || skewSec > WEBHOOK_MAX_SKEW_SEC) return "STALE";
 
   const provided = signature.startsWith("sha256=") ? signature.slice(7) : signature.trim();
   const expected = sign(secret, `${timestamp}.${rawBody}`);
   const a = Buffer.from(expected);
   const b = Buffer.from(provided);
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
+  if (a.length !== b.length) return "INVALID";
+  return crypto.timingSafeEqual(a, b) ? "VALID" : "INVALID";
+}
+
+/**
+ * Legacy overload: returns boolean | "SKIP" for callers that only need pass/fail.
+ * Kept for backward compatibility with any code that used the old signature.
+ */
+export function verifySamedayPosWebhookLegacy(
+  rawBody: string,
+  signature: string | null,
+  timestamp: string | null
+): boolean | "SKIP" {
+  const result = verifySamedayPosWebhook(rawBody, signature, timestamp);
+  if (result === "SKIP") return "SKIP";
+  return result === "VALID";
 }
 
 type ApiResult<T> =

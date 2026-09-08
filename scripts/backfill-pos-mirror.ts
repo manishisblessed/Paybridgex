@@ -12,6 +12,11 @@
  *   days      how far back to pull (default 60)
  *   maxPages  partner pages to fetch, 100 rows each (default 500 = 50k rows)
  */
+
+// Mark this file as a module so its top-level `main` is scoped here and does
+// not collide with the `main` declared in other standalone scripts (TS2393).
+export {};
+
 try {
   (process as unknown as { loadEnvFile?: (p?: string) => void }).loadEnvFile?.();
 } catch {

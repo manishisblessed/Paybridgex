@@ -1567,6 +1567,18 @@ model PosTransactionMirror {
   @@index([reversedAt])
 }
 
+// Inbound webhook delivery dedup — keyed on Same Day's X-Sameday-Delivery header
+// (stable across retries). Prevents double-processing if Same Day retries a
+// delivery we already handled. Lightweight: stores only the key and timestamp.
+model PosWebhookDelivery {
+  id         String   @id @default(cuid())
+  deliveryId String   @unique // X-Sameday-Delivery header value
+  event      String // X-Sameday-Event header value
+  processedAt DateTime @default(now())
+
+  @@index([processedAt])
+}
+
 model PosAssignmentLog {
   id        String     @id @default(cuid())
   machineId String
