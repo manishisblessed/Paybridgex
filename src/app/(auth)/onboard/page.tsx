@@ -67,8 +67,8 @@ const STEPS = [
   { label: "Email Verification", icon: Mail },
   { label: "Aadhaar Verification", icon: Fingerprint },
   { label: "PAN Verification", icon: CreditCard },
-  { label: "Bank Verification", icon: Building2 },
   { label: "GST & MSME", icon: Building2 },
+  { label: "Bank Verification", icon: Building2 },
   { label: "Selfie & Video", icon: Upload },
   { label: "Documents", icon: FileText },
   { label: "Declaration", icon: FileSignature },
@@ -177,19 +177,44 @@ function OnboardContent() {
   const [aadhaarResult, setAadhaarResult] = useState<any>(null);
   const [verifying, setVerifying] = useState(false);
 
-  // Derived (not state) so it recomputes when a step is edited & re-verified.
-  const bankRefName = aadhaarResult?.name || panResult?.registered_name;
-  const nameMismatch =
-    !!(
-      aadhaarResult?.name &&
-      panResult?.registered_name &&
-      !namesMatch(aadhaarResult.name, panResult.registered_name)
-    ) ||
-    !!(
-      bankRefName &&
-      bankResult?.nameAtBank &&
-      !namesMatch(bankRefName, bankResult.nameAtBank)
-    );
+  // --- Name-match gating (Issue #6). Derived (not state) so it recomputes
+  // when a step is edited & re-verified. ---
+  // Business/shop name from verified GST (trade/legal name), else the
+  // manually-entered business name from the GST step.
+  const gstShopName = gstResult
+    ? gstResult.trade_name ??
+      gstResult.trade_name_of_business ??
+      gstResult.legal_name ??
+      gstResult.legal_name_of_business ??
+      ""
+    : "";
+  const businessNameForMatch = (gstShopName || form.shopName || "").trim();
+
+  // PAN step: PAN registered name must match the Aadhaar name. If either name
+  // is missing we don't block (nothing to compare against yet).
+  const panNameMatchesAadhaar =
+    !aadhaarResult?.name ||
+    !panResult?.registered_name ||
+    namesMatch(aadhaarResult.name, panResult.registered_name);
+
+  // Bank step: the account-holder name must match at least one of the
+  // Aadhaar name, PAN name, or Business name. When none match, Continue is
+  // hard-disabled (no self-declaration override).
+  const bankMatchCandidates = [
+    aadhaarResult?.name,
+    panResult?.registered_name,
+    businessNameForMatch,
+  ].filter((n): n is string => !!n && n.trim().length > 0);
+  const bankNameMatchesAny =
+    !!bankResult?.nameAtBank &&
+    bankMatchCandidates.some((n) => namesMatch(n, bankResult.nameAtBank));
+
+  // A "mismatch" for the final self-declaration only exists if a bank result
+  // is present yet matches none of the accepted names. The Continue gates
+  // above hard-block this state before submit, so the declaration modal is a
+  // safety net; a bank name that matches the Business name (not the personal
+  // Aadhaar/PAN name) is a valid match and does NOT count as a mismatch.
+  const nameMismatch = !!bankResult?.nameAtBank && !bankNameMatchesAny;
 
   // Name-mismatch self-declaration popup
   const [showNameDeclaration, setShowNameDeclaration] = useState(false);
@@ -1120,13 +1145,17 @@ function OnboardContent() {
       case 3:
         return aadhaarVerified;
       case 4:
-        return !!panResult;
+        // PAN verified AND the PAN name must match the Aadhaar name.
+        return !!panResult && panNameMatchesAadhaar;
       case 5:
-        return !!bankResult;
-      case 6:
-        // GST is optional, but a business / shop name is always required so the
-        // self-declaration and final registration have a firm name.
+        // GST & MSME (moved before Bank). GST is optional, but a business /
+        // shop name is always required so the bank name can be matched against
+        // it and the self-declaration / registration have a firm name.
         return form.shopName.trim().length >= 2;
+      case 6:
+        // Bank verified AND holder name must match Aadhaar / PAN / Business
+        // name. Hard block otherwise (no self-declaration override).
+        return !!bankResult && bankNameMatchesAny;
       case 7:
         return selfieUploaded && videoCompleted;
       case 8: {
@@ -1171,7 +1200,7 @@ function OnboardContent() {
       gstResult?.legal_name ??
       gstResult?.legal_name_of_business ??
       "";
-    if (step === 6 && form.shopName.trim().length >= 2 && !gstTrade) {
+    if (step === 5 && form.shopName.trim().length >= 2 && !gstTrade) {
       setVerifying(true);
       try {
         const res = await fetch(`/api/onboard/${token}/business`, {
@@ -1265,13 +1294,6 @@ function OnboardContent() {
   // Shop/Firm name from verified GST, or a required manual business name
   // collected on the GST step when GST is skipped. Either way the final
   // Details step should not ask the user to type it again.
-  const gstShopName = gstResult
-    ? gstResult.trade_name ??
-      gstResult.trade_name_of_business ??
-      gstResult.legal_name ??
-      gstResult.legal_name_of_business ??
-      ""
-    : "";
   const shopNameLocked = form.shopName.trim().length >= 2;
 
   return (
@@ -1716,13 +1738,23 @@ function OnboardContent() {
                       name2={panResult.registered_name}
                     />
                   )}
+                  {!panNameMatchesAadhaar && (
+                    <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        Your PAN name does not match your Aadhaar name. You
+                        cannot continue until the names match. Please recheck the
+                        PAN entered, or contact support if this is an error.
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
 
-          {/* Step 5: Bank Verification */}
-          {step === 5 && (
+          {/* Step 6: Bank Verification (holder name must match Aadhaar/PAN/Business) */}
+          {step === 6 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-brand-700">
                 <Building2 className="h-5 w-5" />
@@ -1818,21 +1850,54 @@ function OnboardContent() {
                       </p>
                     </div>
                   </div>
-                  {/* Name match with Aadhaar/PAN */}
-                  {(aadhaarResult?.name || panResult?.registered_name) && (
-                    <NameMatchBadge
-                      label="Aadhaar/PAN"
-                      name1={aadhaarResult?.name ?? panResult?.registered_name}
-                      name2={bankResult.nameAtBank}
-                    />
+                  {/* Name match: bank holder name must match Aadhaar, PAN,
+                      or Business name. Any single match is enough. */}
+                  {bankNameMatchesAny ? (
+                    <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        Account holder name{" "}
+                        <strong>{bankResult.nameAtBank}</strong> matches your
+                        verified Aadhaar / PAN / Business name.
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>
+                          Account holder name{" "}
+                          <strong>{bankResult.nameAtBank}</strong> does not match
+                          any of your verified names. You cannot continue until
+                          it matches one of the following:
+                        </span>
+                      </div>
+                      <ul className="ml-6 list-disc space-y-0.5">
+                        {aadhaarResult?.name && (
+                          <li>Aadhaar: <strong>{aadhaarResult.name}</strong></li>
+                        )}
+                        {panResult?.registered_name && (
+                          <li>PAN: <strong>{panResult.registered_name}</strong></li>
+                        )}
+                        {businessNameForMatch && (
+                          <li>Business: <strong>{businessNameForMatch}</strong></li>
+                        )}
+                      </ul>
+                      <p className="ml-6">
+                        Use a bank account held in one of these names, then click
+                        Edit to re-verify.
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
             </div>
           )}
 
-          {/* Step 6: GST + MSME (Optional) — business name required if no GST */}
-          {step === 6 && (
+          {/* Step 5: GST + MSME (Optional) — business name required if no GST.
+              Collected before Bank so the bank holder name can be matched
+              against the Business name too. */}
+          {step === 5 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-brand-700">
                 <Building2 className="h-5 w-5" />
@@ -2673,7 +2738,7 @@ function OnboardContent() {
                 onClick={handleNext}
                 disabled={!canProceed() || verifying}
               >
-                {verifying && step === 6 ? (
+                {verifying && step === 5 ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : null}
                 {step === 0 ? "Get Started" : "Continue"}{" "}
