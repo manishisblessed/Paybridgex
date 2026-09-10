@@ -1906,6 +1906,7 @@ function OnboardContent() {
               <p className="text-sm text-ink-600">
                 If you have a GSTIN or Udyam (MSME) number, enter them here.
                 You can skip GST verification, but a business name is required.
+                A GSTIN already linked to another Paybridgex account cannot be reused.
               </p>
 
               {/* GST */}

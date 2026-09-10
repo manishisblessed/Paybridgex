@@ -9,6 +9,10 @@ import { needsSuccessorApproval } from "@/lib/declaration/types";
 import { getRequiredDocTypes, docTypeLabel } from "@/lib/onboarding/requiredDocuments";
 import { generateNextUserCode } from "@/lib/userCode";
 import { defaultServicesForRole } from "@/lib/settings";
+import {
+  isIdentityTaken,
+  identityTakenMessage,
+} from "@/lib/onboarding/identityUniqueness";
 
 const RegisterBody = z.object({
   name: z.string().min(2).max(100),
@@ -124,30 +128,42 @@ export async function POST(
     );
   }
 
-  // ── Fraud gate: enforce one-identity-per-user across all KYC & shop fields ──
+  // ── Fraud gate: one identity (phone/email/Aadhaar/PAN/GST/bank) per user ──
   const excludeUserId = invite.userId ?? undefined;
 
-  const duplicateChecks: { field: string; value: string | undefined; model: "kyc" | "user" }[] = [
-    { field: "panNumber", value: data.panNumber?.toUpperCase(), model: "kyc" },
-    { field: "aadhaarNumber", value: data.aadhaarNumber, model: "kyc" },
-    { field: "bankAccountNumber", value: data.bankAccountNumber, model: "kyc" },
-    { field: "gstin", value: data.gstin?.toUpperCase(), model: "kyc" },
+  const identityChecks: { kind: "PAN" | "GST" | "BANK" | "AADHAAR"; value?: string }[] = [
+    { kind: "PAN", value: data.panNumber },
+    { kind: "GST", value: data.gstin },
+    { kind: "BANK", value: data.bankAccountNumber },
+    { kind: "AADHAAR", value: data.aadhaarNumber },
+  ];
+  for (const { kind, value } of identityChecks) {
+    if (!value) continue;
+    if (
+      await isIdentityTaken({
+        kind,
+        value,
+        excludeUserId,
+        excludeInviteId: invite.id,
+      })
+    ) {
+      return NextResponse.json(
+        { error: identityTakenMessage(kind) },
+        { status: 409 }
+      );
+    }
+  }
+
+  const leftoverChecks: { field: string; value: string | undefined; model: "kyc" | "user" }[] = [
     { field: "msmeNumber", value: data.msmeNumber, model: "kyc" },
     { field: "shopName", value: data.shopName, model: "user" },
   ];
-
-  const fieldLabels: Record<string, string> = {
-    panNumber: "PAN number",
-    aadhaarNumber: "Aadhaar number",
-    bankAccountNumber: "bank account number",
-    gstin: "GST number",
+  const leftoverLabels: Record<string, string> = {
     msmeNumber: "Udyam number",
     shopName: "shop name",
   };
-
-  for (const { field, value, model } of duplicateChecks) {
+  for (const { field, value, model } of leftoverChecks) {
     if (!value) continue;
-
     if (model === "kyc") {
       const dup = await prisma.kyc.findFirst({
         where: {
@@ -158,7 +174,7 @@ export async function POST(
       });
       if (dup) {
         return NextResponse.json(
-          { error: `Another account is already registered with this ${fieldLabels[field]}` },
+          { error: `Another account is already registered with this ${leftoverLabels[field]}` },
           { status: 409 }
         );
       }
@@ -172,7 +188,7 @@ export async function POST(
       });
       if (dup) {
         return NextResponse.json(
-          { error: `Another account is already registered with this ${fieldLabels[field]}` },
+          { error: `Another account is already registered with this ${leftoverLabels[field]}` },
           { status: 409 }
         );
       }

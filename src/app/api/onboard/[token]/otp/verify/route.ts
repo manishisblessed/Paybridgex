@@ -68,7 +68,7 @@ export async function POST(
     where: {
       [contactField]: normalizedTarget,
       id: { not: invite.id },
-      status: { in: ["REGISTERED", "VERIFIED", "APPROVED"] },
+      status: { in: ["PENDING", "REGISTERED", "VERIFIED", "RESUBMIT", "APPROVED"] },
     },
     select: { id: true },
   });
