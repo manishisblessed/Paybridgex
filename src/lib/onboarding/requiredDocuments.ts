@@ -27,13 +27,19 @@ export const REQUIRED_ONBOARD_DOC_TYPES = [
 export type RequiredOnboardDocType = (typeof REQUIRED_ONBOARD_DOC_TYPES)[number];
 
 /**
- * Return the required document types for a given onboardee role. Currently the
- * same for every network role, but centralised here so role-specific documents
- * can be added later (e.g. an extra form for retailers) without touching the
- * UI or the registration gate.
+ * Document types that are only required for RETAILER onboardees. The Payment
+ * Gateway (PG) onboarding form applies to retailers who actually accept
+ * payments; distributor tiers (DT/MD/SD) do not sign it.
  */
-export function getRequiredDocTypes(_role: string): readonly string[] {
-  return REQUIRED_ONBOARD_DOC_TYPES;
+export const RETAILER_ONLY_DOC_TYPES = new Set<string>(["PG_FORM"]);
+
+/**
+ * Return the required document types for a given onboardee role. Retailer-only
+ * documents (e.g. the PG form) are excluded for the distributor tiers.
+ */
+export function getRequiredDocTypes(role: string): readonly string[] {
+  if (role === "RETAILER") return REQUIRED_ONBOARD_DOC_TYPES;
+  return REQUIRED_ONBOARD_DOC_TYPES.filter((t) => !RETAILER_ONLY_DOC_TYPES.has(t));
 }
 
 /** Human-friendly labels for missing-document error messages. */

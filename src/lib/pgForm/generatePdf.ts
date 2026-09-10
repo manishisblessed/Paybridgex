@@ -69,7 +69,7 @@ export async function generatePgFormPdf(data: PgFormData): Promise<Uint8Array> {
       { align: "center", width: contentWidth }
     );
     doc.y += 2;
-    doc.font("Helvetica").fontSize(10).fillColor(MUTED).text(
+    doc.font(fontFor("भुगतान गेटवे ऑनबोर्डिंग प्रपत्र")).fontSize(10).fillColor(MUTED).text(
       "भुगतान गेटवे ऑनबोर्डिंग प्रपत्र",
       { align: "center", width: contentWidth }
     );
@@ -235,9 +235,11 @@ export async function generatePgFormPdf(data: PgFormData): Promise<Uint8Array> {
     "1. I authorize K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED (\u201cPaybridgex\u201d) to enable Payment Gateway services on my merchant ID and to settle funds to the bank account listed above.",
     "2. I will use the Payment Gateway only for lawful, genuine business transactions of the category disclosed at onboarding and will not process gambling, betting, crypto, foreign remittance misuse, third-party fund pass-through or any other prohibited activity.",
     "3. I am solely responsible for every transaction, chargeback, dispute, refund, penalty and fraud arising from my merchant ID, and I authorize Paybridgex to debit my wallet / settlement balance / security deposit to recover any amount due.",
-    "4. I will submit updated KYC, business proof and bank documents whenever requested, and I understand that failure to do so may result in suspension of settlements and / or termination of services.",
-    "5. I agree to the platform Terms of Service, Privacy Policy, MDR / fee schedule and Merchant Operating Guidelines published by Paybridgex, as amended from time to time.",
-    "6. I confirm that this form is signed voluntarily, without any coercion, and forms part of the binding merchant relationship with Paybridgex.",
+    "4. I will not be involved in any chargeback or fraudulent activity. If any chargeback arises on my merchant ID, I will fully cooperate with Paybridgex to resolve it and, if required, assist in recovering the amount.",
+    "5. If I fail to cooperate in resolving the chargeback or recovering the funds, the entire amount shall be my sole liability and shall be recovered from me (the merchant) only.",
+    "6. I will submit updated KYC, business proof and bank documents whenever requested, and I understand that failure to do so may result in suspension of settlements and / or termination of services.",
+    "7. I agree to the platform Terms of Service, Privacy Policy, MDR / fee schedule and Merchant Operating Guidelines published by Paybridgex, as amended from time to time.",
+    "8. I confirm that this form is signed voluntarily, without any coercion, and forms part of the binding merchant relationship with Paybridgex.",
   ];
   for (const c of clauses) paragraph(c, { indent: 10, gap: 5 });
   doc.y += 4;

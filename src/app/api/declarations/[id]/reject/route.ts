@@ -4,6 +4,8 @@ import { requireAuth } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { getPartner } from "@/lib/partners";
+import { env } from "@/lib/env";
+import { renderDeclarationRejectedEmail } from "@/lib/email/templates";
 
 const Body = z.object({
   reason: z.string().min(5).max(500),
@@ -73,7 +75,7 @@ export async function POST(
 
   const invite = await prisma.invite.findFirst({
     where: { id: approval.inviteId },
-    select: { name: true, phone: true, email: true, userId: true },
+    select: { name: true, phone: true, email: true, userId: true, token: true },
   });
 
   if (invite?.userId) {
@@ -92,22 +94,17 @@ export async function POST(
   if (invite?.email) {
     try {
       const emailProvider = getPartner("email");
+      const mail = renderDeclarationRejectedEmail({
+        name: invite.name,
+        approverName: user.name,
+        approverRole: approval.approverRole,
+        reason: parsed.data.reason,
+        onboardLink: `${env.NEXT_PUBLIC_APP_URL}/onboard?token=${invite.token}`,
+      });
       await emailProvider.send({
         to: invite.email,
-        subject: "Paybridgex — Your declaration was not approved",
-        html: `
-          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px;">
-            <h1 style="color:#1e293b;font-size:22px;margin:0 0 16px;">Declaration Not Approved</h1>
-            <p>Hi <strong>${invite.name ?? "there"}</strong>,</p>
-            <p><strong>${user.name}</strong> (${approval.approverRole.replace(/_/g, " ")}) could not approve your declaration.</p>
-            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px;margin:16px 0;">
-              <p style="margin:0;color:#991b1b;"><strong>Reason:</strong> ${parsed.data.reason}</p>
-            </div>
-            <p>Please contact your upline to resolve this and re-submit your declaration.</p>
-            <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;" />
-            <p style="color:#94a3b8;font-size:12px;text-align:center;">Paybridgex — K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED</p>
-          </div>
-        `,
+        subject: mail.subject,
+        html: mail.html,
       });
     } catch {}
   }

@@ -83,6 +83,9 @@ type DocumentDef = {
   requiresGps?: boolean;
   description?: string;
   downloadUrl?: string;
+  // Only shown / required for RETAILER onboardees (e.g. the PG form). Excluded
+  // for the distributor tiers (DT / MD / SD).
+  retailerOnly?: boolean;
 };
 
 const REQUIRED_DOCUMENTS: DocumentDef[] = [
@@ -94,7 +97,7 @@ const REQUIRED_DOCUMENTS: DocumentDef[] = [
   { type: "CANCEL_CHEQUE", label: "Cancelled Cheque / Bank Passbook (with account holder name)", required: true, accept: "image/*,.pdf", description: "Already verified via penny drop, but physical copy needed" },
   { type: "ADDITIONAL_ID", label: "Additional ID Proof (Driving License / Voter ID / Passport)", required: true, accept: "image/*,.pdf" },
   { type: "FAMILY_REFERENCE", label: "Family Member Reference Document — KYC Document", required: true, accept: "image/*,.pdf" },
-  { type: "PG_FORM", label: "PG Form (Payment Gateway onboarding form — signed)", required: true, accept: "image/*,.pdf" },
+  { type: "PG_FORM", label: "PG Form (Payment Gateway onboarding form — signed)", required: true, accept: "image/*,.pdf", retailerOnly: true },
   { type: "GPS_PHOTO_OUTSIDE", label: "GPS-tagged Photo — House/Office (Outside)", required: true, accept: "image/*", requiresGps: true },
   { type: "GPS_PHOTO_INSIDE", label: "GPS-tagged Photo — House/Office (Inside)", required: true, accept: "image/*", requiresGps: true },
   { type: "GPS_SELFIE_DISTRIBUTOR", label: "GPS-tagged Selfie with Salesperson/Distributor", required: true, accept: "image/*", requiresGps: true, description: "Mandatory — take a selfie with your distributor/salesperson at your location" },
@@ -176,6 +179,12 @@ function OnboardContent() {
   const [gstResult, setGstResult] = useState<any>(null);
   const [aadhaarResult, setAadhaarResult] = useState<any>(null);
   const [verifying, setVerifying] = useState(false);
+
+  // Documents this onboardee must handle. Retailer-only documents (the PG form)
+  // are dropped for the distributor tiers (DT / MD / SD).
+  const documents = REQUIRED_DOCUMENTS.filter(
+    (d) => !d.retailerOnly || invite?.role === "RETAILER"
+  );
 
   // --- Name-match gating (Issue #6). Derived (not state) so it recomputes
   // when a step is edited & re-verified. ---
@@ -1159,7 +1168,7 @@ function OnboardContent() {
       case 7:
         return selfieUploaded && videoCompleted;
       case 8: {
-        const allRequiredDocs = REQUIRED_DOCUMENTS.filter((d) => d.required);
+        const allRequiredDocs = documents.filter((d) => d.required);
         return allRequiredDocs.every((d) => !!uploadedDocs[d.type]);
       }
       case 9: {
@@ -1183,7 +1192,7 @@ function OnboardContent() {
     if (!phoneVerified || !emailVerified || !aadhaarVerified) return false;
     if (!panResult || !bankResult) return false;
     if (!selfieUploaded || !videoCompleted) return false;
-    const allRequiredDocs = REQUIRED_DOCUMENTS.filter((d) => d.required);
+    const allRequiredDocs = documents.filter((d) => d.required);
     if (!allRequiredDocs.every((d) => !!uploadedDocs[d.type])) return false;
     if (!selfDeclarationUploaded) return false;
     if (declarationStatus?.requiresApproval && declarationStatus.approval?.status !== "APPROVED") return false;
@@ -2106,7 +2115,7 @@ function OnboardContent() {
               )}
 
               <div className="space-y-3">
-                {REQUIRED_DOCUMENTS.map((doc) => {
+                {documents.map((doc) => {
                   if (doc.requiresGps) {
                     return (
                       <GpsPhotoCapture
@@ -2694,7 +2703,7 @@ function OnboardContent() {
                   </p>
                   <p>
                     <span className="text-ink-500">Documents:</span>{" "}
-                    {REQUIRED_DOCUMENTS.filter((d) => uploadedDocs[d.type]).length}/{REQUIRED_DOCUMENTS.length} uploaded
+                    {documents.filter((d) => uploadedDocs[d.type]).length}/{documents.length} uploaded
                   </p>
                   <p>
                     <span className="text-ink-500">Declaration:</span>{" "}

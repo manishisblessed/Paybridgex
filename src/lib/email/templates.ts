@@ -480,3 +480,229 @@ export function renderAccountApprovedEmail(opts: {
 
   return { subject, html: shell({ preheader, bodyHtml: body }) };
 }
+
+/**
+ * Sent to the applicant when their upline signs the responsibility declaration.
+ */
+export function renderDeclarationApprovedEmail(opts: {
+  name?: string | null;
+  role: string;
+  approverName: string;
+  approverRole: string;
+  onboardLink: string;
+}): { subject: string; html: string } {
+  const roleLabel = fmtRole(opts.role);
+  const approverRoleLabel = fmtRole(opts.approverRole);
+  const firstName = opts.name?.split(" ")[0]?.trim();
+  const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : "Hi there,";
+  const subject = "You're cleared to finish Paybridgex registration";
+  const preheader = `${opts.approverName} approved your declaration. Return to onboarding and complete registration.`;
+
+  const body = `
+    <div style="display:inline-block;background:#ecfdf5;color:#059669;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;padding:6px 12px;border-radius:999px;">
+      Declaration approved
+    </div>
+    <h1 style="font-size:26px;line-height:34px;color:${BRAND.ink};margin:14px 0 10px 0;font-weight:800;letter-spacing:-0.3px;">
+      Great news${firstName ? `, ${escapeHtml(firstName)}` : ""} &mdash; you're cleared
+    </h1>
+    <p style="font-size:15px;line-height:24px;color:${BRAND.inkMuted};margin:0 0 8px 0;">${greeting}</p>
+    <p style="font-size:15px;line-height:24px;color:${BRAND.inkMuted};margin:0 0 20px 0;">
+      <strong style="color:${BRAND.ink};">${escapeHtml(opts.approverName)}</strong>
+      (${approverRoleLabel}) has signed your responsibility declaration.
+      Your <strong style="color:${BRAND.ink};">${roleLabel}</strong> onboarding can now move to the last step.
+    </p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 22px 0;width:100%;">
+      <tr>
+        <td style="background:#ecfdf5;border:1px solid #a7f3d0;border-left:4px solid #059669;padding:14px 18px;border-radius:12px;">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#059669;margin-bottom:4px;">Status</div>
+          <div style="font-size:16px;font-weight:800;color:${BRAND.ink};">Approved &mdash; finish your registration</div>
+        </td>
+      </tr>
+    </table>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;background:${BRAND.primarySoft};border:1px solid ${BRAND.border};border-radius:12px;">
+      <tr>
+        <td style="padding:6px 18px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="padding:12px 0;color:${BRAND.inkMuted};font-size:13px;width:130px;">Approved by</td>
+              <td style="padding:12px 0;color:${BRAND.ink};font-size:14px;font-weight:700;text-align:right;">${escapeHtml(opts.approverName)}</td>
+            </tr>
+            <tr>
+              <td style="padding:12px 0;color:${BRAND.inkMuted};font-size:13px;border-top:1px solid ${BRAND.border};">Their role</td>
+              <td style="padding:12px 0;color:${BRAND.ink};font-size:14px;font-weight:600;text-align:right;border-top:1px solid ${BRAND.border};">${approverRoleLabel}</td>
+            </tr>
+            <tr>
+              <td style="padding:12px 0;color:${BRAND.inkMuted};font-size:13px;border-top:1px solid ${BRAND.border};">Your role</td>
+              <td style="padding:12px 0;color:${BRAND.ink};font-size:14px;font-weight:600;text-align:right;border-top:1px solid ${BRAND.border};">${roleLabel}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px 0;">
+      <tr>
+        <td align="left">
+          <a href="${opts.onboardLink}" style="display:inline-block;background:linear-gradient(135deg,${BRAND.primary} 0%,${BRAND.primaryDark} 100%);color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 30px;border-radius:12px;box-shadow:0 8px 20px rgba(46,73,173,0.35);">
+            Continue registration &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <div style="border:1px dashed ${BRAND.border};border-radius:10px;padding:12px 14px;margin:0 0 24px 0;font-size:12px;color:${BRAND.inkMuted};word-break:break-all;">
+      <div style="font-weight:700;color:${BRAND.ink};margin-bottom:4px;">Or paste this link in your browser</div>
+      <a href="${opts.onboardLink}" style="color:${BRAND.primary};text-decoration:none;">${opts.onboardLink}</a>
+    </div>
+
+    <p style="font-size:13px;color:${BRAND.inkMuted};line-height:20px;margin:8px 0 0 0;">
+      Open the same onboarding page you were already using &mdash; your progress is saved. Complete the remaining details and submit.
+    </p>
+    <p style="font-size:13px;color:${BRAND.inkMuted};line-height:20px;margin:16px 0 0 0;">
+      Need help? Reply to this email or write to <a href="mailto:support@paybridgex.in" style="color:${BRAND.primary};text-decoration:none;font-weight:600;">support@paybridgex.in</a>.
+    </p>
+    <p style="font-size:14px;color:${BRAND.ink};line-height:20px;margin:18px 0 8px 0;">
+      Cheers,<br/>
+      <strong>Team Paybridgex</strong>
+    </p>
+  `;
+
+  return { subject, html: shell({ preheader, bodyHtml: body }) };
+}
+
+/**
+ * Sent to the applicant when their upline rejects the responsibility declaration.
+ */
+export function renderDeclarationRejectedEmail(opts: {
+  name?: string | null;
+  approverName: string;
+  approverRole: string;
+  reason: string;
+  onboardLink: string;
+}): { subject: string; html: string } {
+  const approverRoleLabel = fmtRole(opts.approverRole);
+  const firstName = opts.name?.split(" ")[0]?.trim();
+  const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : "Hi there,";
+  const subject = "Action needed: your Paybridgex declaration was not approved";
+  const preheader = `${opts.approverName} could not approve your declaration. Review the reason and resubmit.`;
+
+  const body = `
+    <div style="display:inline-block;background:#fff1f2;color:#e11d48;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;padding:6px 12px;border-radius:999px;">
+      Declaration not approved
+    </div>
+    <h1 style="font-size:26px;line-height:34px;color:${BRAND.ink};margin:14px 0 10px 0;font-weight:800;letter-spacing:-0.3px;">
+      Your declaration needs another look
+    </h1>
+    <p style="font-size:15px;line-height:24px;color:${BRAND.inkMuted};margin:0 0 8px 0;">${greeting}</p>
+    <p style="font-size:15px;line-height:24px;color:${BRAND.inkMuted};margin:0 0 20px 0;">
+      <strong style="color:${BRAND.ink};">${escapeHtml(opts.approverName)}</strong>
+      (${approverRoleLabel}) could not approve your responsibility declaration.
+      Please review the reason below, talk to your upline if needed, and send a fresh request.
+    </p>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 22px 0;">
+      <tr>
+        <td style="padding:14px 16px;border:1px solid #fecaca;border-radius:12px;background:#fff1f2;">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#e11d48;margin-bottom:6px;">Reason</div>
+          <div style="font-size:14px;line-height:21px;color:#9f1239;">${escapeHtml(opts.reason)}</div>
+        </td>
+      </tr>
+    </table>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px 0;">
+      <tr>
+        <td align="left">
+          <a href="${opts.onboardLink}" style="display:inline-block;background:linear-gradient(135deg,${BRAND.primary} 0%,${BRAND.primaryDark} 100%);color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 30px;border-radius:12px;box-shadow:0 8px 20px rgba(46,73,173,0.35);">
+            Return to onboarding &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <div style="border:1px dashed ${BRAND.border};border-radius:10px;padding:12px 14px;margin:0 0 24px 0;font-size:12px;color:${BRAND.inkMuted};word-break:break-all;">
+      <div style="font-weight:700;color:${BRAND.ink};margin-bottom:4px;">Or paste this link in your browser</div>
+      <a href="${opts.onboardLink}" style="color:${BRAND.primary};text-decoration:none;">${opts.onboardLink}</a>
+    </div>
+
+    <p style="font-size:13px;color:${BRAND.inkMuted};line-height:20px;margin:16px 0 0 0;">
+      Need help? Reply to this email or write to <a href="mailto:support@paybridgex.in" style="color:${BRAND.primary};text-decoration:none;font-weight:600;">support@paybridgex.in</a>.
+    </p>
+    <p style="font-size:14px;color:${BRAND.ink};line-height:20px;margin:18px 0 8px 0;">
+      Cheers,<br/>
+      <strong>Team Paybridgex</strong>
+    </p>
+  `;
+
+  return { subject, html: shell({ preheader, bodyHtml: body }) };
+}
+
+/**
+ * Sent to the upline when an applicant asks them to sign the declaration.
+ */
+export function renderDeclarationRequestEmail(opts: {
+  approverName?: string | null;
+  applicantName: string;
+  applicantRole: string;
+  approvalLink: string;
+}): { subject: string; html: string } {
+  const roleLabel = fmtRole(opts.applicantRole);
+  const firstName = opts.approverName?.split(" ")[0]?.trim();
+  const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : "Hi there,";
+  const subject = `Declaration approval needed for ${opts.applicantName}`;
+  const preheader = `${opts.applicantName} is onboarding as a ${roleLabel} under you. Review and sign the declaration.`;
+
+  const body = `
+    <div style="display:inline-block;background:${BRAND.primarySoft};color:${BRAND.primary};font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;padding:6px 12px;border-radius:999px;">
+      Approval required
+    </div>
+    <h1 style="font-size:26px;line-height:34px;color:${BRAND.ink};margin:14px 0 10px 0;font-weight:800;letter-spacing:-0.3px;">
+      ${escapeHtml(opts.applicantName)} is waiting on you
+    </h1>
+    <p style="font-size:15px;line-height:24px;color:${BRAND.inkMuted};margin:0 0 8px 0;">${greeting}</p>
+    <p style="font-size:15px;line-height:24px;color:${BRAND.inkMuted};margin:0 0 20px 0;">
+      <strong style="color:${BRAND.ink};">${escapeHtml(opts.applicantName)}</strong> is joining your network as a
+      <strong style="color:${BRAND.ink};">${roleLabel}</strong> and needs your responsibility declaration
+      before they can finish registration.
+    </p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 22px 0;width:100%;">
+      <tr>
+        <td style="background:${BRAND.primarySoft};border:1px solid ${BRAND.border};padding:14px 18px;border-radius:12px;">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:${BRAND.primary};margin-bottom:4px;">Applicant role</div>
+          <div style="font-size:18px;font-weight:800;color:${BRAND.primaryDark};">${roleLabel}</div>
+        </td>
+      </tr>
+    </table>
+
+    <div style="background:#fff8ec;border:1px solid #fde3a4;border-radius:10px;padding:12px 14px;font-size:13px;color:#7a5300;line-height:19px;margin:0 0 24px 0;">
+      <strong>By approving,</strong> you accept responsibility for activities performed by this ${roleLabel}, as set out in the declaration form. Please review the document, add your signature and selfie, then approve.
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px 0;">
+      <tr>
+        <td align="left">
+          <a href="${opts.approvalLink}" style="display:inline-block;background:linear-gradient(135deg,${BRAND.primary} 0%,${BRAND.primaryDark} 100%);color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 30px;border-radius:12px;box-shadow:0 8px 20px rgba(46,73,173,0.35);">
+            Review &amp; approve &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <div style="border:1px dashed ${BRAND.border};border-radius:10px;padding:12px 14px;margin:0 0 24px 0;font-size:12px;color:${BRAND.inkMuted};word-break:break-all;">
+      <div style="font-weight:700;color:${BRAND.ink};margin-bottom:4px;">Or paste this link in your browser</div>
+      <a href="${opts.approvalLink}" style="color:${BRAND.primary};text-decoration:none;">${opts.approvalLink}</a>
+    </div>
+
+    <p style="font-size:13px;color:${BRAND.inkMuted};line-height:20px;margin:8px 0 0 0;">
+      Please review within 24 hours. The applicant cannot submit registration until this is approved.
+    </p>
+    <p style="font-size:14px;color:${BRAND.ink};line-height:20px;margin:18px 0 8px 0;">
+      Cheers,<br/>
+      <strong>Team Paybridgex</strong>
+    </p>
+  `;
+
+  return { subject, html: shell({ preheader, bodyHtml: body }) };
+}

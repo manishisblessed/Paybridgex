@@ -25,6 +25,15 @@ export async function GET(
     return NextResponse.json({ error: "Invite has expired" }, { status: 400 });
   }
 
+  // The PG onboarding form applies to retailers only — distributor tiers
+  // (DT / MD / SD) do not sign it.
+  if (invite.role !== "RETAILER") {
+    return NextResponse.json(
+      { error: "The PG onboarding form is required for retailers only." },
+      { status: 400 }
+    );
+  }
+
   const data = await buildPgFormData(invite.id);
   if (!data) {
     return NextResponse.json({ error: "Unable to prepare PG form" }, { status: 404 });
