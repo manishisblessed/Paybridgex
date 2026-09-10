@@ -298,6 +298,23 @@ export async function POST(
     allVerified || nameDeclarationAccepted ? "PENDING_REVIEW" : "NOT_STARTED";
   const nameDeclarationAt = nameDeclarationAccepted ? new Date() : undefined;
 
+  // Values that each need their OWN database connection must be resolved BEFORE
+  // opening the interactive transaction below. DATABASE_URL runs with
+  // connection_limit=1, so calling the global `prisma` client from inside
+  // `$transaction` (as generateNextUserCode / defaultServicesForRole do) would
+  // block waiting for the single connection the transaction already holds — a
+  // deadlock that expired the transaction at its 5s timeout and 500'd every
+  // new-user registration.
+  const isExistingUser = Boolean(invite.userId && existingUser);
+  const userCode = isExistingUser
+    ? undefined
+    : await generateNextUserCode(invite.role);
+  // New network users start with only the tier's configured default services
+  // (empty = none); admins grant the rest per user afterwards.
+  const enabledServices = isExistingUser
+    ? undefined
+    : await defaultServicesForRole(invite.role);
+
   const result = await prisma.$transaction(async (tx) => {
     let user;
     if (invite.userId && existingUser) {
@@ -316,10 +333,6 @@ export async function POST(
         },
       });
     } else {
-      const userCode = await generateNextUserCode(invite.role);
-      // New network users start with only the tier's configured default
-      // services (empty = none); admins grant the rest per user afterwards.
-      const enabledServices = await defaultServicesForRole(invite.role);
       user = await tx.user.create({
         data: {
           name: data.name,
@@ -328,7 +341,7 @@ export async function POST(
           passwordHash,
           role: invite.role,
           status: "PENDING_KYC",
-          userCode,
+          userCode: userCode!,
           parentId: invite.parentId,
           shopName: data.shopName,
           shopAddress: data.shopAddress,
@@ -337,7 +350,7 @@ export async function POST(
           pincode: data.pincode,
           phoneVerifiedAt: invite.phoneVerifiedAt,
           emailVerifiedAt: invite.emailVerifiedAt,
-          enabledServices,
+          enabledServices: enabledServices!,
         },
       });
     }
@@ -414,7 +427,7 @@ export async function POST(
     });
 
     return user;
-  });
+  }, { maxWait: 10000, timeout: 20000 });
 
   await prisma.auditLog.create({
     data: {

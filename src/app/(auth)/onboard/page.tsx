@@ -33,6 +33,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { OtpInput } from "@/components/ui/OtpInput";
+import { PanInput } from "@/components/ui/PanInput";
 import { namesMatch } from "@/lib/utils";
 import { extractGpsFromFile } from "@/lib/gps";
 import { LivenessVideoCapture } from "@/components/kyc/LivenessVideoCapture";
@@ -1645,18 +1646,14 @@ function OnboardContent() {
                 Enter your PAN number. We&apos;ll verify it and cross-check with
                 your Aadhaar details.
               </p>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="flex-1">
+              <div className="space-y-3">
+                <div>
                   <Label>PAN Number *</Label>
-                  <Input
+                  <PanInput
                     value={form.panNumber}
-                    onChange={(e) =>
-                      updateForm("panNumber", e.target.value.toUpperCase())
-                    }
-                    placeholder="ABCDE1234F"
-                    maxLength={10}
-                    className="uppercase"
+                    onChange={(v) => updateForm("panNumber", v)}
                     disabled={!!panResult}
+                    autoFocus
                   />
                 </div>
                 {!panResult && (
@@ -1664,7 +1661,7 @@ function OnboardContent() {
                     type="button"
                     onClick={verifyPan}
                     disabled={verifying || form.panNumber.length !== 10}
-                    className="w-full sm:w-auto"
+                    className="w-full"
                   >
                     {verifying ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
