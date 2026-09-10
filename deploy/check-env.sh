@@ -127,6 +127,17 @@ for flag in "${!PARTNER_DEPS[@]}"; do
   fi
 done
 
+# ---------- OTP provider (Twilio Verify) -----------------------------
+# PARTNER_OTP_PROVIDER is not a boolean PARTNER_*_ENABLED flag, so it needs its
+# own check: when the OTP provider is Twilio, all three Verify credentials MUST
+# be present or every login / onboarding OTP 502s at runtime.
+OTP_PROVIDER=$(get_env "PARTNER_OTP_PROVIDER")
+if [[ "$OTP_PROVIDER" == "twilio" ]]; then
+  for dep in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN TWILIO_VERIFY_SERVICE_SID; do
+    require "$dep" "PARTNER_OTP_PROVIDER=twilio"
+  done
+fi
+
 # ---------- Result ---------------------------------------------------
 
 if (( ${#MISSING[@]} > 0 )); then
@@ -147,5 +158,8 @@ for flag in "${!PARTNER_DEPS[@]}"; do
     TOTAL=$((TOTAL + ${#deps[@]}))
   fi
 done
+if [[ "$(get_env "PARTNER_OTP_PROVIDER")" == "twilio" ]]; then
+  TOTAL=$((TOTAL + 3))
+fi
 
 echo "[check-env] OK — $TOTAL required env vars present in $ENV_FILE"

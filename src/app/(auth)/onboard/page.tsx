@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
+import { OtpInput } from "@/components/ui/OtpInput";
 import { namesMatch } from "@/lib/utils";
 import { extractGpsFromFile } from "@/lib/gps";
 import { LivenessVideoCapture } from "@/components/kyc/LivenessVideoCapture";
@@ -1413,14 +1414,12 @@ function OnboardContent() {
                   ) : (
                     <div className="space-y-3">
                       <div>
-                        <Label>Enter 6-digit OTP</Label>
-                        <Input
+                        <Label className="text-center">Enter 6-digit OTP</Label>
+                        <OtpInput
                           value={otpCode}
-                          onChange={(e) => handleOtpChange(e.target.value, "SMS")}
-                          placeholder="000000"
-                          maxLength={6}
+                          onChange={(v) => handleOtpChange(v, "SMS")}
+                          disabled={verifying}
                           autoFocus
-                          className="text-center text-lg tracking-widest"
                         />
                       </div>
                       {verifying && (
@@ -1488,14 +1487,12 @@ function OnboardContent() {
                   ) : (
                     <div className="space-y-3">
                       <div>
-                        <Label>Enter 6-digit OTP</Label>
-                        <Input
+                        <Label className="text-center">Enter 6-digit OTP</Label>
+                        <OtpInput
                           value={otpCode}
-                          onChange={(e) => handleOtpChange(e.target.value, "EMAIL")}
-                          placeholder="000000"
-                          maxLength={6}
+                          onChange={(v) => handleOtpChange(v, "EMAIL")}
+                          disabled={verifying}
                           autoFocus
-                          className="text-center text-lg tracking-widest"
                         />
                       </div>
                       {verifying && (
