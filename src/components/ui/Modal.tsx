@@ -2,7 +2,8 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { X } from "lucide-react";
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
 export function Modal({
@@ -29,6 +30,11 @@ export function Modal({
   headerClassName?: string;
 }) {
   const reduce = useReducedMotion();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -53,14 +59,14 @@ export function Modal({
           ? "max-w-3xl"
           : "max-w-xl";
 
-  return (
+  const node = (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto px-4 py-6">
+        <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto px-4 py-6">
           <motion.button
             type="button"
             aria-label="Close dialog backdrop"
-            className="fixed inset-0 bg-ink-900/40"
+            className="fixed inset-0 bg-ink-900/50"
             initial={reduce ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={reduce ? undefined : { opacity: 0 }}
@@ -75,7 +81,7 @@ export function Modal({
             exit={reduce ? undefined : { opacity: 0, y: 10, scale: 0.98 }}
             transition={{ duration: reduce ? 0 : 0.28, ease: [0.22, 1, 0.36, 1] }}
             className={cn(
-              "relative z-10 flex w-full max-h-[min(90dvh,720px)] flex-col overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl",
+              "relative z-10 my-auto flex w-full max-h-[min(92dvh,800px)] flex-col overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl",
               maxW,
               className
             )}
@@ -118,7 +124,7 @@ export function Modal({
             </div>
 
             {footer && (
-              <div className="flex shrink-0 items-center justify-end gap-2 border-t border-ink-100 bg-ink-50/40 px-6 py-3">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-ink-100 bg-ink-50/40 px-6 py-3">
                 {footer}
               </div>
             )}
@@ -127,4 +133,7 @@ export function Modal({
       )}
     </AnimatePresence>
   );
+
+  if (!mounted) return null;
+  return createPortal(node, document.body);
 }

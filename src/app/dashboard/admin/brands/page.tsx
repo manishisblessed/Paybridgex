@@ -313,7 +313,7 @@ export default function BrandsPage() {
         <>
           <div className="flex items-start gap-2 rounded-2xl border border-brand-100 bg-brand-50/40 px-4 py-3 text-xs text-ink-600 shadow-sm">
             <Clock className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
-            <p>
+            <p className="min-w-0 flex-1">
               <span className="font-semibold text-ink-700">T+1 cutoff (per company):</span> set the IST hour after which a
               day&apos;s captures roll to the next business day. A swipe taken at/after the cutoff settles on{" "}
               <span className="font-semibold">T+2</span>; everything before settles <span className="font-semibold">T+1</span>.
@@ -744,7 +744,7 @@ function RateEditor({
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <label className="text-xs text-ink-500">
                 Provider (* = any)
                 <input
@@ -834,7 +834,7 @@ function RateEditor({
                 Min MDR (instant) %
                 <input type="number" step="0.01" className={`${inputCls} mt-1 w-full`} value={form.minMdrValueT0} onChange={set("minMdrValueT0")} />
               </label>
-              <div className="flex items-end gap-2 lg:col-span-8">
+              <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-4">
                 <Button size="sm" onClick={saveRate} disabled={busy} isLoading={busy}>
                   {editing ? (
                     <>
@@ -979,7 +979,7 @@ function CreateBrandModal({
       eyebrow="Brands"
       title="New brand"
       subtitle="Create an acquiring brand from a POS fleet company."
-      size="sm"
+      size="md"
       footer={
         <>
           <Button variant="outline" onClick={onClose}>

@@ -122,9 +122,10 @@ button {
  * which is what happens when the hidden `opacity:0` state is serialized by a JS
  * motion library and only revealed on hydration.
  *
- * `animation-fill-mode: both` holds the `from` (hidden) state during any delay
- * and the `to` (visible) state after, so staggered children reveal in sequence
- * and everything ends fully visible.
+ * `animation-fill-mode: backwards` holds the `from` (hidden) state during any
+ * delay, then drops animation styles so we never leave a persistent transform
+ * (which would trap position:fixed modals). After the animation, the element
+ * is naturally visible.
  */
 @keyframes pbx-reveal {
   from {
@@ -133,7 +134,9 @@ button {
   }
   to {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
+    /* `none` (not translate3d(0,0,0)) — a leftover transform becomes a
+       containing block for position:fixed dialogs and clips them. */
+    transform: none;
   }
 }
 
@@ -144,7 +147,7 @@ button {
   }
   to {
     opacity: 1;
-    transform: translate3d(0, 0, 0);
+    transform: none;
   }
 }
 
@@ -350,10 +353,12 @@ button {
      through CSS custom properties so a single class covers every direction,
      distance, delay and duration. */
   .pbx-reveal {
+    /* `backwards` applies the hidden `from` state during delay, then drops
+       animation styles so no persistent transform traps position:fixed UI. */
     animation: pbx-reveal var(--reveal-duration, 0.5s) var(--ease-out-quart)
-      var(--reveal-delay, 0s) both;
+      var(--reveal-delay, 0s) backwards;
   }
   .pbx-page-enter {
-    animation: pbx-page-enter 0.4s var(--ease-out-quart) both;
+    animation: pbx-page-enter 0.4s var(--ease-out-quart) backwards;
   }
 }

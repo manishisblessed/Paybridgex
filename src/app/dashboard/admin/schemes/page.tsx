@@ -342,9 +342,8 @@ export default function SchemeManagementPage() {
         <FilterField label="Search" className="w-full max-w-xs">
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search schemes…" />
         </FilterField>
-        <FilterField label="Status">
+        <FilterField label="Status" className="w-36">
           <Select
-            className="w-32"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as "active" | "all")}
           >
@@ -519,7 +518,7 @@ function SchemeCard({
   return (
     <Panel flush className="overflow-hidden">
       {/* Card header */}
-      <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+      <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-sky-500 text-white">
           <Settings2 className="h-5 w-5" />
         </div>
@@ -543,7 +542,7 @@ function SchemeCard({
         </div>
 
         {/* Icon strip: BBPS / Payout slab modals + POS MDR + manage actions */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex shrink-0 flex-wrap items-center gap-0.5">
           {SERVICE_FAMILIES.map((f) => {
             const cfg = FAMILY_ICONS[f.key];
             if (!cfg) return null;
@@ -1101,7 +1100,7 @@ function SlabModal({
     <ModalShell
       open
       onClose={onClose}
-      size="md"
+      size="lg"
       eyebrow={family.label}
       title={
         <span className="flex items-center gap-2">
@@ -1124,7 +1123,7 @@ function SlabModal({
       <div className="space-y-4">
           {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label>Service</Label>
               {family.key === "PAYOUT" ? (
@@ -1184,7 +1183,7 @@ function SlabModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label>Min amount (₹)</Label>
               <Input type="number" min={0} value={minAmount} onChange={(e) => setMinAmount(e.target.value)} />
@@ -1197,7 +1196,7 @@ function SlabModal({
 
           <div className="rounded-xl border border-ink-100 bg-ink-50/40 p-3">
             <p className="mb-2 text-xs font-bold uppercase tracking-widest text-ink-500">Customer charge</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Select value={chargeType} onChange={(e) => setChargeType(e.target.value as RateType)}>
                 <option value="FLAT">Flat (₹)</option>
                 <option value="PERCENT">Percent (%)</option>
@@ -1554,7 +1553,7 @@ function MdrRateModal({
     <ModalShell
       open
       onClose={onClose}
-      size="md"
+      size="xl"
       eyebrow="MDR"
       title={
         <span className="flex items-center gap-2">
@@ -1619,7 +1618,7 @@ function MdrRateModal({
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label>{serviceKind === "POS" ? "Company" : isLockedRail ? "Provider" : "Company"}</Label>
               <Select
@@ -1675,7 +1674,7 @@ function MdrRateModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <Label>Card type</Label>
               <Select value={cardType} onChange={(e) => setCardType(e.target.value)}>
@@ -1723,7 +1722,7 @@ function MdrRateModal({
             <p className="mb-2 text-xs font-bold uppercase tracking-widest text-ink-500">
               {isPos ? "Service charge & minimum MDR" : "Service charge & vendor cost"}
             </p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
                 <Label>Type</Label>
                 <Select value={mdrType} onChange={(e) => setMdrType(e.target.value as RateType)} disabled={isPos}>
@@ -1740,8 +1739,8 @@ function MdrRateModal({
                 <Input type="number" min={0} step="0.0001" value={mdrT0} onChange={(e) => setMdrT0(e.target.value)} />
               </div>
             </div>
-            <div className="mt-3 grid grid-cols-3 gap-3">
-              <div />
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="hidden sm:block" />
               {isPos ? (
                 <>
                   <div>
@@ -1865,7 +1864,7 @@ function MdrRateModal({
 
           <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
             <p className="mb-2 text-xs font-bold uppercase tracking-widest text-ink-500">Commission (from Revenue Wallet)</p>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <Label>Type</Label>
                 <Select value={commissionType} onChange={(e) => setCommissionType(e.target.value as RateType)} disabled={isPos}>
@@ -1886,7 +1885,7 @@ function MdrRateModal({
                 <Input type="number" min={0} step="0.0001" value={commSuper} onChange={(e) => setCommSuper(e.target.value)} />
               </div>
             </div>
-            <div className="mt-3 grid grid-cols-4 gap-3">
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="flex items-end pb-2 text-[11px] font-semibold uppercase tracking-widest text-ink-400">
                 Instant (T+0)
               </div>

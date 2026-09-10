@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/dashboard/PageHeader";
@@ -243,7 +244,7 @@ export default function NetworkManagerPage() {
               setPage(1);
             }}
             placeholder="Search name / shop / email / phone / city…"
-            className={`${inputCls} w-80 pl-9`}
+            className={`${inputCls} w-full max-w-sm pl-9`}
           />
         </div>
         <select
@@ -252,7 +253,7 @@ export default function NetworkManagerPage() {
             setStatus(e.target.value);
             setPage(1);
           }}
-          className={inputCls}
+          className={`${inputCls} min-w-0`}
         >
           <option value="all">All statuses</option>
           <option value="ACTIVE">Active</option>
@@ -639,6 +640,22 @@ function UserDrawer({
   }, [pulse]);
 
   const amountRef = useRef<HTMLInputElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    setSchemeId(user.scheme?.id ?? "");
+    setWalletCap(user.walletCap != null ? String(user.walletCap) : "");
+    setSettlementTier(user.settlementTier ?? "");
+    setAutoSettle(user.autoSettle);
+    setLiveBalances({ primary: user.primary, aeps: user.aeps, held: user.held });
+    setWalletOpAmount("");
+    setWalletOpRemarks("");
+    setWalletOpConfirm(false);
+    setResetResult(null);
+  }, [user]);
 
   useEffect(() => {
     fetch("/api/admin/schemes")
@@ -685,13 +702,13 @@ function UserDrawer({
     }
   };
 
-  return (
+  const drawer = (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-ink-900/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[80] flex justify-end bg-ink-900/45"
       onClick={onClose}
     >
       <div
-        className="relative h-full w-full max-w-md overflow-y-auto rounded-l-3xl border-l border-ink-100 bg-white shadow-2xl animate-fade-up"
+        className="relative flex h-full w-full max-w-lg flex-col overflow-hidden rounded-l-3xl border-l border-ink-100 bg-white shadow-2xl animate-fade-up"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Sticky in-drawer notice — always visible over drawer content */}
@@ -723,9 +740,9 @@ function UserDrawer({
           </div>
         )}
 
-        <div className="p-6">
-          <div className="flex items-start justify-between">
-            <div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
               <h2 className="font-display text-lg font-bold text-ink-900">
                 {user.name}
                 {user.userCode && (
@@ -734,11 +751,11 @@ function UserDrawer({
                   </span>
                 )}
               </h2>
-              <p className="text-xs text-ink-500">
+              <p className="break-words text-xs text-ink-500">
                 {user.shopName ?? "—"} · {user.email} · {user.phone}
               </p>
             </div>
-            <button onClick={onClose} className="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700">
+            <button onClick={onClose} className="shrink-0 rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700">
               <X className="h-5 w-5" />
             </button>
           </div>
@@ -779,36 +796,42 @@ function UserDrawer({
             </button>
           </div>
 
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <select
-              value={walletOpWalletType}
-              onChange={(e) => setWalletOpWalletType(e.target.value as "PRIMARY" | "AEPS")}
-              disabled={busy === "walletOp" || walletOpConfirm}
-              className={inputCls}
-            >
-              <option value="PRIMARY">Primary wallet</option>
-              <option value="AEPS">AEPS wallet</option>
-            </select>
-            <input
-              ref={amountRef}
-              type="number"
-              min="1"
-              step="0.01"
-              placeholder="Amount ₹"
-              value={walletOpAmount}
-              onChange={(e) => setWalletOpAmount(e.target.value)}
-              disabled={busy === "walletOp" || walletOpConfirm}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !walletOpConfirm) {
-                  e.preventDefault();
-                  const amt = Number(walletOpAmount);
-                  if (Number.isFinite(amt) && amt > 0 && walletOpRemarks.trim().length >= 3) {
-                    setWalletOpConfirm(true);
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <label className="block text-xs text-ink-500">
+              Wallet
+              <select
+                value={walletOpWalletType}
+                onChange={(e) => setWalletOpWalletType(e.target.value as "PRIMARY" | "AEPS")}
+                disabled={busy === "walletOp" || walletOpConfirm}
+                className={`${inputCls} mt-1 w-full`}
+              >
+                <option value="PRIMARY">Primary wallet</option>
+                <option value="AEPS">AEPS wallet</option>
+              </select>
+            </label>
+            <label className="block text-xs text-ink-500">
+              Amount (₹)
+              <input
+                ref={amountRef}
+                type="number"
+                min="1"
+                step="0.01"
+                placeholder="0.00"
+                value={walletOpAmount}
+                onChange={(e) => setWalletOpAmount(e.target.value)}
+                disabled={busy === "walletOp" || walletOpConfirm}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !walletOpConfirm) {
+                    e.preventDefault();
+                    const amt = Number(walletOpAmount);
+                    if (Number.isFinite(amt) && amt > 0 && walletOpRemarks.trim().length >= 3) {
+                      setWalletOpConfirm(true);
+                    }
                   }
-                }
-              }}
-              className={inputCls}
-            />
+                }}
+                className={`${inputCls} mt-1 w-full`}
+              />
+            </label>
           </div>
           <select
             value={walletOpReason}
@@ -983,8 +1006,8 @@ function UserDrawer({
 
         {/* Scheme assignment */}
         <Section icon={Layers} title="Commission scheme">
-          <div className="flex gap-2">
-            <select value={schemeId} onChange={(e) => setSchemeId(e.target.value)} className={`${inputCls} flex-1`}>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <select value={schemeId} onChange={(e) => setSchemeId(e.target.value)} className={`${inputCls} min-w-0 flex-1`}>
               <option value="">Platform default</option>
               {schemes.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -1014,54 +1037,68 @@ function UserDrawer({
 
         {/* Limits */}
         <Section icon={Gauge} title="Limits & tier">
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              type="number"
-              placeholder="Wallet cap ₹"
-              value={walletCap}
-              onChange={(e) => setWalletCap(e.target.value)}
-              className={inputCls}
-            />
-            <input
-              type="number"
-              placeholder="Daily settle cap ₹"
-              value={settlementDailyCap}
-              onChange={(e) => setSettlementDailyCap(e.target.value)}
-              className={inputCls}
-            />
-            <input
-              type="number"
-              placeholder="Instant settle daily cap ₹"
-              value={instantDailyCap}
-              onChange={(e) => setInstantDailyCap(e.target.value)}
-              className={inputCls}
-            />
-            <input
-              placeholder="Tier label (e.g. GOLD)"
-              value={settlementTier}
-              onChange={(e) => setSettlementTier(e.target.value)}
-              className={inputCls}
-            />
-            <Button
-              size="sm"
-              disabled={busy === "limits"}
-              onClick={async () => {
-                try {
-                  await patch("limits", {
-                    action: "setLimits",
-                    walletCap: walletCap ? Number(walletCap) : null,
-                    settlementDailyCap: settlementDailyCap ? Number(settlementDailyCap) : null,
-                    instantDailyCap: instantDailyCap ? Number(instantDailyCap) : null,
-                    settlementTier: settlementTier || null,
-                  });
-                  onChanged("Limits updated.", true);
-                } catch (e) {
-                  onChanged(e instanceof Error ? e.message : "Failed", false);
-                }
-              }}
-            >
-              Save limits
-            </Button>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-xs text-ink-500">
+              Wallet cap (₹)
+              <input
+                type="number"
+                placeholder="No cap"
+                value={walletCap}
+                onChange={(e) => setWalletCap(e.target.value)}
+                className={`${inputCls} mt-1 w-full`}
+              />
+            </label>
+            <label className="block text-xs text-ink-500">
+              Daily settle cap (₹)
+              <input
+                type="number"
+                placeholder="No cap"
+                value={settlementDailyCap}
+                onChange={(e) => setSettlementDailyCap(e.target.value)}
+                className={`${inputCls} mt-1 w-full`}
+              />
+            </label>
+            <label className="block text-xs text-ink-500">
+              Instant settle daily cap (₹)
+              <input
+                type="number"
+                placeholder="No cap"
+                value={instantDailyCap}
+                onChange={(e) => setInstantDailyCap(e.target.value)}
+                className={`${inputCls} mt-1 w-full`}
+              />
+            </label>
+            <label className="block text-xs text-ink-500">
+              Tier label
+              <input
+                placeholder="e.g. GOLD"
+                value={settlementTier}
+                onChange={(e) => setSettlementTier(e.target.value)}
+                className={`${inputCls} mt-1 w-full`}
+              />
+            </label>
+            <div className="sm:col-span-2">
+              <Button
+                size="sm"
+                disabled={busy === "limits"}
+                onClick={async () => {
+                  try {
+                    await patch("limits", {
+                      action: "setLimits",
+                      walletCap: walletCap ? Number(walletCap) : null,
+                      settlementDailyCap: settlementDailyCap ? Number(settlementDailyCap) : null,
+                      instantDailyCap: instantDailyCap ? Number(instantDailyCap) : null,
+                      settlementTier: settlementTier || null,
+                    });
+                    onChanged("Limits updated.", true);
+                  } catch (e) {
+                    onChanged(e instanceof Error ? e.message : "Failed", false);
+                  }
+                }}
+              >
+                Save limits
+              </Button>
+            </div>
           </div>
           <p className="mt-2 text-xs text-ink-400">
             Instant settle daily cap limits how much (net) this user can instant-settle per day, on top of the global
@@ -1176,6 +1213,9 @@ function UserDrawer({
       </div>
     </div>
   );
+
+  if (!mounted) return null;
+  return createPortal(drawer, document.body);
 }
 
 /* ─── Monthly Re-KYC reschedule (MASTER_ADMIN / ADMIN) ─────────────────────── */
