@@ -29,6 +29,22 @@ import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { ASSIGNABLE_ADMIN_TABS } from "@/lib/roles";
 import { generateRandomPassword } from "@/lib/utils";
 
+/**
+ * Parse a fetch Response as JSON without ever throwing. An empty or non-JSON
+ * body (e.g. an unhandled 500) would otherwise make `res.json()` throw the
+ * cryptic "Unexpected end of JSON input" — which then surfaces to the operator
+ * as if it were the real error. Returns {} when there is no parseable body.
+ */
+async function safeJson(res: Response): Promise<any> {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
 type AdminRecord = {
   id: string;
   name: string;
@@ -586,8 +602,13 @@ function NewAdminForm({
           role,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to create admin");
+      const data = await safeJson(res);
+      if (!res.ok)
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : `Failed to create admin (HTTP ${res.status})`
+        );
       onCreated(data.admin, password);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create.");
@@ -759,8 +780,13 @@ function NewMasterAdminForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, phone, password }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to create master admin");
+      const data = await safeJson(res);
+      if (!res.ok)
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : `Failed to create master admin (HTTP ${res.status})`
+        );
       onCreated(data.masterAdmin, password);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create.");

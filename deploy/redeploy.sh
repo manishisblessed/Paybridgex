@@ -8,7 +8,17 @@ echo "=========================================="
 cd /home/ubuntu/paybridgex
 
 echo "[1/6] Pulling latest code..."
-git pull origin main
+# This box is a pure mirror of origin/main — it never holds local commits or
+# hand-edited tracked files. A plain `git pull` (merge) ABORTS whenever a file
+# that is now tracked in the repo already exists here as an untracked file
+# (e.g. an ad-hoc script created directly on the server, then later committed):
+#   "error: The following untracked working tree files would be overwritten by merge"
+# To make deploys idempotent and un-blockable, hard-reset the working tree to
+# exactly match origin/main. This overwrites any such now-tracked files, while
+# leaving genuinely untracked, un-committed files (.env, node_modules, build
+# output, uploads) completely alone.
+git fetch origin main
+git reset --hard origin/main
 
 # Tag this deploy's Sentry release with the exact commit. Exported here so BOTH
 # the build (client/server bundles, source-map upload) and the PM2 restart below

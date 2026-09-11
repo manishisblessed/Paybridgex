@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import { Prisma } from "@prisma/client";
 import { requireRole, AuthError } from "@/lib/auth-server";
 import { requireAdminActivity } from "@/lib/security/adminActivity";
 import { toErrorResponse } from "@/lib/security/apiErrors";
@@ -71,44 +72,78 @@ export async function POST(req: Request) {
     return toErrorResponse(e);
   }
 
-  const parsed = CreateBody.safeParse(await req.json());
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid or empty request body" }, { status: 400 });
+  }
+
+  const parsed = CreateBody.safeParse(rawBody);
   if (!parsed.success)
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
   const { name, email, phone, password } = parsed.data;
+  const normEmail = email.trim().toLowerCase();
+  const normPhone = phone.trim();
 
+  // Include soft-deleted users: the DB unique constraint on email/phone ignores
+  // `deletedAt`, so a deleted account still reserves its email/phone. Surfacing
+  // this as a clean 409 avoids a P2002 → empty 500 → "Unexpected end of JSON input".
   const existing = await prisma.user.findFirst({
-    where: { OR: [{ email: email.toLowerCase() }, { phone }], deletedAt: null },
+    where: { OR: [{ email: normEmail }, { phone: normPhone }] },
+    select: { id: true, deletedAt: true, email: true },
   });
   if (existing) {
+    const clash = existing.email === normEmail ? "email" : "phone";
+    if (existing.deletedAt) {
+      return NextResponse.json(
+        {
+          error: `A previously deleted account still holds this ${clash}. Use a different ${clash}, or fully purge the old account first (scripts/removeRetailer.ts) to free it for reuse.`,
+        },
+        { status: 409 }
+      );
+    }
     return NextResponse.json(
-      { error: "A user with this email or phone already exists" },
+      { error: `A user with this ${clash} already exists` },
       { status: 409 }
     );
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
 
-  const admin = await prisma.user.create({
-    data: {
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
-      passwordHash,
-      role: "MASTER_ADMIN",
-      status: "ACTIVE",
-      allowedTabs: [],
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      phone: true,
-      status: true,
-      allowedTabs: true,
-      createdAt: true,
-    },
-  });
+  let admin;
+  try {
+    admin = await prisma.user.create({
+      data: {
+        name: name.trim(),
+        email: normEmail,
+        phone: normPhone,
+        passwordHash,
+        role: "MASTER_ADMIN",
+        status: "ACTIVE",
+        allowedTabs: [],
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        status: true,
+        allowedTabs: true,
+        createdAt: true,
+      },
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      const fields = (e.meta?.target as string[] | undefined)?.join(", ") ?? "email or phone";
+      return NextResponse.json(
+        { error: `A user with this ${fields} already exists (it may belong to a deleted account).` },
+        { status: 409 }
+      );
+    }
+    return toErrorResponse(e);
+  }
 
   await prisma.auditLog.create({
     data: {
@@ -116,7 +151,7 @@ export async function POST(req: Request) {
       action: "master_admin.created",
       entity: "User",
       entityId: admin.id,
-      meta: { name, email, phone },
+      meta: { name, email: normEmail, phone: normPhone },
       ip: clientIp(req),
     },
   });
