@@ -21,7 +21,7 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Spinner } from "@/components/ui/Spinner";
 import { Panel, StatTile, TablePro, TableEmptyRow } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatIST } from "@/lib/utils";
 
 type PerformanceData = {
   user: {
@@ -170,7 +170,7 @@ export default function PerformancePage() {
             )}
             <div className="flex items-center gap-1.5 text-xs text-ink-400">
               <CalendarDays className="h-3.5 w-3.5" />
-              Member since {new Date(user.createdAt).toLocaleDateString("en-IN", { year: "numeric", month: "long", day: "numeric" })}
+              Member since {formatIST(user.createdAt, { year: "numeric", month: "long", day: "numeric" })}
             </div>
           </div>
           <div className="text-right">
@@ -251,7 +251,7 @@ export default function PerformancePage() {
               <span className="flex items-center gap-1 text-xs font-medium text-ink-600">
                 <Clock className="h-3.5 w-3.5" />
                 {user.lastLoginAt
-                  ? new Date(user.lastLoginAt).toLocaleString("en-IN")
+                  ? formatIST(user.lastLoginAt)
                   : "N/A"}
               </span>
             </div>
@@ -318,7 +318,7 @@ export default function PerformancePage() {
                   return (
                     <tr key={entry.id}>
                       <td className="whitespace-nowrap text-ink-800">
-                        {new Date(entry.createdAt).toLocaleString("en-IN")}
+                        {formatIST(entry.createdAt)}
                       </td>
                       <td className="font-mono text-xs text-ink-600">
                         {entry.ip || "—"}

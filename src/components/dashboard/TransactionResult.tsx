@@ -6,6 +6,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { CountUp } from "@/components/motion";
 import { useAuth } from "@/lib/useAuth";
+import { formatIST } from "@/lib/utils";
 
 /** Branding line shown on every payment result/receipt. */
 function payByLine(userCode?: string | null): string {
@@ -23,7 +24,7 @@ export type TxnResult = {
 } | null;
 
 function buildReceiptHtml(r: NonNullable<TxnResult>, userCode?: string | null): string {
-  const date = new Date().toLocaleString("en-IN", {
+  const date = formatIST(new Date(), {
     dateStyle: "medium",
     timeStyle: "short",
   });

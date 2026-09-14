@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Label, Select } from "@/components/ui/Input";
 import { ReportActions } from "@/components/dashboard/ReportActions";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatIST } from "@/lib/utils";
 
 type PayoutStatus =
   | "DRAFT"
@@ -150,7 +150,7 @@ export default function PayoutApprovalsPage() {
     amount: r.amount,
     total: r.totalDebit,
     status: STATUS_LABEL[r.status],
-    date: new Date(r.createdAt).toLocaleString("en-IN"),
+    date: formatIST(r.createdAt),
   }));
 
   const cols: Column<Payout>[] = [
@@ -408,9 +408,9 @@ function DetailDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 <Field label="Failure reason" value={detail.failureReason} />
               )}
               {detail.remarks && <Field label="Remarks" value={detail.remarks} />}
-              <Field label="Created" value={new Date(detail.createdAt).toLocaleString("en-IN")} />
+              <Field label="Created" value={formatIST(detail.createdAt)} />
               {detail.completedAt && (
-                <Field label="Completed" value={new Date(detail.completedAt).toLocaleString("en-IN")} />
+                <Field label="Completed" value={formatIST(detail.completedAt)} />
               )}
             </div>
           </div>

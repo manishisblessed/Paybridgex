@@ -22,7 +22,7 @@ import { Input, Label, Select } from "@/components/ui/Input";
 import { ReportActions } from "@/components/dashboard/ReportActions";
 import { type Role } from "@/lib/auth";
 import { useAuth } from "@/lib/useAuth";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatIST } from "@/lib/utils";
 
 type FundReq = {
   id: string;
@@ -108,7 +108,7 @@ export default function FundsRequestPage() {
     mode: r.mode,
     utr: r.utr ?? "—",
     status: r.status,
-    date: new Date(r.createdAt).toLocaleString("en-IN"),
+    date: formatIST(r.createdAt),
   }));
 
   const cols: Column<FundReq>[] = [
@@ -150,7 +150,7 @@ export default function FundsRequestPage() {
       header: "When",
       render: (r) => (
         <span className="whitespace-nowrap text-xs text-ink-500">
-          {new Date(r.createdAt).toLocaleString("en-IN", {
+          {formatIST(r.createdAt, {
             dateStyle: "medium",
             timeStyle: "short",
           })}

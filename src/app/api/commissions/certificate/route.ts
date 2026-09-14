@@ -58,7 +58,7 @@ export async function GET(req: Request) {
   for (let i = 0; i < 12; i++) {
     const d = new Date(Date.UTC(startYear, 3 + i, 1));
     monthKeys.push(
-      d.toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" })
+      d.toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "Asia/Kolkata" })
     );
   }
   const byMonth = new Map<string, ReturnType<typeof dec>>(monthKeys.map((k) => [k, dec(0)]));

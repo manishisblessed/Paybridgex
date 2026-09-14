@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { formatIST } from "@/lib/utils";
 import {
   LifeBuoy,
   Plus,
@@ -235,7 +236,7 @@ export default function DisputesPage() {
                         </p>
                       </div>
                       <div className="shrink-0 text-right text-xs text-ink-500">
-                        {new Date(d.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                        {formatIST(d.createdAt, { dateStyle: "medium" })}
                       </div>
                     </button>
                   </li>
@@ -340,7 +341,7 @@ export default function DisputesPage() {
               {detail.status !== "RESOLVED" && detail.status !== "REJECTED" && (
                 <span className="flex items-center gap-1 text-xs text-ink-500">
                   <Clock className="h-3 w-3" />
-                  Response due {new Date(detail.slaDueAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                  Response due {formatIST(detail.slaDueAt, { dateStyle: "medium", timeStyle: "short" })}
                 </span>
               )}
             </div>
@@ -387,7 +388,7 @@ export default function DisputesPage() {
                 >
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-400">
                     {m.fromSupport ? "Support" : m.authorName} ·{" "}
-                    {new Date(m.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                    {formatIST(m.createdAt, { dateStyle: "medium", timeStyle: "short" })}
                   </p>
                   <p className="mt-1 whitespace-pre-wrap">{m.body}</p>
                 </li>

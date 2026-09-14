@@ -13,6 +13,8 @@
  * feel continuous with the dashboard.
  */
 
+import { formatIST } from "@/lib/utils";
+
 const BRAND = {
   primary: "#1b45ea", // brand-600 (royal blue)
   primaryDark: "#192a82", // brand-900
@@ -40,12 +42,7 @@ function fmtRole(role: string) {
 }
 
 function fmtExpiry(expiresAt: Date | string) {
-  const d = typeof expiresAt === "string" ? new Date(expiresAt) : expiresAt;
-  return d.toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return formatIST(expiresAt, { day: "numeric", month: "long", year: "numeric" });
 }
 
 /**

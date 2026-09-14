@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Badge } from "@/components/ui/Badge";
-import { formatINR, istToday, istDaysAgo, istDayRangeUtc } from "@/lib/utils";
+import { formatINR, istToday, istDaysAgo, istDayRangeUtc, formatIST } from "@/lib/utils";
 
 type ReversalRow = {
   transactionRef: string;
@@ -58,7 +58,7 @@ async function fetcher<T>(url: string): Promise<T> {
 // IST business-day defaults so this feed lines up with the rest of the POS UI.
 const todayIso = () => istToday();
 const daysAgoIso = (d: number) => istDaysAgo(d);
-const fmtDateTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-IN") : "—");
+const fmtDateTime = (iso: string | null) => formatIST(iso);
 
 export default function PosReversalsPage() {
   const [dateFrom, setDateFrom] = useState(daysAgoIso(30));

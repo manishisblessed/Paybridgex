@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
+import { formatIST, formatISTDate } from "@/lib/utils";
 import {
   Loader2,
   Search,
@@ -224,7 +225,7 @@ export default function AdminJoinRequestsPage() {
                         />
                       </td>
                       <td className="text-ink-500">
-                        {new Date(r.createdAt).toLocaleDateString()}
+                        {formatISTDate(r.createdAt)}
                       </td>
                       <td className="text-right">
                         <div className="flex items-center justify-end gap-2">
@@ -363,7 +364,7 @@ function JoinRequestDetail({
       subtitle={
         <>
           Interested as {fmtRole(request.role)} · Submitted{" "}
-          {new Date(request.createdAt).toLocaleString()}
+          {formatIST(request.createdAt)}
         </>
       }
       footer={

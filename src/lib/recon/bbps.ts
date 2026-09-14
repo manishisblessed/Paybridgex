@@ -14,6 +14,12 @@ const BBPS_SERVICES: ServiceCode[] = [
   "RECHARGE_BROADBAND",
 ];
 
+// The Same Day RechargeKit CC-2 rail also books BILL_CREDIT_CARD transactions,
+// but it is a DIFFERENT partner/API (polled + finalised by recon/rechargekit.ts
+// and the /api/webhooks/sameday receiver). Never let the BBPS/Pay2New status
+// endpoint be asked about a RechargeKit txn — exclude it from every query here.
+const RK_PARTNER = "SAMEDAY_RECHARGEKIT";
+
 /**
  * BBPS reconciliation — polls PROCESSING BBPS transactions and settles them.
  *
@@ -65,6 +71,7 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
     where: {
       status: "PROCESSING",
       service: { in: BBPS_SERVICES },
+      partner: { not: RK_PARTNER },
       partnerTxnId: { not: null },
       createdAt: { lt: new Date(now - DRAIN_AGE_MS) },
     },
@@ -173,6 +180,7 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
     where: {
       status: "PROCESSING",
       service: { in: BBPS_SERVICES },
+      partner: { not: RK_PARTNER },
       createdAt: { lt: new Date(now - STUCK_THRESHOLD_MS) },
     },
     select: { id: true, refId: true, createdAt: true },
@@ -197,6 +205,7 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
     where: {
       status: { in: ["SUCCESS", "FAILED"] },
       service: { in: BBPS_SERVICES },
+      partner: { not: RK_PARTNER },
       partnerTxnId: { not: null },
       updatedAt: { gte: new Date(now - VERIFY_WINDOW_MS) },
     },

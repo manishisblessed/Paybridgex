@@ -5,6 +5,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { rechargekitOperators } from "@/lib/partners/sameday-rechargekit";
+import { friendlyPartnerError } from "@/lib/partners/friendlyError";
 import { AuthError } from "@/lib/auth-server";
 
 export const fetchCache = "force-no-store";
@@ -35,7 +36,7 @@ export async function GET(req: Request) {
 
   if (!result.ok) {
     return NextResponse.json(
-      { error: result.message, code: result.code },
+      { error: friendlyPartnerError(result.code, result.message, "fetch"), code: result.code },
       { status: 502 }
     );
   }

@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   Zap,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatIST } from "@/lib/utils";
 import { formatINRFull } from "./CumulativeWalletCard";
 import type { PartnerFloat } from "./CumulativeWalletCard";
 
@@ -329,7 +329,7 @@ function StatusBadge({ state }: { state: "ok" | "error" | "not-configured" | "fr
 }
 
 function formatTime(d: Date) {
-  return d.toLocaleTimeString("en-IN", {
+  return formatIST(d, {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,

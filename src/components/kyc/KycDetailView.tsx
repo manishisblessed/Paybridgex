@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { formatIST, formatISTDate } from "@/lib/utils";
 import {
   AlertTriangle,
   Building2,
@@ -322,7 +323,7 @@ export function DetailsTab({ kyc }: { kyc: KycDetailData }) {
             label="Date of Birth"
             value={
               kyc.aadhaarDob ??
-              (kyc.dob ? new Date(kyc.dob).toLocaleDateString("en-IN") : "—")
+              (kyc.dob ? formatISTDate(kyc.dob) : "—")
             }
           />
           <InfoField label="Gender" value={kyc.aadhaarGender ?? "—"} />
@@ -419,7 +420,7 @@ export function DetailsTab({ kyc }: { kyc: KycDetailData }) {
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                 Applicant self-declared that all names belong to them
                 {kyc.nameDeclarationAt
-                  ? ` on ${new Date(kyc.nameDeclarationAt).toLocaleString("en-IN", {
+                  ? ` on ${formatIST(kyc.nameDeclarationAt, {
                       dateStyle: "medium",
                       timeStyle: "short",
                     })}`
@@ -550,7 +551,7 @@ export function DocsTab({
                       {doc.format}
                     </span>
                   )}
-                  <span>{new Date(doc.uploadedAt).toLocaleDateString("en-IN")}</span>
+                  <span>{formatISTDate(doc.uploadedAt)}</span>
                   {doc.hasGps && doc.gpsLatitude && doc.gpsLongitude && (
                     <a
                       href={`https://www.google.com/maps?q=${doc.gpsLatitude},${doc.gpsLongitude}`}
@@ -733,7 +734,7 @@ export function VerificationsTab({ verifications }: { verifications: Verificatio
               </div>
             )}
             <p className="mt-2 text-[11px] text-ink-400">
-              {new Date(v.createdAt).toLocaleString("en-IN", {
+              {formatIST(v.createdAt, {
                 dateStyle: "medium",
                 timeStyle: "short",
               })}

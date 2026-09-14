@@ -8,6 +8,7 @@ import { generateNextUserCode } from "@/lib/userCode";
 import { uplineInclude, flattenUpline } from "@/lib/hierarchy";
 import { buildInviteDataForUser } from "@/lib/onboarding/inviteBackfill";
 import { defaultServicesForRole } from "@/lib/settings";
+import { formatISTDate } from "@/lib/utils";
 
 export const fetchCache = "force-no-store";
 
@@ -265,11 +266,7 @@ export async function GET(req: Request) {
       role: displayRole(u.role),
       city: u.city ?? "—",
       state: u.state ?? "—",
-      joined: u.createdAt.toLocaleDateString("en-IN", {
-        month: "short",
-        day: "2-digit",
-        year: "numeric",
-      }),
+      joined: formatISTDate(u.createdAt),
       status: displayStatus(u.status),
       walletBalance: Number(u.walletBalance),
       monthlyTurnover: turnoverMap.get(u.id) ?? 0,

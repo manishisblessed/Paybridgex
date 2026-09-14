@@ -4,7 +4,7 @@ import { SERVICE_FAMILIES } from "@/lib/scheme/constants";
 /**
  * Per-product BBPS "price scope".
  *
- * BBPS/CC bill payments run across four distinct products that must be priced,
+ * BBPS/CC bill payments run across three distinct products that must be priced,
  * floored, and reported INDEPENDENTLY — even when two of them ride the same
  * upstream partner (Same Day serves both "Bharat BillPay" and the CC-only
  * "RechargeKit" rails). We use each product's unique ServiceRoute key as the
@@ -23,8 +23,6 @@ export const BBPS_PRICE_SCOPES = {
   BBPS_CREDIT_CARD: SERVICE_KEYS.BBPS_CREDIT_CARD,
   /** Credit Card Bill Payment-2 (cc-pay) — Same Day RechargeKit. */
   RECHARGEKIT_CC: SERVICE_KEYS.RECHARGEKIT_CC,
-  /** Unified Bill Payment Platform (bbps-2) — BulkPe. */
-  BBPS_BULKPE: SERVICE_KEYS.BBPS_BULKPE,
 } as const;
 
 export type BbpsPriceScope = (typeof BBPS_PRICE_SCOPES)[keyof typeof BBPS_PRICE_SCOPES];
@@ -36,7 +34,6 @@ const SCOPE_FAMILY: Record<string, "SAMEDAY" | "BULKPE"> = {
   [BBPS_PRICE_SCOPES.BBPS_SAMEDAY]: "SAMEDAY",
   [BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD]: "SAMEDAY",
   [BBPS_PRICE_SCOPES.RECHARGEKIT_CC]: "SAMEDAY",
-  [BBPS_PRICE_SCOPES.BBPS_BULKPE]: "BULKPE",
 };
 
 /** Friendly product name per scope, sourced from the service catalog. */
@@ -75,9 +72,9 @@ const CREDIT_CARD_SERVICE = "BILL_CREDIT_CARD";
 
 /**
  * Credit Card Bill Payment / Credit Card Bill Payment-2 are the only products
- * that may price BILL_CREDIT_CARD. Bharat BillPay and Unified Bill Payment
- * price utility categories only (electricity, water, gas, education, insurance)
- * — they must never fan out a credit-card slab.
+ * that may price BILL_CREDIT_CARD. Bharat BillPay prices utility categories
+ * only (electricity, water, gas, education, insurance) — it must never fan out
+ * a credit-card slab.
  */
 const CC_ONLY_SCOPES = new Set<string>([
   BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD,
@@ -85,8 +82,7 @@ const CC_ONLY_SCOPES = new Set<string>([
 ]);
 const UTILITY_ONLY_SCOPES = new Set<string>([
   BBPS_PRICE_SCOPES.BBPS_SAMEDAY,
-  BBPS_PRICE_SCOPES.BBPS_BULKPE,
-  "bbps_bulkpe", // legacy pricing key retained in the catalog
+  "bbps_bulkpe", // legacy BulkPe pricing key retained for pre-existing scheme slabs
 ]);
 
 /**

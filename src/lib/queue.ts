@@ -72,6 +72,11 @@ export const QUEUES = {
   // and settles them. The BBPS rail has no webhooks, so this sweep is the
   // only way to finalize PENDING payments. Runs every 5 minutes.
   BBPS_RECONCILE: "bbps.reconcile",
+  // RechargeKit CC-2 reconciliation — safety net behind the inbound Same Day
+  // webhook. Polls PROCESSING RechargeKit payments via the partner status API
+  // and settles/refunds them (idempotent, shares finalizeServiceTransaction with
+  // the webhook path). Runs every 5 minutes. See src/lib/recon/rechargekit.ts.
+  RECHARGEKIT_RECONCILE: "rechargekit.reconcile",
   // QR collection T+1 settlement — sweeps approved (SETTLEABLE) claims the
   // retailer didn't instant-settle into their wallet the next IST day, net of
   // the scheme's T1 MDR. Scheduled hourly; fires only at the configured hour.

@@ -16,6 +16,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { creditWallet } from "../ledger";
 import { getPartner, assertRealMoneyProvider } from "../partners";
+import { friendlyPartnerError } from "../partners/friendlyError";
 import { round } from "../money";
 import { emitWebhookEvent } from "../platform/webhooks";
 import { assertPushWithinCap, WalletOpError } from "./operations";
@@ -91,11 +92,12 @@ export async function initiateTopup(input: {
   });
 
   if (!r.ok) {
+    const friendly = friendlyPartnerError(r.code, r.message, "generic");
     await prisma.transaction.update({
       where: { id: txn.id },
-      data: { status: "FAILED", errorCode: r.code, errorMessage: r.message },
+      data: { status: "FAILED", errorCode: r.code, errorMessage: friendly },
     });
-    throw new TopupError(r.message, 502, r.code);
+    throw new TopupError(friendly, 502, r.code);
   }
 
   await prisma.transaction.update({

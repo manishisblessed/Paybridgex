@@ -6,7 +6,7 @@ import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { bumpTokenVersion } from "@/lib/security/session";
-import { generateRandomPassword } from "@/lib/utils";
+import { generateRandomPassword, tombstonedIdentity } from "@/lib/utils";
 
 const PatchBody = z.object({
   action: z.enum(["suspend", "activate", "close", "update-tabs", "reset-password", "reset-2fa"]),
@@ -104,7 +104,9 @@ export async function PATCH(
       update = { status: "ACTIVE" };
       break;
     case "close":
-      update = { status: "CLOSED", deletedAt: new Date() };
+      // Closing is terminal (the row is filtered out by `deletedAt`), so free
+      // the identity for reuse just like a delete.
+      update = { status: "CLOSED", deletedAt: new Date(), ...tombstonedIdentity(params.id) };
       break;
     case "update-tabs":
       if (!allowedTabs) {
@@ -173,9 +175,16 @@ export async function DELETE(
     return NextResponse.json({ error: "Admin not found" }, { status: 404 });
   }
 
+  // Soft-delete AND tombstone the identity so the admin's email/phone are freed
+  // for reuse (the DB unique constraints ignore `deletedAt`, so without this the
+  // old address stays reserved and a re-created admin would 409/collide).
   await prisma.user.update({
     where: { id: params.id },
-    data: { deletedAt: new Date(), status: "CLOSED" },
+    data: {
+      deletedAt: new Date(),
+      status: "CLOSED",
+      ...tombstonedIdentity(params.id),
+    },
   });
 
   await prisma.auditLog.create({

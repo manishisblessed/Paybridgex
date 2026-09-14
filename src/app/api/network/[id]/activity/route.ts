@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { canAccessUser } from "@/lib/security/ownership";
+import { formatISTDateTime } from "@/lib/utils";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -76,13 +77,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       bySelf: r.userId === params.id,
       meta: r.meta ?? null,
       ip: r.ip,
-      date: r.createdAt.toLocaleString("en-IN", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      date: formatISTDateTime(r.createdAt),
     }));
 
     return NextResponse.json({ ok: true, data });

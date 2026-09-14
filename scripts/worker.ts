@@ -34,6 +34,7 @@ import { processKycVideoBaseline } from "@/lib/kyc/video/service";
 import { runLedgerIntegrityAudit } from "@/lib/recon/integrity";
 import { runDailyPayoutReconciliation } from "@/lib/recon/payouts";
 import { runBbpsReconciliation } from "@/lib/recon/bbps";
+import { runRechargekitReconciliation } from "@/lib/recon/rechargekit";
 import { sweepDisputeSlas } from "@/lib/disputes/service";
 import { runSettlementAutosweep } from "@/lib/settlement/autosweep";
 import { runT1SettlementSweep } from "@/lib/settlement/t1";
@@ -125,6 +126,21 @@ async function main() {
     }
   });
   await boss.schedule(QUEUES.BBPS_RECONCILE, "*/5 * * * *");
+
+  // QUEUES.RECHARGEKIT_RECONCILE — safety net behind the inbound Same Day
+  // webhook: polls PROCESSING RechargeKit CC-2 payments and settles/refunds
+  // them. Shares finalizeServiceTransaction with the webhook so both are
+  // idempotent and can race safely.
+  await boss.work(QUEUES.RECHARGEKIT_RECONCILE, async () => {
+    const r = await runRechargekitReconciliation();
+    if (!r.skipped) {
+      log(
+        `rechargekit.reconcile: drained=${r.drained} settled=${r.settled} ` +
+          `refunded=${r.refunded} pending=${r.pending} stuck=${r.stuck}`
+      );
+    }
+  });
+  await boss.schedule(QUEUES.RECHARGEKIT_RECONCILE, "*/5 * * * *");
 
   // QUEUES.REKYC_MONTHLY — flag all ACTIVE network users for re-verification.
   // The sweep is internally idempotent, so a duplicate/retried delivery is safe.
@@ -516,7 +532,7 @@ async function main() {
   }
 
   log(
-    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.settle.sweep (*/10 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), pos.mirror.sync (*/2 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
+    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), rechargekit.reconcile (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.settle.sweep (*/10 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), pos.mirror.sync (*/2 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
   );
 }
 

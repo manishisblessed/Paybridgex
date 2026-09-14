@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Panel, SectionTitle, SegmentedNav } from "@/components/dashboard/ui";
 import { Reveal } from "@/components/motion";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, formatIST } from "@/lib/utils";
 import { RefreshCw, ScanSearch } from "lucide-react";
 
 type Check = {
@@ -146,7 +146,7 @@ export default function IdentityToolkitPage() {
     {
       key: "at",
       header: "At",
-      render: (r) => <span className="text-xs text-ink-500">{new Date(r.createdAt).toLocaleString("en-IN")}</span>,
+      render: (r) => <span className="text-xs text-ink-500">{formatIST(r.createdAt)}</span>,
     },
   ];
 

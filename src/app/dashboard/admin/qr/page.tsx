@@ -20,7 +20,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Modal } from "@/components/ui/Modal";
 import { Input, Label } from "@/components/ui/Input";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatIST } from "@/lib/utils";
 import { useStepUp } from "@/components/security/StepUpProvider";
 import { QR_REJECTION_REASONS } from "@/lib/qr/rejectionReasons";
 
@@ -220,7 +220,7 @@ function ReviewQueueTab() {
       key: "paidAt",
       header: "Paid at",
       render: (r) =>
-        r.paidAt ? new Date(r.paidAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—",
+        r.paidAt ? formatIST(r.paidAt, { dateStyle: "medium", timeStyle: "short" }) : "—",
     },
     {
       key: "status",
@@ -263,7 +263,7 @@ function ReviewQueueTab() {
                 {r.firstApprovedByCode && <span className="ml-1 font-mono text-ink-500">({r.firstApprovedByCode})</span>}
                 {r.firstApprovedAt && (
                   <span className="ml-1 text-ink-400">
-                    {new Date(r.firstApprovedAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
+                    {formatIST(r.firstApprovedAt, { dateStyle: "short", timeStyle: "short" })}
                   </span>
                 )}
               </div>
@@ -275,7 +275,7 @@ function ReviewQueueTab() {
                 {r.reviewedByCode && <span className="ml-1 font-mono text-ink-500">({r.reviewedByCode})</span>}
                 {r.reviewedAt && (
                   <span className="ml-1 text-ink-400">
-                    {new Date(r.reviewedAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
+                    {formatIST(r.reviewedAt, { dateStyle: "short", timeStyle: "short" })}
                   </span>
                 )}
               </div>
@@ -361,7 +361,7 @@ function ReviewQueueTab() {
                   <>
                     {" "}
                     · paid{" "}
-                    {new Date(selected.paidAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                    {formatIST(selected.paidAt, { dateStyle: "medium", timeStyle: "short" })}
                   </>
                 ) : null}{" "}
                 on {selected.qrLabel}
@@ -737,7 +737,7 @@ function QrManageTab() {
       header: "Uploaded",
       render: (r) => (
         <div>
-          <div>{new Date(r.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}</div>
+          <div>{formatIST(r.createdAt, { dateStyle: "medium" })}</div>
           <div className="text-xs text-ink-500">by {r.createdBy}</div>
         </div>
       ),

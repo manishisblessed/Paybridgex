@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
+import { formatISTDate } from "@/lib/utils";
 
 export const fetchCache = "force-no-store";
 
@@ -18,7 +19,7 @@ export async function GET() {
       days.push({
         id: `STL-${d.toISOString().slice(0, 10)}`,
         cycle: "T+1",
-        date: d.toLocaleDateString("en-IN", { month: "short", day: "2-digit", year: "numeric" }),
+        date: formatISTDate(d),
         dateObj: d,
       });
     }

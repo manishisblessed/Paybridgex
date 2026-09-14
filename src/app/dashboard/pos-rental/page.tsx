@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Panel, StatTile, TablePro } from "@/components/dashboard/ui";
 import { Reveal } from "@/components/motion";
-import { formatINR, formatNumber } from "@/lib/utils";
+import { formatINR, formatNumber, formatISTDate } from "@/lib/utils";
 import { useAuth } from "@/lib/useAuth";
 import {
   Plus, Loader2, IndianRupee,
@@ -395,7 +395,7 @@ export default function NetworkPosRentalPage() {
     {
       key: "since",
       header: "Since",
-      render: (r) => <span className="text-xs text-ink-500">{new Date(r.startedAt).toLocaleDateString("en-IN")}</span>,
+      render: (r) => <span className="text-xs text-ink-500">{formatISTDate(r.startedAt)}</span>,
     },
     {
       key: "actions",
@@ -500,7 +500,7 @@ export default function NetworkPosRentalPage() {
                           {s.status.toLowerCase()}
                         </Badge>
                       </td>
-                      <td className="text-xs text-ink-500">{new Date(s.startedAt).toLocaleDateString("en-IN")}</td>
+                      <td className="text-xs text-ink-500">{formatISTDate(s.startedAt)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -57,6 +57,13 @@ const schema = z.object({
   // valid HMAC-SHA256 signature or it is rejected 401. See docs / the message to
   // Same Day for the exact scheme.
   SAMEDAY_POS_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // Unified signing secret for ALL incoming Same Day webhooks (POS, Settlement,
+  // Payout, RechargeKit) delivered to POST /api/webhooks/sameday. Same Day signs
+  // every configured endpoint with ONE shared secret (rotating it invalidates
+  // all endpoints). When unset we fall back to SAMEDAY_POS_WEBHOOK_SECRET so the
+  // existing POS deployment keeps verifying; set this to the value from the
+  // partner panel's "Shared signing secret · Generate" control to enforce.
+  SAMEDAY_WEBHOOK_SECRET: z.string().min(1).optional(),
 
   // Same Day Solution — BBPS-2 (Pay2New) credit card bill payments and
   // Settlement API. Both fall back to the POS key pair when unset (the admin

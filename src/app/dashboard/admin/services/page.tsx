@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, Panel, StatTile, StatusPill } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
+import { formatIST } from "@/lib/utils";
 import {
   RefreshCw,
   DownloadCloud,
@@ -73,7 +74,7 @@ function timeAgo(iso: string): string {
   if (hr < 24) return `${hr}h ago`;
   const day = Math.floor(hr / 24);
   if (day < 30) return `${day}d ago`;
-  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  return formatIST(iso, { day: "numeric", month: "short", year: "numeric" });
 }
 
 export default function AdminServicesPage() {

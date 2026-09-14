@@ -9,8 +9,8 @@ import { clientIp } from "@/lib/security/audit";
 import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { BBPS_PRICE_SCOPES } from "@/lib/services/priceScope";
-import { getEffectiveRate, withGst } from "@/lib/scheme/resolver";
-import { toNumber, dec, sub, round } from "@/lib/money";
+import { getSchemeLimit, resolveRequiredRate, withGst } from "@/lib/scheme/resolver";
+import { toNumber, dec, gt, sub, round } from "@/lib/money";
 import { runTransaction } from "@/lib/services/transaction";
 import { rechargekitPay } from "@/lib/partners/sameday-rechargekit";
 import { AuthError } from "@/lib/auth-server";
@@ -77,10 +77,27 @@ export async function POST(req: Request) {
   const d = parsed.data;
 
   try {
+    // Per-transaction ceiling: reject amounts above the top configured slab for
+    // this rail with a precise message. Without this, an above-ceiling amount
+    // had no matching slab, priced to ₹0, and was still allowed through.
+    const limit = await getSchemeLimit(user.id, "BILL_CREDIT_CARD");
+    if (limit && gt(dec(d.amount), limit)) {
+      return NextResponse.json(
+        {
+          error: `Amount exceeds the maximum allowed limit of ₹${limit
+            .toNumber()
+            .toLocaleString("en-IN")} for this service.`,
+        },
+        { status: 400 }
+      );
+    }
+
     // Prices under its own product scope ("rechargekit_cc") so this Same Day
     // RechargeKit CC rail is separate from the Same Day Pay2New CC rail even
-    // though both are BILL_CREDIT_CARD on the same partner family.
-    const rate = await getEffectiveRate(
+    // though both are BILL_CREDIT_CARD on the same partner family. Fails CLOSED:
+    // resolveRequiredRate throws PricingUnavailableError (422) when no active
+    // slab covers this (amount, product) so an unpriced txn can never settle.
+    const rate = await resolveRequiredRate(
       user.id,
       "BILL_CREDIT_CARD",
       d.amount,

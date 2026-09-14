@@ -11,7 +11,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ReportActions } from "@/components/dashboard/ReportActions";
 import { Panel, DarkPanel, StatusPill, TabNav } from "@/components/dashboard/ui";
 import { Reveal } from "@/components/motion";
-import { formatINR, generateRefId } from "@/lib/utils";
+import { formatINR, generateRefId, formatIST } from "@/lib/utils";
 import { Landmark, Plus, RefreshCw, Trash2, History } from "lucide-react";
 
 type SettlementRow = {
@@ -359,7 +359,7 @@ function BankTransfersTab() {
       header: "Date",
       render: (r) =>
         r.createdAt
-          ? new Date(r.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
+          ? formatIST(r.createdAt, { dateStyle: "medium", timeStyle: "short" })
           : "—",
     },
   ];

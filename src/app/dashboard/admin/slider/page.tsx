@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { Panel, StatusPill, EmptyState } from "@/components/dashboard/ui";
 import { Reveal } from "@/components/motion";
+import { formatIST } from "@/lib/utils";
 import {
   RefreshCw,
   Plus,
@@ -81,7 +82,7 @@ function fileToDataUrl(file: File): Promise<string> {
 
 function scheduleLabel(s: Slider): string {
   const fmt = (iso: string) =>
-    new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    formatIST(iso, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   if (s.startAt && s.endAt) return `${fmt(s.startAt)} → ${fmt(s.endAt)}`;
   if (s.startAt) return `From ${fmt(s.startAt)}`;
   if (s.endAt) return `Until ${fmt(s.endAt)}`;

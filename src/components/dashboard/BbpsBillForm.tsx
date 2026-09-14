@@ -54,6 +54,10 @@ export function BbpsBillForm({
     totalCharge: number;
     totalDebit: number;
     commission: number;
+    /** false when the amount is unpriced / above the per-txn ceiling. */
+    withinLimit: boolean;
+    /** Per-transaction ceiling (₹) for this rail, or null when uncapped. */
+    limit: number | null;
   };
 
   const [billers, setBillers] = useState<Biller[]>([]);
@@ -129,6 +133,8 @@ export function BbpsBillForm({
             totalCharge: data.totalCharge,
             totalDebit: data.totalDebit,
             commission: data.commission,
+            withinLimit: data.withinLimit ?? true,
+            limit: data.limit ?? null,
           });
         }
       } catch { /* swallow */ }
@@ -260,6 +266,17 @@ export function BbpsBillForm({
           const maxAllowed = bill.maxAmount ?? 500000;
           if (amt > maxAllowed) {
             setError(`Amount exceeds the maximum payable limit of ${formatINR(maxAllowed)}`);
+            return;
+          }
+          // Per-transaction ceiling from the user's scheme (server enforces the
+          // same; this is a pre-submit guard so an unpriced amount never leaves
+          // the client). withinLimit is false when no slab covers the amount.
+          if (quote && quote.withinLimit === false) {
+            setError(
+              quote.limit != null
+                ? `Amount exceeds your allowed limit of ${formatINR(quote.limit)} for this service.`
+                : "This amount is outside your allowed range for this service. Please enter an amount within your approved limit."
+            );
             return;
           }
           setError(null);
@@ -427,8 +444,25 @@ export function BbpsBillForm({
                 Calculating charges…
               </p>
             )}
+            {quote && Number(amount) > 0 && quote.withinLimit === false && (
+              <div className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  {quote.limit != null
+                    ? `This amount is above your allowed limit of ${formatINR(quote.limit)} for this service.`
+                    : "This amount is outside your allowed range for this service."}{" "}
+                  Enter an amount within your approved limit to continue.
+                </span>
+              </div>
+            )}
             <div className="sm:col-span-2">
-              <Button type="submit" size="lg" className="w-full" disabled={paying || !amount} isLoading={paying}>
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full"
+                disabled={paying || !amount || quote?.withinLimit === false}
+                isLoading={paying}
+              >
                 Pay {quote ? formatINR(quote.totalDebit) : amount ? formatINR(Number(amount)) : "bill"}
               </Button>
               <p className="mt-2 text-center text-[11px] text-ink-400">

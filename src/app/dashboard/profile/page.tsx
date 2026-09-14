@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { formatIST } from "@/lib/utils";
 import {
   User,
   Save,
@@ -502,9 +503,7 @@ export default function ProfilePage() {
               {kyc?.submittedAt && (
                 <p className="mt-3 text-xs text-ink-500">
                   Submitted on{" "}
-                  {new Date(kyc.submittedAt).toLocaleDateString("en-IN", {
-                    dateStyle: "long",
-                  })}
+                  {formatIST(kyc.submittedAt, { dateStyle: "long" })}
                 </p>
               )}
             </div>

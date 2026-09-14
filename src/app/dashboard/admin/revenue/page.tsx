@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatSkeleton } from "@/components/ui/Skeleton";
 import { PageSpinner } from "@/components/ui/Spinner";
-import { formatINR, formatNumber } from "@/lib/utils";
+import { formatINR, formatNumber, formatIST } from "@/lib/utils";
 import {
   RefreshCw,
   Download,
@@ -326,7 +326,7 @@ export default function RevenuePage() {
       header: "Date",
       render: (r) => (
         <span className="whitespace-nowrap text-xs text-ink-500">
-          {new Date(r.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+          {formatIST(r.createdAt, { dateStyle: "medium", timeStyle: "short" })}
         </span>
       ),
     },

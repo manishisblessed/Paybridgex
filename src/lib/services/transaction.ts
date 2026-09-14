@@ -10,6 +10,8 @@ import { emitWebhookEvent } from "../platform/webhooks";
 import { distributeCommission, distributeMdrCommission, mdrKindForService } from "../commission/distribute";
 import { creditServiceMargin } from "../commission/revenue";
 import { isChargeDrivenService } from "../scheme/constants";
+import { friendlyPartnerError, isSensitivePartnerCode } from "../partners/friendlyError";
+import { sendOpsAlert } from "../monitoring/alerts";
 import type { PartnerResult } from "../partners/types";
 
 /**
@@ -266,13 +268,33 @@ export async function runTransaction<TIn, TOut>(
   }
 
   // Failure path — refund the reserved money via the ledger (REVERSAL credit).
+  //
+  // The user only ever sees a sanitized, friendly message; the RAW partner
+  // code + full response JSON stay on the row (and in the audit log) for
+  // support and reconciliation. A "sensitive" code (e.g. INSUFFICIENT_BALANCE
+  // = our Same Day float is low, NOT the retailer's wallet) is never exposed —
+  // instead we page ops so the real cause gets fixed.
+  const userMessage = friendlyPartnerError(result.code, result.message, "payment");
+  if (isSensitivePartnerCode(result.code)) {
+    void sendOpsAlert({
+      title: "Partner rejected a transaction for an internal reason",
+      severity: "critical",
+      details: {
+        refId,
+        service: input.service,
+        partner: input.partner,
+        code: result.code ?? null,
+        amount: input.amount,
+      },
+    });
+  }
   await prisma.$transaction(async (tx) => {
     await tx.transaction.update({
       where: { id: txn.id },
       data: {
         status: "FAILED",
         errorCode: result.code,
-        errorMessage: result.message,
+        errorMessage: userMessage,
         response: (result.raw ?? null) as Prisma.InputJsonValue,
       },
     });
@@ -307,5 +329,5 @@ export async function runTransaction<TIn, TOut>(
     message: result.message ?? null,
   });
 
-  return { status: "FAILED", refId, error: result.message };
+  return { status: "FAILED", refId, error: userMessage };
 }

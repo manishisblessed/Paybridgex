@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { formatIST, formatISTDate } from "@/lib/utils";
 import {
   CheckCircle2,
   XCircle,
@@ -157,7 +158,7 @@ export default function AdminKycPage() {
     pan: r.panNumber ?? "—",
     aadhaar: r.aadhaarLast4 ? `XXXX-${r.aadhaarLast4}` : "—",
     submitted: r.submittedAt
-      ? new Date(r.submittedAt).toLocaleDateString("en-IN")
+      ? formatISTDate(r.submittedAt)
       : "—",
     status: STATUS_MAP[r.status]?.label ?? r.status,
   }));
@@ -206,9 +207,7 @@ export default function AdminKycPage() {
       header: "Submitted",
       render: (r) =>
         r.submittedAt
-          ? new Date(r.submittedAt).toLocaleDateString("en-IN", {
-              dateStyle: "medium",
-            })
+          ? formatIST(r.submittedAt, { dateStyle: "medium" })
           : "—",
     },
     {
@@ -531,7 +530,7 @@ function DetailDrawer({
               )
             ) : (
               kyc.submittedAt && (
-                <>Submitted {new Date(kyc.submittedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</>
+                <>Submitted {formatIST(kyc.submittedAt, { dateStyle: "medium", timeStyle: "short" })}</>
               )
             )}
           </div>

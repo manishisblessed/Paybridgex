@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { formatINR, istDayRangeUtc } from "@/lib/utils";
+import { formatINR, istDayRangeUtc, formatIST } from "@/lib/utils";
 import { RefreshCw, Clock, PlayCircle, DownloadCloud, Zap, Save, CheckCircle2, XCircle, Layers, Gauge } from "lucide-react";
 import { Panel, DarkPanel, StatTile } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
@@ -316,7 +316,7 @@ export default function PosSettlementPage() {
       header: "Settled / Captured",
       render: (e) => (
         <span className="text-xs text-ink-400">
-          {e.settledAt ? new Date(e.settledAt).toLocaleString("en-IN") : new Date(e.createdAt).toLocaleString("en-IN")}
+          {e.settledAt ? formatIST(e.settledAt) : formatIST(e.createdAt)}
         </span>
       ),
     },

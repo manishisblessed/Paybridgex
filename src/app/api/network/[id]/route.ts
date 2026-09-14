@@ -8,6 +8,7 @@ import { bumpTokenVersion } from "@/lib/security/session";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { canAccessUser } from "@/lib/security/ownership";
 import { dec, toNumber } from "@/lib/money";
+import { formatISTDate } from "@/lib/utils";
 
 const displayRole = (r: string) => {
   const map: Record<string, string> = {
@@ -103,11 +104,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         shop: target.shopName ?? "—",
         city: target.city ?? "—",
         state: target.state ?? "—",
-        joined: target.createdAt.toLocaleDateString("en-IN", {
-          month: "short",
-          day: "2-digit",
-          year: "numeric",
-        }),
+        joined: formatISTDate(target.createdAt),
         walletBalance: toNumber(dec(target.walletBalance)),
         schemeId: target.schemeId,
         schemeName: target.scheme?.name ?? null,

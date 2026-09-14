@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { formatINR, formatNumber } from "@/lib/utils";
+import { formatINR, formatNumber, formatIST, formatISTDate } from "@/lib/utils";
 import {
   RefreshCw, ReceiptText, Plus, Upload, Search, IndianRupee,
   CreditCard, AlertCircle, CheckCircle2, XCircle, Loader2, Percent, Pencil, Clock, Gift,
@@ -774,7 +774,7 @@ function SubscriptionsTab({
     {
       key: "since",
       header: "Since",
-      render: (r) => <span className="text-xs text-ink-500">{new Date(r.startedAt).toLocaleDateString("en-IN")}</span>,
+      render: (r) => <span className="text-xs text-ink-500">{formatISTDate(r.startedAt)}</span>,
     },
     {
       key: "actions",
@@ -1522,7 +1522,7 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
                         {t.from && !t.to && <> (from {t.from})</>}
                       </p>
                       <p className="text-xs text-ink-400">
-                        by {t.by ?? "system"} · {new Date(t.at).toLocaleString("en-IN")}
+                        by {t.by ?? "system"} · {formatIST(t.at)}
                         {t.note ? ` · ${t.note}` : ""}
                       </p>
                     </li>

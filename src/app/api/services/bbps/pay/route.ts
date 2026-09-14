@@ -12,8 +12,8 @@ import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { bbpsServiceKey } from "@/lib/services/bbpsKey";
 import { isBbpsPriceScope } from "@/lib/services/priceScope";
-import { getEffectiveRate, withGst } from "@/lib/scheme/resolver";
-import { toNumber, dec, sub, round } from "@/lib/money";
+import { getSchemeLimit, resolveRequiredRate, withGst } from "@/lib/scheme/resolver";
+import { toNumber, dec, gt, sub, round } from "@/lib/money";
 import { AuthError } from "@/lib/auth-server";
 
 const Body = z.object({
@@ -23,7 +23,7 @@ const Body = z.object({
   amount: z.number().positive().max(500000),
   idempotencyKey: z.string().min(8),
   // Product the payment was initiated from (ServiceRoute key). Prices the txn
-  // per product (Bharat BillPay vs Unified Bill Payment Platform) even when the
+  // per product (Bharat BillPay vs the Credit Card products) even when the
   // actual partner is category-routed. Falls back to the partner family when
   // absent/unknown.
   route: z.string().trim().min(1).max(60).optional(),
@@ -77,12 +77,34 @@ export async function POST(req: Request) {
     // sets the charge (fee). BBPS does not earn commission.
     const service = SERVICE[parsed.data.category];
     // Per-product pricing scope: the product route key (e.g. "bbps_sameday" vs
-    // "bbps_bulkpe_svc") is the slab/rate-card scope. These keys are retained
+    // "bbps_credit_card") is the slab/rate-card scope. These keys are retained
     // for backward compatibility with existing scheme slabs. Falls back to the
     // partner family tag for the rate lookup when the client sends no (or an
     // unknown) route; only a real product scope is snapshotted for revenue.
     const productScope = isBbpsPriceScope(parsed.data.route) ? parsed.data.route : null;
-    const rate = await getEffectiveRate(user.id, service, parsed.data.amount, productScope ?? bbps.name);
+
+    // Per-transaction ceiling: reject amounts above the top configured slab for
+    // this rail with a precise, user-facing message (mirrors the payout route).
+    // Without this, an amount above the ceiling had no matching slab, priced to
+    // ₹0, and was still allowed through — the reported leak.
+    const limit = await getSchemeLimit(user.id, service);
+    if (limit && gt(dec(parsed.data.amount), limit)) {
+      return NextResponse.json(
+        {
+          error: `Amount exceeds the maximum allowed limit of ₹${limit
+            .toNumber()
+            .toLocaleString("en-IN")} for this service.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Fail-closed pricing: a money transaction must NEVER settle unpriced.
+    // resolveRequiredRate throws PricingUnavailableError (422) when no active
+    // slab covers this (service, amount, product) — catching every remaining
+    // unpriced band (gaps / wrong product scope / below the minimum) that the
+    // ceiling check above does not.
+    const rate = await resolveRequiredRate(user.id, service, parsed.data.amount, productScope ?? bbps.name);
     // Split the customer charge into base + GST so revenue math excludes the
     // GST pass-through. When the slab charge is GST-INCLUSIVE the base is
     // back-calculated (total / 1.18); otherwise GST (18%) is added on top.

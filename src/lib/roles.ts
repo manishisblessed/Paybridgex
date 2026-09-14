@@ -42,6 +42,7 @@ import {
   LineChart,
   ScanSearch,
   SlidersHorizontal,
+  Gauge,
   Tag,
   TrendingUp,
   Inbox,
@@ -90,8 +91,7 @@ const moneyOutServices: NavItem[] = [
 const billPayServices: NavItem[] = [
   { href: "/dashboard/bill-pay/credit-card", label: "Credit Card Bills", icon: CreditCard },
   { href: "/dashboard/bill-pay/cc-pay", label: "Credit Card Direct", icon: CreditCard },
-  { href: "/dashboard/bill-pay/bbps-1", label: "Bharat BillPay (BBPS)", icon: Receipt },
-  { href: "/dashboard/bill-pay/bbps-2", label: "Utility Bills Hub", icon: Receipt }
+  { href: "/dashboard/bill-pay/bbps-1", label: "Bharat BillPay (BBPS)", icon: Receipt }
 ];
 
 /** Personal reporting for network roles. */
@@ -241,6 +241,7 @@ const adminRisk: NavItem[] = [
   { href: "/dashboard/admin/aml", label: "AML Monitoring", icon: ShieldAlert },
   { href: "/dashboard/admin/verify", label: "Identity Toolkit", icon: ScanSearch },
   { href: "/dashboard/admin/disputes", label: "Support Desk", icon: LifeBuoy },
+  { href: "/dashboard/admin/limit-profiles", label: "Risk Tiers", icon: Gauge },
   { href: "/dashboard/admin/controls", label: "Platform Controls", icon: SlidersHorizontal }
 ];
 

@@ -4,6 +4,7 @@ import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { toNumber } from "@/lib/money";
 import { canAccessUser } from "@/lib/security/ownership";
+import { formatISTDateTime } from "@/lib/utils";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -76,13 +77,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       service: formatService(t.service, t.operator),
       amount: toNumber(t.amount),
       status: displayStatus(t.status),
-      date: t.createdAt.toLocaleString("en-IN", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      date: formatISTDateTime(t.createdAt),
       customer: t.customer ?? "—",
       commission: toNumber(t.commission),
     }));

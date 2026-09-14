@@ -40,7 +40,7 @@ import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { formatINR, istToday, istDaysAgo, istDayRangeUtc } from "@/lib/utils";
+import { formatINR, istToday, istDaysAgo, istDayRangeUtc, formatIST, formatISTDate } from "@/lib/utils";
 import { posClassificationLabel } from "@/lib/pos/classification";
 import { type ReportColumn } from "@/lib/reports";
 import { ReportActions } from "@/components/dashboard/ReportActions";
@@ -117,7 +117,7 @@ function cleanName(name: string | null) {
 }
 
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleString("en-IN", {
+  return formatIST(iso, {
     day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit",
   });
 }
@@ -244,7 +244,7 @@ type RentalTargetResponse = {
 };
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  return formatISTDate(iso);
 }
 
 function FreeRentTab() {
@@ -734,7 +734,7 @@ function TransactionsTab({ view }: { view: TxnView }) {
   const showClassification = data?.enrichment?.showClassification ?? false;
 
   const posExportColsAll: ReportColumn<PosTransaction>[] = [
-    { key: "txn_time", header: "Time", render: (r) => r.txn_time ? new Date(r.txn_time).toLocaleString("en-IN") : "" },
+    { key: "txn_time", header: "Time", render: (r) => r.txn_time ? formatIST(r.txn_time) : "" },
     { key: "terminal_id", header: "TID" },
     { key: "customer_name", header: "Customer" },
     { key: "payment_mode", header: "Mode" },
@@ -881,7 +881,7 @@ function TransactionsTab({ view }: { view: TxnView }) {
             className="rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400" />
           {assignedAtDate && dateFrom < assignedAtDate && (
             <p className="mt-1 text-[10px] text-amber-600">
-              Clamped to assignment date ({new Date(assignedAtDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })})
+              Clamped to assignment date ({formatISTDate(assignedAtDate)})
             </p>
           )}
         </FilterField>

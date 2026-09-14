@@ -2,6 +2,7 @@ import type { PayoutMode, ServiceCode } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { dec, toNumber, type Money } from "@/lib/money";
 import { logSecurityEvent } from "@/lib/security/audit";
+import { resolveEffectiveLimits } from "./limits";
 
 /**
  * Transaction risk engine — velocity and exposure rules applied BEFORE any
@@ -92,6 +93,14 @@ export type RiskInput = {
   now: Date;
   /** Rupee volume already committed in the trailing 24h (successful + in-flight). */
   amount24h: number;
+  /** Rupee volume already committed in the trailing 24h for THIS service only. */
+  serviceAmount24h?: number;
+  /**
+   * Per-service rolling-24h ceiling (₹) for {@link RiskInput.service}. Comes
+   * from the user's resolved tier. `undefined`/`null` = no per-service cap;
+   * `0` = the rail is disabled for this tier.
+   */
+  serviceCap?: number | null;
   /** Count of money movements in the trailing hour. */
   txnCount1h: number;
   /** Count of money movements in the trailing 24h (only needed when a per-user count cap is set). */
@@ -146,6 +155,31 @@ export function evaluateRisk(input: RiskInput): RiskViolation[] {
     });
   }
 
+  // Per-service (per-rail) cap from the user's tier. `0` disables the rail; any
+  // positive cap is a rolling-24h ceiling for that service alone, tightened by
+  // the night factor like the overall cap.
+  if (input.serviceCap != null) {
+    if (input.serviceCap === 0) {
+      violations.push({
+        rule: "SERVICE_DISABLED",
+        message:
+          "This service isn't enabled for your account tier. Please contact support to upgrade your limits.",
+      });
+    } else {
+      const effectiveServiceCap = night
+        ? input.serviceCap * input.limits.nightFactor
+        : input.serviceCap;
+      if ((input.serviceAmount24h ?? 0) + input.amount > effectiveServiceCap) {
+        violations.push({
+          rule: night ? "NIGHT_SERVICE_CAP" : "SERVICE_DAILY_CAP",
+          message: night
+            ? `Night-hour limit reached for this service: capped at ₹${effectiveServiceCap.toLocaleString("en-IN")} per 24 hours between 12 AM and 6 AM. Please retry after 6 AM.`
+            : `Daily limit reached for this service: you can move up to ₹${effectiveServiceCap.toLocaleString("en-IN")} per 24 hours on this service. Please retry later or contact support to raise your limit.`,
+        });
+      }
+    }
+  }
+
   if (input.txnCount1h + 1 > input.limits.hourlyTxnCap) {
     violations.push({
       rule: "HOURLY_VELOCITY",
@@ -190,12 +224,18 @@ export type AssertRiskOptions = {
 export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<void> {
   if (!riskRulesEnabled()) return;
 
-  const limits = riskLimitsFromEnv();
+  const envLimits = riskLimitsFromEnv();
   const now = new Date();
   const since24h = new Date(now.getTime() - 24 * 3_600_000);
   const since1h = new Date(now.getTime() - 3_600_000);
 
-  const [txnAgg, txnCount1h, payoutAgg, payoutCount1h, userLimit, txnCount24h, payoutCount24h] =
+  // Resolve the user's effective tier ceilings (override > pin > KYC/role
+  // policy > default tier > env defaults). Drives both the overall cap and the
+  // per-service matrix.
+  const effective = await resolveEffectiveLimits(opts.userId);
+  const serviceCap = effective.serviceCaps[opts.service];
+
+  const [txnAgg, txnCount1h, payoutAgg, payoutCount1h, txnCount24h, payoutCount24h, serviceTxnAgg] =
     await Promise.all([
       prisma.transaction.aggregate({
         where: {
@@ -222,22 +262,41 @@ export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<vo
       prisma.payoutRequest.count({
         where: { userId: opts.userId, createdAt: { gte: since1h } },
       }),
-      prisma.userLimit.findUnique({
-        where: { userId: opts.userId },
-        select: { dailyTxnAmountCap: true, dailyTxnCountCap: true },
-      }),
       prisma.transaction.count({
         where: { userId: opts.userId, createdAt: { gte: since24h }, isSettlement: false },
       }),
       prisma.payoutRequest.count({
         where: { userId: opts.userId, createdAt: { gte: since24h } },
       }),
+      // Per-service 24h volume — only queried when the tier caps this service
+      // (and never for PAYOUT, whose exposure comes from payoutAgg below).
+      serviceCap != null && opts.service !== "PAYOUT"
+        ? prisma.transaction.aggregate({
+            where: {
+              userId: opts.userId,
+              createdAt: { gte: since24h },
+              status: { in: ["INITIATED", "PROCESSING", "SUCCESS"] },
+              isSettlement: false,
+              service: opts.service as ServiceCode,
+            },
+            _sum: { amount: true, fee: true },
+          })
+        : Promise.resolve(null),
     ]);
 
   const amount24h =
     toNumber(dec(txnAgg._sum.amount ?? 0)) +
     toNumber(dec(txnAgg._sum.fee ?? 0)) +
     toNumber(dec(payoutAgg._sum.totalDebit ?? 0));
+
+  // Rolling-24h volume for the specific service being attempted.
+  const serviceAmount24h =
+    serviceCap == null
+      ? 0
+      : opts.service === "PAYOUT"
+        ? toNumber(dec(payoutAgg._sum.totalDebit ?? 0))
+        : toNumber(dec(serviceTxnAgg?._sum.amount ?? 0)) +
+          toNumber(dec(serviceTxnAgg?._sum.fee ?? 0));
 
   let isNewBeneficiary: boolean | undefined;
   if (opts.beneficiary) {
@@ -251,7 +310,7 @@ export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<vo
       orderBy: { createdAt: "asc" },
       select: { createdAt: true },
     });
-    const coolingMs = limits.newBeneficiaryCoolingHours * 3_600_000;
+    const coolingMs = envLimits.newBeneficiaryCoolingHours * 3_600_000;
     isNewBeneficiary =
       !earliest || now.getTime() - earliest.createdAt.getTime() < coolingMs;
   }
@@ -261,18 +320,25 @@ export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<vo
     service: opts.service,
     now,
     amount24h,
+    serviceAmount24h,
+    serviceCap,
     txnCount1h: txnCount1h + payoutCount1h,
     txnCount24h: txnCount24h + payoutCount24h,
     isNewBeneficiary,
-    limits,
-    userOverrides: userLimit
-      ? {
-          dailyTxnAmountCap: userLimit.dailyTxnAmountCap
-            ? toNumber(dec(userLimit.dailyTxnAmountCap))
-            : null,
-          dailyTxnCountCap: userLimit.dailyTxnCountCap,
-        }
-      : undefined,
+    // The tier-resolved overall cap + night factor; velocity/new-beneficiary
+    // rules stay env-driven. The overall cap already folds in any UserLimit
+    // override, so no separate dailyTxnAmountCap override is passed here.
+    limits: {
+      dailyAmountCap: effective.dailyAmountCap,
+      hourlyTxnCap: envLimits.hourlyTxnCap,
+      nightFactor: effective.nightFactor,
+      newBeneficiaryCap: envLimits.newBeneficiaryCap,
+      newBeneficiaryCoolingHours: envLimits.newBeneficiaryCoolingHours,
+    },
+    userOverrides:
+      effective.dailyCountCap != null
+        ? { dailyTxnCountCap: effective.dailyCountCap }
+        : undefined,
   });
 
   if (violations.length === 0) return;
@@ -288,6 +354,10 @@ export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<vo
       service: opts.service,
       amount: toNumber(dec(opts.amount)),
       amount24h,
+      serviceAmount24h,
+      serviceCap: serviceCap ?? null,
+      tier: effective.profileKey,
+      dailyAmountCap: effective.dailyAmountCap,
       txnCount1h: txnCount1h + payoutCount1h,
       rules: violations.map((v) => v.rule),
     },

@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Panel, FilterBar, TabNav, StatusPill } from "@/components/dashboard/ui";
 import { Reveal } from "@/components/motion";
-import { formatINR, formatNumber } from "@/lib/utils";
+import { formatINR, formatNumber, formatIST } from "@/lib/utils";
 import {
   RefreshCw,
   Search,
@@ -51,6 +51,7 @@ type NetworkUser = {
   parent: { id: string; name: string; role: string; userCode: string | null } | null;
   settlementTier: string | null;
   walletCap: number | null;
+  dailyTxnAmountCap: number | null;
   autoSettle: boolean;
   settlementPaused: boolean;
   children: number;
@@ -586,6 +587,14 @@ function DefaultServicesPanel({
 
 type SchemeOption = { id: string; name: string };
 
+type EffectiveLimitsView = {
+  dailyAmountCap: number;
+  dailyCountCap: number | null;
+  nightFactor: number;
+  serviceCaps: Record<string, number>;
+  profileKey: string | null;
+};
+
 function UserDrawer({
   user,
   onClose,
@@ -600,9 +609,15 @@ function UserDrawer({
   const [schemes, setSchemes] = useState<SchemeOption[]>([]);
   const [schemeId, setSchemeId] = useState(user.scheme?.id ?? "");
   const [walletCap, setWalletCap] = useState(user.walletCap != null ? String(user.walletCap) : "");
+  const [dailyTxnAmountCap, setDailyTxnAmountCap] = useState(
+    user.dailyTxnAmountCap != null ? String(user.dailyTxnAmountCap) : ""
+  );
   const [settlementTier, setSettlementTier] = useState(user.settlementTier ?? "");
   const [settlementDailyCap, setSettlementDailyCap] = useState("");
   const [instantDailyCap, setInstantDailyCap] = useState("");
+  const [tierOptions, setTierOptions] = useState<{ id: string; key: string; name: string }[]>([]);
+  const [tierId, setTierId] = useState("");
+  const [effLimits, setEffLimits] = useState<EffectiveLimitsView | null>(null);
   const [autoSettle, setAutoSettle] = useState(user.autoSettle);
   const [busy, setBusy] = useState<string | null>(null);
   const [resetResult, setResetResult] = useState<string | null>(null);
@@ -648,6 +663,7 @@ function UserDrawer({
   useEffect(() => {
     setSchemeId(user.scheme?.id ?? "");
     setWalletCap(user.walletCap != null ? String(user.walletCap) : "");
+    setDailyTxnAmountCap(user.dailyTxnAmountCap != null ? String(user.dailyTxnAmountCap) : "");
     setSettlementTier(user.settlementTier ?? "");
     setAutoSettle(user.autoSettle);
     setLiveBalances({ primary: user.primary, aeps: user.aeps, held: user.held });
@@ -666,6 +682,34 @@ function UserDrawer({
       })
       .catch(() => {});
   }, []);
+
+  // Risk tiers (options) + this user's current pin & resolved effective limits.
+  const loadEffectiveLimits = useCallback(() => {
+    fetch("/api/admin/limit-profiles")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (Array.isArray(d?.profiles))
+          setTierOptions(
+            d.profiles.map((p: { id: string; key: string; name: string }) => ({
+              id: p.id,
+              key: p.key,
+              name: p.name,
+            }))
+          );
+      })
+      .catch(() => {});
+    fetch(`/api/admin/network/${user.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        setTierId(d?.user?.limitProfile?.id ?? "");
+        setEffLimits(d?.user?.effectiveLimits ?? null);
+      })
+      .catch(() => {});
+  }, [user.id]);
+
+  useEffect(() => {
+    loadEffectiveLimits();
+  }, [loadEffectiveLimits]);
 
   const patch = async (label: string, body: object) => {
     setBusy(label);
@@ -1049,6 +1093,16 @@ function UserDrawer({
               />
             </label>
             <label className="block text-xs text-ink-500">
+              Daily transaction cap (₹)
+              <input
+                type="number"
+                placeholder="Default (₹5,00,000)"
+                value={dailyTxnAmountCap}
+                onChange={(e) => setDailyTxnAmountCap(e.target.value)}
+                className={`${inputCls} mt-1 w-full`}
+              />
+            </label>
+            <label className="block text-xs text-ink-500">
               Daily settle cap (₹)
               <input
                 type="number"
@@ -1086,6 +1140,7 @@ function UserDrawer({
                     await patch("limits", {
                       action: "setLimits",
                       walletCap: walletCap ? Number(walletCap) : null,
+                      dailyTxnAmountCap: dailyTxnAmountCap ? Number(dailyTxnAmountCap) : null,
                       settlementDailyCap: settlementDailyCap ? Number(settlementDailyCap) : null,
                       instantDailyCap: instantDailyCap ? Number(instantDailyCap) : null,
                       settlementTier: settlementTier || null,
@@ -1104,6 +1159,86 @@ function UserDrawer({
             Instant settle daily cap limits how much (net) this user can instant-settle per day, on top of the global
             pool. Leave blank for no per-user cap.
           </p>
+
+          {/* Risk tier — drives per-service daily caps (credit-card bill, payout, …). */}
+          <div className="mt-4 border-t border-ink-100 pt-4">
+            <label className="block text-xs text-ink-500">
+              Risk tier
+              <div className="mt-1 flex gap-2">
+                <select
+                  value={tierId}
+                  onChange={(e) => setTierId(e.target.value)}
+                  className={`${inputCls} w-full`}
+                >
+                  <option value="">Auto (from KYC &amp; role)</option>
+                  {tierOptions.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.key})
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  disabled={busy === "limitProfile"}
+                  onClick={async () => {
+                    try {
+                      await patch("limitProfile", {
+                        action: "assignLimitProfile",
+                        limitProfileId: tierId || null,
+                      });
+                      loadEffectiveLimits();
+                      onChanged("Risk tier updated.", true);
+                    } catch (e) {
+                      onChanged(e instanceof Error ? e.message : "Failed", false);
+                    }
+                  }}
+                >
+                  Save tier
+                </Button>
+              </div>
+            </label>
+
+            {effLimits && (
+              <div className="mt-3 rounded-xl border border-ink-100 bg-ink-50/50 p-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-ink-500">Effective tier</span>
+                  <span className="font-semibold text-ink-800">
+                    {effLimits.profileKey ?? "Platform default"}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-ink-500">Overall daily cap</span>
+                  <span className="font-medium text-ink-800">
+                    ₹{effLimits.dailyAmountCap.toLocaleString("en-IN")}
+                    <span className="text-ink-400"> · night ×{effLimits.nightFactor}</span>
+                  </span>
+                </div>
+                {Object.keys(effLimits.serviceCaps).length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-ink-500">Per-service daily caps</p>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {Object.entries(effLimits.serviceCaps).map(([svc, cap]) => (
+                        <span
+                          key={svc}
+                          className={`rounded-full border px-2 py-0.5 ${
+                            cap === 0
+                              ? "border-rose-200 bg-rose-50 text-rose-700"
+                              : "border-ink-200 bg-white text-ink-700"
+                          }`}
+                        >
+                          {svc}: {cap === 0 ? "off" : `₹${cap.toLocaleString("en-IN")}`}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="mt-2 text-[11px] text-ink-400">
+                  Resolved after overrides → tier pin → KYC/role policy → default tier. Edit tier caps in
+                  Admin → Risk tiers.
+                </p>
+              </div>
+            )}
+          </div>
         </Section>
 
         {/* Settlement */}
@@ -1263,10 +1398,7 @@ function ReKycSection({
     load();
   }, [load]);
 
-  const fmt = (iso: string | null) =>
-    iso
-      ? new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-      : "—";
+  const fmt = (iso: string | null) => formatIST(iso, { day: "numeric", month: "short", year: "numeric" });
 
   const act = async (mode: "now" | "postpone" | "clear") => {
     if (mode === "postpone" && !date) {
@@ -1684,7 +1816,7 @@ function TransferParentSection({
                       />
                     </div>
                     <p className="mt-0.5 text-ink-500">
-                      {new Date(t.approvedAt ?? t.createdAt).toLocaleString("en-IN", {
+                      {formatIST(t.approvedAt ?? t.createdAt, {
                         day: "numeric",
                         month: "short",
                         year: "numeric",

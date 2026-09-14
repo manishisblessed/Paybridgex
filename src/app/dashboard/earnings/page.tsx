@@ -15,7 +15,7 @@ import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Pagination } from "@/components/ui/Pagination";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatIST } from "@/lib/utils";
 
 async function fetcher<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -102,7 +102,7 @@ export default function EarningsPage() {
       header: "Date",
       render: (r) => (
         <span className="text-xs">
-          {new Date(r.createdAt).toLocaleString("en-IN", {
+          {formatIST(r.createdAt, {
             day: "2-digit",
             month: "short",
             hour: "2-digit",

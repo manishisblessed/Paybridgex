@@ -25,6 +25,26 @@ import { priceScopeFamily } from "../services/priceScope";
 
 export type ResolvedRateSource = "USER_SCHEME" | "NONE";
 
+/**
+ * Thrown by {@link resolveRequiredRate} when a money-moving route asks to price
+ * an amount that NO active slab covers — the amount is outside every configured
+ * band (above the ceiling, below the floor, or in a gap), pinned to a product
+ * scope with no matching slab, or the user has no active scheme/slab for the
+ * rail. Fails CLOSED so an unpriced transaction can never settle for ₹0 or slip
+ * past the configured slab ceiling.
+ */
+export class PricingUnavailableError extends Error {
+  public statusCode = 422;
+  public code = "PRICING_UNAVAILABLE";
+  constructor(message?: string) {
+    super(
+      message ??
+        "This amount is outside your allowed range for this service. Please enter an amount within your approved limit or contact support."
+    );
+    this.name = "PricingUnavailableError";
+  }
+}
+
 export type EffectiveRate = {
   source: ResolvedRateSource;
   schemeId: string | null;
@@ -132,6 +152,31 @@ export async function getEffectiveRate(
   }
 
   return emptyRate();
+}
+
+/**
+ * Money-route pricing resolver — like {@link getEffectiveRate} but FAILS CLOSED.
+ *
+ * Throws {@link PricingUnavailableError} (422) when no active slab covers
+ * (user, service, amount, provider). Every money-moving route MUST price
+ * through this (never the raw {@link getEffectiveRate}) so a missing or
+ * overshot slab band can never settle a transaction with a ₹0 charge or above
+ * the configured ceiling — the exact leak where an amount above the top slab
+ * silently priced to ₹0 and was still allowed through.
+ *
+ * A legitimately free tier (a slab that exists with chargeValue 0) still
+ * resolves normally: it has `source === "USER_SCHEME"`, so only a truly
+ * unpriced band is rejected.
+ */
+export async function resolveRequiredRate(
+  userId: string,
+  service: ServiceCode,
+  amount: Money | string | number,
+  provider?: string | null
+): Promise<EffectiveRate> {
+  const rate = await getEffectiveRate(userId, service, amount, provider);
+  if (rate.source === "NONE") throw new PricingUnavailableError();
+  return rate;
 }
 
 /**

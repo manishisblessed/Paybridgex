@@ -34,7 +34,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { OtpInput } from "@/components/ui/OtpInput";
 import { PanInput } from "@/components/ui/PanInput";
-import { namesMatch } from "@/lib/utils";
+import { namesMatch, formatIST, formatISTDate } from "@/lib/utils";
 import { extractGpsFromFile } from "@/lib/gps";
 import { LivenessVideoCapture } from "@/components/kyc/LivenessVideoCapture";
 import { SelfieCapture } from "@/components/kyc/SelfieCapture";
@@ -1376,7 +1376,7 @@ function OnboardContent() {
                 <p>
                   <strong>Expires:</strong>{" "}
                   {invite?.expiresAt
-                    ? new Date(invite.expiresAt).toLocaleDateString()
+                    ? formatISTDate(invite.expiresAt)
                     : "\u2014"}
                 </p>
               </div>
@@ -2368,7 +2368,7 @@ function OnboardContent() {
                         <p className="text-sm text-amber-800 font-medium">Waiting for approval...</p>
                       </div>
                       <p className="text-xs text-amber-700">
-                        Sent on {new Date(declarationStatus.approval.sentAt).toLocaleString()}.
+                        Sent on {formatIST(declarationStatus.approval.sentAt)}.
                         {declarationStatus.approverName} will review and approve from their portal.
                       </p>
                       {declarationPolling && (
@@ -2383,7 +2383,7 @@ function OnboardContent() {
                         Approved by {declarationStatus.approverName}
                       </p>
                       <p className="text-xs text-emerald-700">
-                        Approved on {declarationStatus.approval.approvedAt ? new Date(declarationStatus.approval.approvedAt).toLocaleString() : ""}
+                        Approved on {declarationStatus.approval.approvedAt ? formatIST(declarationStatus.approval.approvedAt) : ""}
                       </p>
                     </div>
                   )}

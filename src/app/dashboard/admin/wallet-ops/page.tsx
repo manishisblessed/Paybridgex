@@ -18,7 +18,7 @@ import {
   SegmentedNav,
 } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
-import { formatINR, formatNumber } from "@/lib/utils";
+import { formatINR, formatNumber, formatIST } from "@/lib/utils";
 import {
   RefreshCw,
   Eye,
@@ -329,7 +329,7 @@ const PAYIN_PERIODS = [
 ] as const;
 
 function fmtPayinTime(iso: string) {
-  return new Date(iso).toLocaleString("en-IN", {
+  return formatIST(iso, {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -1142,7 +1142,7 @@ function HistoryTab({
       key: "createdAt",
       header: "Date",
       render: (r) =>
-        new Date(r.createdAt).toLocaleString("en-IN", {
+        formatIST(r.createdAt, {
           day: "2-digit",
           month: "short",
           hour: "2-digit",
@@ -1418,7 +1418,7 @@ function LiensTab({
       key: "createdAt",
       header: "Placed",
       render: (r) =>
-        new Date(r.createdAt).toLocaleString("en-IN", {
+        formatIST(r.createdAt, {
           day: "2-digit",
           month: "short",
           hour: "2-digit",

@@ -15,7 +15,7 @@ import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FilterBar, TablePro, TableEmptyRow, TableSkeletonRows, StatusPill } from "@/components/dashboard/ui";
 import { Reveal } from "@/components/motion";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatIST } from "@/lib/utils";
 import { downloadCSV, downloadPDF, downloadZIP, type ReportColumn } from "@/lib/reports";
 
 type WalletTxn = {
@@ -100,7 +100,7 @@ export default function LedgerPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   const ledgerCols: ReportColumn<WalletTxn>[] = [
-    { key: "createdAt", header: "Date", render: (r) => new Date(r.createdAt).toLocaleString("en-IN") },
+    { key: "createdAt", header: "Date", render: (r) => formatIST(r.createdAt) },
     { key: "direction", header: "Type" },
     { key: "reason", header: "Reason", render: (r) => REASON_LABELS[r.reason] ?? r.reason },
     { key: "note", header: "Description" },
@@ -256,7 +256,7 @@ export default function LedgerPage() {
                     </td>
                     <td className="text-right text-ink-600">{formatINR(t.balanceAfter)}</td>
                     <td className="text-xs text-ink-500 whitespace-nowrap">
-                      {new Date(t.createdAt).toLocaleString("en-IN", {
+                      {formatIST(t.createdAt, {
                         dateStyle: "medium",
                         timeStyle: "short",
                       })}

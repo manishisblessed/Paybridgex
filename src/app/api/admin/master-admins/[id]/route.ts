@@ -6,7 +6,7 @@ import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { bumpTokenVersion } from "@/lib/security/session";
-import { generateRandomPassword } from "@/lib/utils";
+import { generateRandomPassword, tombstonedIdentity } from "@/lib/utils";
 
 const PatchBody = z
   .object({
@@ -166,9 +166,15 @@ export async function DELETE(
     return NextResponse.json({ error: "Master admin not found" }, { status: 404 });
   }
 
+  // Soft-delete AND tombstone the identity so the master admin's email/phone are
+  // freed for reuse (unique constraints ignore `deletedAt`).
   await prisma.user.update({
     where: { id: params.id },
-    data: { deletedAt: new Date(), status: "CLOSED" },
+    data: {
+      deletedAt: new Date(),
+      status: "CLOSED",
+      ...tombstonedIdentity(params.id),
+    },
   });
 
   await prisma.auditLog.create({

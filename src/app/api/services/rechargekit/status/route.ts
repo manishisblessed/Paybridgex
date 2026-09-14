@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth-server";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { rechargekitStatus } from "@/lib/partners/sameday-rechargekit";
+import { friendlyPartnerError } from "@/lib/partners/friendlyError";
 import { AuthError } from "@/lib/auth-server";
 
 const Body = z
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
 
   if (!result.ok) {
     return NextResponse.json(
-      { error: result.message, code: result.code },
+      { error: friendlyPartnerError(result.code, result.message, "fetch"), code: result.code },
       { status: 502 }
     );
   }

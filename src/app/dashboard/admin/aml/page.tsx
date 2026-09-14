@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { formatIST } from "@/lib/utils";
 import {
   RefreshCw,
   AlertCircle,
@@ -66,7 +67,7 @@ const FILTERS = [
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  return formatIST(iso, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 function monthAgo(): string {

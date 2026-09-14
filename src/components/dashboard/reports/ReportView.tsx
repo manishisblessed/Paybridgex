@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Info,
 } from "lucide-react";
+import { formatIST } from "@/lib/utils";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Sparkline } from "@/components/dashboard/Sparkline";
 import { ReportActions } from "@/components/dashboard/ReportActions";
@@ -172,12 +173,12 @@ function displayCell(value: unknown, format?: ReportColumnDef["format"]) {
 function toDateStr(value: unknown): string {
   const d = new Date(String(value));
   if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  return formatIST(d, { day: "2-digit", month: "short", year: "numeric" });
 }
 function toDateTimeStr(value: unknown): string {
   const d = new Date(String(value));
   if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  return formatIST(d, { dateStyle: "medium", timeStyle: "short" });
 }
 
 /** String for CSV/PDF export cells (numeric XLSX cells use the raw value). */

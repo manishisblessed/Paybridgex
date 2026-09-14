@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { formatIST } from "@/lib/utils";
 import {
   RefreshCw,
   Send,
@@ -279,7 +280,7 @@ export default function AdminDisputesPage() {
                           <SlaCell d={d} />
                         </td>
                         <td className="text-xs text-ink-500">
-                          {new Date(d.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                          {formatIST(d.createdAt, { dateStyle: "medium", timeStyle: "short" })}
                         </td>
                       </tr>
                     ))
@@ -312,7 +313,7 @@ export default function AdminDisputesPage() {
                   {!closed && (
                     <span className="flex items-center gap-1 text-xs text-ink-500">
                       <Clock className="h-3 w-3" />
-                      Due {new Date(detail.slaDueAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                      Due {formatIST(detail.slaDueAt, { dateStyle: "medium", timeStyle: "short" })}
                     </span>
                   )}
                   {detail.reopenCount > 0 && (
@@ -355,7 +356,7 @@ export default function AdminDisputesPage() {
                     >
                       <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-400">
                         {m.authorName} ·{" "}
-                        {new Date(m.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                        {formatIST(m.createdAt, { dateStyle: "medium", timeStyle: "short" })}
                       </p>
                       <p className="mt-1 whitespace-pre-wrap">{m.body}</p>
                     </li>

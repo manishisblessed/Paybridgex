@@ -27,6 +27,10 @@ type ChargeQuote = {
   totalCharge: number;
   totalDebit: number;
   commission: number;
+  /** false when the amount is unpriced / above the per-txn ceiling. */
+  withinLimit: boolean;
+  /** Per-transaction ceiling (₹) for this rail, or null when uncapped. */
+  limit: number | null;
   partnerCharges?: {
     baseCharge: number;
     gstAmount: number;
@@ -145,6 +149,8 @@ export function RechargekitCCForm() {
             totalCharge: data.totalCharge,
             totalDebit: data.totalDebit,
             commission: data.commission,
+            withinLimit: data.withinLimit ?? true,
+            limit: data.limit ?? null,
             partnerCharges: data.partnerCharges,
           });
         }
@@ -236,6 +242,16 @@ export function RechargekitCCForm() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!inputsValid) return;
+    // Per-transaction ceiling from the user's scheme (server enforces the same;
+    // this is a pre-submit guard so an unpriced amount never leaves the client).
+    if (quote && quote.withinLimit === false) {
+      setError(
+        quote.limit != null
+          ? `Amount exceeds your allowed limit of ${formatINR(quote.limit)} for this service.`
+          : "This amount is outside your allowed range for this service. Please enter an amount within your approved limit."
+      );
+      return;
+    }
     setError(null);
     setPinOpen(true);
   }
@@ -496,6 +512,19 @@ export function RechargekitCCForm() {
           </p>
         )}
 
+        {/* Over-limit / unpriced warning */}
+        {quote && Number(amount) > 0 && quote.withinLimit === false && (
+          <div className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              {quote.limit != null
+                ? `This amount is above your allowed limit of ${formatINR(quote.limit)} for this service.`
+                : "This amount is outside your allowed range for this service."}{" "}
+              Enter an amount within your approved limit to continue.
+            </span>
+          </div>
+        )}
+
         {/* Error */}
         {error && (
           <div className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
@@ -518,7 +547,7 @@ export function RechargekitCCForm() {
             type="submit"
             size="lg"
             className="w-full"
-            disabled={paying || !inputsValid || !!polling}
+            disabled={paying || !inputsValid || !!polling || quote?.withinLimit === false}
             isLoading={paying}
           >
             Pay{" "}

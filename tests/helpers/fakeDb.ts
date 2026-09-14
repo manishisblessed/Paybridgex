@@ -241,6 +241,13 @@ export class FakeDb {
     findUnique: async () => null,
   };
 
+  // ── prisma.limitProfile — no risk tiers seeded in unit tests, so the
+  //    effective-limits resolver falls back to the env/platform defaults. ────
+  limitProfile = {
+    findUnique: async () => null,
+    findFirst: async () => null,
+  };
+
   // ── prisma.webhookEndpoint (Phase 4) — no subscribers in unit tests, so
   //    emitWebhookEvent fan-out is a clean no-op instead of a logged error. ──
   webhookEndpoint = {

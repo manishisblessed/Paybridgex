@@ -27,7 +27,7 @@ import {
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatIST } from "@/lib/utils";
 import { type ReportColumn } from "@/lib/reports";
 import { ReportActions } from "@/components/dashboard/ReportActions";
 
@@ -133,7 +133,7 @@ function defaultDateRange() {
 }
 
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleString("en-IN", {
+  return formatIST(iso, {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -243,7 +243,7 @@ export function SettlementReportTab({
   }, [body, rows]);
 
   const exportCols: ReportColumn<ReportRow>[] = [
-    { key: "txnTime", header: "Time", render: (r) => new Date(r.txnTime).toLocaleString("en-IN") },
+    { key: "txnTime", header: "Time", render: (r) => formatIST(r.txnTime) },
     { key: "retailer", header: "Merchant", render: (r) => r.retailer?.shopName || r.retailer?.name || "" },
     { key: "userCode", header: "Merchant Code", render: (r) => r.retailer?.userCode ?? "" },
     { key: "role", header: "Role", render: (r) => (r.retailer ? ROLE_LABELS[r.retailer.role] ?? r.retailer.role : "") },

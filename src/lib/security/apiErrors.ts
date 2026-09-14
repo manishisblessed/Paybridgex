@@ -12,6 +12,7 @@ import { AccountSuspendedError, AccountPendingApprovalError } from "./accountGat
 import { IdempotencyInProgressError } from "../idempotency";
 import { ServiceDisabledError } from "../services/guard";
 import { NoSchemeError } from "../scheme/gate";
+import { PricingUnavailableError } from "../scheme/resolver";
 import { RiskError } from "../risk/engine";
 import { TopupError } from "../wallet/topup";
 import { QrClaimError } from "../qr/claims";
@@ -90,6 +91,9 @@ export function toErrorResponse(e: unknown): NextResponse {
     return NextResponse.json({ error: e.message }, { status: e.statusCode });
   }
   if (e instanceof NoSchemeError) {
+    return NextResponse.json({ error: e.message, code: e.code }, { status: e.statusCode });
+  }
+  if (e instanceof PricingUnavailableError) {
     return NextResponse.json({ error: e.message, code: e.code }, { status: e.statusCode });
   }
   if (e instanceof RiskError) {

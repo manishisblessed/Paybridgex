@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { toNumber, add } from "@/lib/money";
-import { getEffectiveRate, withGst } from "@/lib/scheme/resolver";
+import { getEffectiveRate, getSchemeLimit, withGst } from "@/lib/scheme/resolver";
 import { isBbpsPriceScope } from "@/lib/services/priceScope";
 import { getPartner } from "@/lib/partners";
 import { requireActiveScheme, NoSchemeError } from "@/lib/scheme/gate";
@@ -56,7 +56,16 @@ export async function GET(req: Request) {
   const service = BBPS_SERVICE[category];
   const bbps = getPartner("bbps");
   const priceScope = isBbpsPriceScope(route) ? route : bbps.name;
-  const rate = await getEffectiveRate(user.id, service, amount, priceScope);
+  const [rate, schemeLimit] = await Promise.all([
+    getEffectiveRate(user.id, service, amount, priceScope),
+    getSchemeLimit(user.id, service),
+  ]);
+
+  // Expose the per-transaction ceiling so the form can block over-limit amounts
+  // before submit. `withinLimit` is false when the amount is unpriced (no slab
+  // covers it) or above the top slab — the server pay route rejects the same.
+  const limit = schemeLimit != null ? toNumber(schemeLimit) : null;
+  const withinLimit = rate.source !== "NONE" && (limit == null || amount <= limit);
 
   const serviceCharge = toNumber(rate.charge);
   const gstBreakdown = withGst(rate.charge, 18);
@@ -73,6 +82,8 @@ export async function GET(req: Request) {
     totalCharge,
     totalDebit,
     commission,
+    limit,
+    withinLimit,
     source: rate.source,
     schemeName: rate.schemeName,
   });

@@ -8,7 +8,7 @@ import { StatTile, StatusPill, TabNav, ModalShell } from "@/components/dashboard
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
-import { formatINR, formatNumber } from "@/lib/utils";
+import { formatINR, formatNumber, formatIST } from "@/lib/utils";
 import {
   Fingerprint,
   RefreshCw,
@@ -305,7 +305,7 @@ export default function AepsCentrePage() {
     {
       key: "at",
       header: "At",
-      render: (s) => <span className="text-xs text-ink-500">{new Date(s.createdAt).toLocaleString("en-IN")}</span>,
+      render: (s) => <span className="text-xs text-ink-500">{formatIST(s.createdAt)}</span>,
     },
   ];
 

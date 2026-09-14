@@ -7,6 +7,7 @@ import { toErrorResponse } from "@/lib/security/apiErrors";
 import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { bbpsServiceKey } from "@/lib/services/bbpsKey";
+import { friendlyPartnerError } from "@/lib/partners/friendlyError";
 import { AuthError } from "@/lib/auth-server";
 
 const Body = z.object({
@@ -43,5 +44,10 @@ export async function POST(req: Request) {
 
   const bbps = getPartner("bbps");
   const r = await bbps.fetchBill({ userId: user.id, ...parsed.data });
-  return r.ok ? NextResponse.json(r.data) : NextResponse.json({ error: r.message, code: r.code }, { status: 502 });
+  return r.ok
+    ? NextResponse.json(r.data)
+    : NextResponse.json(
+        { error: friendlyPartnerError(r.code, r.message, "fetch"), code: r.code },
+        { status: 502 }
+      );
 }

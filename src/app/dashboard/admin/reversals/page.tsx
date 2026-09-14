@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Panel, SectionTitle, StatusPill, SegmentedNav } from "@/components/dashboard/ui";
 import { Reveal } from "@/components/motion";
-import { formatINR, formatNumber } from "@/lib/utils";
+import { formatINR, formatNumber, formatIST } from "@/lib/utils";
 import { RefreshCw, Search } from "lucide-react";
 
 type Reversal = {
@@ -169,7 +169,7 @@ export default function ReversalDeskPage() {
         <div>
           <p className="font-medium text-ink-900">{r.refLabel ?? r.refId.slice(0, 12)}</p>
           <p className="text-xs text-ink-400">
-            {r.kind.toLowerCase()} · {new Date(r.createdAt).toLocaleString("en-IN")}
+            {r.kind.toLowerCase()} · {formatIST(r.createdAt)}
           </p>
         </div>
       ),

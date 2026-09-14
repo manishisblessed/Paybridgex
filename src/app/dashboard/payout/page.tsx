@@ -51,7 +51,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { TxnPinDialog } from "@/components/security/TxnPinDialog";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatIST } from "@/lib/utils";
 import { useAuth } from "@/lib/useAuth";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,7 +256,7 @@ export default function PayoutPage() {
     total: r.totalDebit,
     status: STATUS_LABEL[r.status],
     utr: r.utr ?? "—",
-    date: new Date(r.createdAt).toLocaleString("en-IN"),
+    date: formatIST(r.createdAt),
   }));
 
   const cols: Column<Payout>[] = [
@@ -312,7 +312,7 @@ export default function PayoutPage() {
       header: "When",
       render: (r) => (
         <span className="whitespace-nowrap text-xs text-ink-500">
-          {new Date(r.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+          {formatIST(r.createdAt, { dateStyle: "medium", timeStyle: "short" })}
         </span>
       ),
     },
@@ -1147,7 +1147,7 @@ Account: ****${result.accountLast4}
 Mode: IMPS
 ${result.utr ? `UTR: ${result.utr}\n` : ""}Reference: ${result.reference || result.id}
 Charges (incl. GST): ₹${(result.serviceCharge + result.gst).toFixed(2)}
-Date: ${new Date(result.createdAt).toLocaleString("en-IN")}
+Date: ${formatIST(result.createdAt)}
 
 ${payBy}`;
 
@@ -1190,7 +1190,7 @@ ${payBy}`;
           <ReceiptRow label="Total debit" value={inr2(result.totalDebit)} strong />
           <ReceiptRow
             label="Date"
-            value={new Date(result.createdAt).toLocaleString("en-IN", {
+            value={formatIST(result.createdAt, {
               dateStyle: "medium",
               timeStyle: "short",
             })}

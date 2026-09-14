@@ -5,6 +5,8 @@ import { decryptField } from "@/lib/crypto/fieldEncryption";
 import { toNumber, sub, round } from "@/lib/money";
 import { creditServiceMargin, reverseServiceMargin } from "@/lib/commission/revenue";
 import { getPartner, assertRealMoneyProvider } from "@/lib/partners";
+import { friendlyPartnerError, isSensitivePartnerCode } from "@/lib/partners/friendlyError";
+import { sendOpsAlert } from "@/lib/monitoring/alerts";
 import { enqueue, QUEUES } from "@/lib/queue";
 import { emitWebhookEvent } from "@/lib/platform/webhooks";
 import { logger } from "@/lib/logger";
@@ -241,9 +243,21 @@ function toContactMobile(phone: string | null | undefined): string | undefined {
  * the row's `response` for ops/debugging. Falls back to a generic line when the
  * provider gave no usable message.
  */
+/**
+ * User-facing payout failure reason. The retailer only ever sees a sanitized,
+ * reassuring message (the raw provider text lands in `response`/logs). A low
+ * PARTNER float or auth/config problem is OUR issue, so it collapses to the
+ * generic message and pages ops instead of blaming the retailer.
+ */
 function payoutFailureReason(res: { code: string; message: string }): string {
-  const msg = (res.message ?? "").trim();
-  return msg || "Payout could not be completed right now. Please try again shortly or contact support.";
+  if (isSensitivePartnerCode(res.code)) {
+    void sendOpsAlert({
+      title: "Payout rejected by provider for an internal reason",
+      severity: "critical",
+      details: { code: res.code ?? null },
+    });
+  }
+  return friendlyPartnerError(res.code, res.message, "payout");
 }
 
 /** Build the decrypted beneficiary block for the provider call. */
@@ -378,6 +392,50 @@ export async function reconcilePayout(payoutRequestId: string): Promise<void> {
     });
   }
   // still PROCESSING → leave for the next poll
+}
+
+/**
+ * Finalize a payout in response to an inbound Same Day webhook.
+ *
+ * The webhook body is treated as a TRIGGER, never as the source of truth: we
+ * correlate it to our row by the Same Day `reference_id` (persisted as
+ * `providerTxnId`) or our own `providerReferenceId`, then RE-FETCH the terminal
+ * state from the settlement `status` API before moving any money. This means a
+ * forged or stale payload can never finalize a payout — the provider's books
+ * decide. Idempotent and race-safe with the 5-minute reconcile poller.
+ *
+ * `reversal` is set when the event signals a post-success bank return; a SUCCESS
+ * payout is then REVERSED (refunded) instead of re-polled.
+ */
+export async function reconcilePayoutFromWebhook(
+  refs: string[],
+  opts: { reversal: boolean; response?: unknown } = { reversal: false }
+): Promise<{ matched: boolean; payoutRequestId?: string; action?: string }> {
+  const cleaned = Array.from(new Set(refs.filter((r) => typeof r === "string" && r.length > 0)));
+  if (cleaned.length === 0) return { matched: false };
+
+  const row = await prisma.payoutRequest.findFirst({
+    where: {
+      OR: [
+        { providerTxnId: { in: cleaned } },
+        { providerReferenceId: { in: cleaned } },
+      ],
+    },
+    select: { id: true, status: true },
+  });
+  if (!row) return { matched: false };
+
+  if (opts.reversal && row.status === "SUCCESS") {
+    const r = await reversePayout(row.id, {
+      response: opts.response,
+      reason: "Reversed by Same Day settlement (webhook)",
+    });
+    return { matched: true, payoutRequestId: row.id, action: r.reversed ? "reversed" : "noop" };
+  }
+
+  // Non-terminal → re-poll the rail and finalize; terminal → no-op.
+  await reconcilePayout(row.id);
+  return { matched: true, payoutRequestId: row.id, action: "reconciled" };
 }
 
 /**

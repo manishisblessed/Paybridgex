@@ -86,9 +86,13 @@ describe("runTransaction — failure path", () => {
       })
     );
     expect(result.status).toBe("FAILED");
-    expect(result.error).toBe("Operator down");
+    // User sees a sanitized, friendly message — never the raw partner text.
+    expect(result.error).not.toBe("Operator down");
+    expect(result.error).toMatch(/try again/i);
     expect(holder.db.balanceOf("u1")).toBe("1000.00"); // fully refunded
     expect(holder.db.transactions[0].status).toBe("FAILED");
+    // The RAW partner code is still persisted for support/reconciliation.
+    expect(holder.db.transactions[0].errorCode).toBe("DECLINED");
   });
 
   it("refunds when the partner call throws", async () => {

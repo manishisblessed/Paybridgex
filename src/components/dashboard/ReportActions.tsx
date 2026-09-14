@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Eye, FileText, FileSpreadsheet, FolderArchive, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/useAuth";
+import { formatIST } from "@/lib/utils";
 import {
   downloadCSV,
   downloadPDF,
@@ -166,7 +167,7 @@ function PreviewDialog<T>({
             <p className="mt-1 text-[11px] text-ink-500">
               {rows.length} record{rows.length === 1 ? "" : "s"}
               {generatedFor ? ` · for ${generatedFor}` : ""} ·{" "}
-              {new Date().toLocaleString("en-IN")}
+              {formatIST(new Date())}
             </p>
           </div>
           <button

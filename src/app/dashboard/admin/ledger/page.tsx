@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { StatTile, FilterBar } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatIST } from "@/lib/utils";
 import { RefreshCw, Download, Search, Lock, TrendingUp, TrendingDown, ScrollText } from "lucide-react";
 
 type Entry = {
@@ -133,7 +133,7 @@ export default function LedgerExplorerPage() {
       key: "createdAt",
       header: "Date",
       render: (r) =>
-        new Date(r.createdAt).toLocaleString("en-IN", {
+        formatIST(r.createdAt, {
           day: "2-digit",
           month: "short",
           year: "2-digit",

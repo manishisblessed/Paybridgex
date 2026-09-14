@@ -25,7 +25,7 @@ import { Input, Label } from "@/components/ui/Input";
 import { ReportActions } from "@/components/dashboard/ReportActions";
 import { ModalShell, StatTile, StatusPill } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
-import { generateRandomPassword } from "@/lib/utils";
+import { generateRandomPassword, formatIST } from "@/lib/utils";
 import { ASSIGNABLE_SUB_ADMIN_TABS } from "@/lib/roles";
 
 type SubAdmin = {
@@ -179,7 +179,7 @@ export default function AdminSubAdminsPage() {
     {
       key: "createdAt",
       header: "Created",
-      render: (r) => new Date(r.createdAt).toLocaleString("en-IN"),
+      render: (r) => formatIST(r.createdAt),
     },
     {
       key: "actions",
@@ -277,7 +277,7 @@ export default function AdminSubAdminsPage() {
                   {
                     key: "createdAt",
                     header: "Created",
-                    render: (r) => new Date(r.createdAt).toLocaleString("en-IN"),
+                    render: (r) => formatIST(r.createdAt),
                   },
                 ]}
                 rows={rows}

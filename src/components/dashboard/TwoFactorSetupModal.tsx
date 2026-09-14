@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
+import { formatISTDate } from "@/lib/utils";
 import {
   ShieldCheck,
   QrCode,
@@ -122,7 +123,7 @@ export function TwoFactorSetupModal() {
     const text = [
       "Paybridgex — 2FA Backup Codes",
       `Account: ${session?.user?.email}`,
-      `Generated: ${new Date().toLocaleDateString()}`,
+      `Generated: ${formatISTDate(new Date())}`,
       "",
       "Keep these codes safe. Each can only be used once.",
       "",

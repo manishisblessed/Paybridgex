@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Users, Search, ArrowRight, RefreshCw } from "lucide-react";
-import { cn, formatNumber } from "@/lib/utils";
+import { cn, formatNumber, formatIST } from "@/lib/utils";
 import { formatINRFull } from "./CumulativeWalletCard";
 
 /**
@@ -293,7 +293,7 @@ function shortId(id: string) {
 }
 
 function formatTime(d: Date) {
-  return d.toLocaleString("en-IN", {
+  return formatIST(d, {
     day: "numeric",
     month: "numeric",
     year: "numeric",

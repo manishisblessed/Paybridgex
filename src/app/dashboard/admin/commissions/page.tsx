@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { ReportActions } from "@/components/dashboard/ReportActions";
 import { RefreshCw, Trash2, Loader2 } from "lucide-react";
 import { Reveal } from "@/components/motion";
+import { formatISTDate } from "@/lib/utils";
 
 type SlabRow = {
   id: string;
@@ -71,7 +72,7 @@ export default function AdminCommissionsPage() {
     ) },
     { key: "minAmount", header: "Range", align: "right", render: (r) => `₹${r.minAmount} – ₹${r.maxAmount}` },
     { key: "flat", header: "Payout", align: "right", render: formatPayout },
-    { key: "effectiveFrom", header: "Effective", render: (r) => new Date(r.effectiveFrom).toLocaleDateString("en-IN", { month: "short", day: "2-digit", year: "numeric" }) },
+    { key: "effectiveFrom", header: "Effective", render: (r) => formatISTDate(r.effectiveFrom) },
     {
       key: "actions",
       header: "",

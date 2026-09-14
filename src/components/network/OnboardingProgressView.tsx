@@ -6,6 +6,7 @@ import {
   Info,
   Loader2,
 } from "lucide-react";
+import { formatISTDate } from "@/lib/utils";
 
 // Shared, status-only onboarding/KYC progress view. Rendered both on the
 // network member detail page (registered downline) and inside the "Pending
@@ -66,14 +67,7 @@ const WAITING_META: Record<
 };
 
 function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  return formatISTDate(iso);
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {

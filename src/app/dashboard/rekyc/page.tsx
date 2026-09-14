@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { mutate } from "swr";
 import { motion, AnimatePresence } from "framer-motion";
+import { formatIST } from "@/lib/utils";
 import {
   ShieldCheck,
   ShieldAlert,
@@ -46,11 +47,7 @@ const PENDING_TTL_MS = 20 * 60 * 1000;
 
 function fmtDate(iso: string | null) {
   if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return formatIST(iso, { day: "numeric", month: "long", year: "numeric" });
 }
 
 export default function ReKycPage() {

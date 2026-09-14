@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
+import { formatIST, formatISTDate } from "@/lib/utils";
 import {
   UserPlus,
   Send,
@@ -405,7 +406,7 @@ export default function AdminInvitesPage() {
                     <StatusPill status={inv.status} tone={STATUS_TONES[inv.status] ?? "neutral"} />
                   </td>
                   <td className="text-ink-500">
-                    {new Date(inv.createdAt).toLocaleDateString()}
+                    {formatISTDate(inv.createdAt)}
                   </td>
                   <td className="sticky right-0 z-10 bg-white text-right shadow-[-8px_0_12px_-8px_rgba(14,22,38,0.12)] group-hover:bg-brand-50">
                     <div className="flex items-center justify-end gap-1">
@@ -978,9 +979,9 @@ function InviteDetail({
         </div>
         <div className="rounded-xl bg-ink-50 p-4">
           <p className="text-xs font-bold uppercase tracking-wider text-ink-500">Timeline</p>
-          <p className="mt-1 text-sm">Created: {new Date(invite.createdAt).toLocaleString()}</p>
-          {invite.registeredAt && <p className="text-sm">Registered: {new Date(invite.registeredAt).toLocaleString()}</p>}
-          {invite.verifiedAt && <p className="text-sm">Verified: {new Date(invite.verifiedAt).toLocaleString()}</p>}
+          <p className="mt-1 text-sm">Created: {formatIST(invite.createdAt)}</p>
+          {invite.registeredAt && <p className="text-sm">Registered: {formatIST(invite.registeredAt)}</p>}
+          {invite.verifiedAt && <p className="text-sm">Verified: {formatIST(invite.verifiedAt)}</p>}
         </div>
       </div>
 
@@ -1274,7 +1275,7 @@ function InviteDetail({
                       </p>
                       <p className="text-xs text-ink-500">
                         Responsible for {a.onboardeeRole.replace(/_/g, " ")} · Sent{" "}
-                        {new Date(a.sentAt).toLocaleString()}
+                        {formatIST(a.sentAt)}
                       </p>
                     </div>
                     <StatusPill
@@ -1311,7 +1312,7 @@ function InviteDetail({
                       )}
                       <div className="text-xs text-ink-600">
                         {a.approvedAt && (
-                          <p>Approved: {new Date(a.approvedAt).toLocaleString()}</p>
+                          <p>Approved: {formatIST(a.approvedAt)}</p>
                         )}
                         {a.approvalIp && <p>IP: {a.approvalIp}</p>}
                         {a.approvalLatitude != null && a.approvalLongitude != null && (

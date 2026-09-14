@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatIST, formatISTDate } from "@/lib/utils";
 import {
   CheckCircle2,
   XCircle,
@@ -256,12 +257,12 @@ function ApprovalCard({ approval, onReview }: { approval: Approval; onReview?: (
         </div>
         <div>
           <p className="text-ink-400 text-xs">Sent</p>
-          <p className="text-ink-700">{new Date(approval.sentAt).toLocaleDateString()}</p>
+          <p className="text-ink-700">{formatISTDate(approval.sentAt)}</p>
         </div>
         {approval.approvedAt && (
           <div>
             <p className="text-ink-400 text-xs">Approved</p>
-            <p className="text-ink-700">{new Date(approval.approvedAt).toLocaleDateString()}</p>
+            <p className="text-ink-700">{formatISTDate(approval.approvedAt)}</p>
           </div>
         )}
       </div>
@@ -682,7 +683,7 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
           </div>
           <div>
             <p className="text-ink-400 text-xs">Requested</p>
-            <p className="font-medium text-ink-900">{new Date(approval.sentAt).toLocaleString()}</p>
+            <p className="font-medium text-ink-900">{formatIST(approval.sentAt)}</p>
           </div>
         </div>
       </Panel>
@@ -855,7 +856,7 @@ function ApprovalReviewPage({ approval, onBack }: { approval: Approval; onBack: 
               Location captured: {gps.lat.toFixed(6)}, {gps.lng.toFixed(6)}
             </p>
             <p className="text-xs text-emerald-600 mt-1">
-              {new Date().toLocaleString()}
+              {formatIST(new Date())}
             </p>
           </div>
         )}
@@ -951,11 +952,11 @@ function TransferCard({ transfer, onReview }: { transfer: TransferRequest; onRev
         </div>
         <div>
           <p className="text-ink-400 text-xs">Requested</p>
-          <p className="text-ink-700">{new Date(transfer.createdAt).toLocaleDateString("en-IN")}</p>
+          <p className="text-ink-700">{formatISTDate(transfer.createdAt)}</p>
         </div>
         <div>
           <p className="text-ink-400 text-xs">Expires</p>
-          <p className="text-ink-700">{new Date(transfer.expiresAt).toLocaleDateString("en-IN")}</p>
+          <p className="text-ink-700">{formatISTDate(transfer.expiresAt)}</p>
         </div>
       </div>
       {transfer.reason && (

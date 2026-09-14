@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Panel, StatTile, StatusPill, SectionTitle } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
-import { formatINR, formatNumber } from "@/lib/utils";
+import { formatINR, formatNumber, formatIST } from "@/lib/utils";
 import {
   Timer,
   RefreshCw,
@@ -177,7 +177,7 @@ export default function SettlementOpsPage() {
       key: "createdAt",
       header: "At",
       render: (r) => (
-        <span className="text-xs text-ink-500">{new Date(r.createdAt).toLocaleString("en-IN")}</span>
+        <span className="text-xs text-ink-500">{formatIST(r.createdAt)}</span>
       ),
     },
   ];
@@ -362,7 +362,7 @@ export default function SettlementOpsPage() {
                   </p>
                   <p className="mt-0.5 text-xs text-ink-400">
                     {a.user ? `${a.user.name} · ` : ""}
-                    {new Date(a.createdAt).toLocaleString("en-IN")}
+                    {formatIST(a.createdAt)}
                   </p>
                 </div>
                 <Button

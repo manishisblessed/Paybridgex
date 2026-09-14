@@ -11,7 +11,7 @@
  *
  * Scope derivation (from Transaction.partner, best effort):
  *   - *RECHARGEKIT* → rechargekit_cc            (Same Day RechargeKit CC)
- *   - *BULKPE*      → bbps_bulkpe_svc            (Unified Bill Payment Platform)
+ *   - *BULKPE*      → bbps_sameday              (legacy BulkPe utilities, now Bharat BillPay)
  *   - *SAMEDAY/PAY2NEW* → bbps_credit_card for BILL_CREDIT_CARD, else bbps_sameday
  * `priceScope` is only written when it was null AND a scope was derived; a scope
  * already stored is respected and never overwritten. The Same Day CC guess
@@ -55,7 +55,7 @@ function deriveScope(
 ): string | null {
   const p = (partner ?? "").toUpperCase();
   if (p.includes("RECHARGEKIT")) return BBPS_PRICE_SCOPES.RECHARGEKIT_CC;
-  if (p.includes("BULKPE")) return BBPS_PRICE_SCOPES.BBPS_BULKPE;
+  if (p.includes("BULKPE")) return BBPS_PRICE_SCOPES.BBPS_SAMEDAY;
   if (p.includes("SAMEDAY") || p.includes("PAY2NEW")) {
     return service === "BILL_CREDIT_CARD"
       ? BBPS_PRICE_SCOPES.BBPS_CREDIT_CARD

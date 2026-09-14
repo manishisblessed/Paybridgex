@@ -63,6 +63,10 @@ loadEnv(".env");
 loadEnv(".env.local");
 
 const APPLY = process.argv.includes("--apply");
+// --ledger-only: clear ledgers + revenue wallet for ALL users but DELETE NO
+// USERS. Use this for repeated pre-launch cleanups so re-running never removes
+// an account that was (re-)created during testing.
+const LEDGER_ONLY = process.argv.includes("--ledger-only");
 const CONFIRMED = process.env.CONFIRM_FRESH_START === "PURGE_AND_RESET";
 
 // ── The accounts to physically delete. Match is by (name + role) by default;
@@ -166,7 +170,8 @@ async function main() {
   const { prisma } = await import("../src/lib/db");
 
   console.log(
-    `\n=== FRESH-START PURGE — mode: ${APPLY ? "APPLY (WRITING)" : "DRY-RUN (no writes)"} ===`
+    `\n=== FRESH-START PURGE — mode: ${APPLY ? "APPLY (WRITING)" : "DRY-RUN (no writes)"}` +
+      `${LEDGER_ONLY ? " · LEDGER-ONLY (no user deletion)" : ""} ===`
   );
   if (APPLY && !CONFIRMED) {
     console.error(
@@ -184,10 +189,13 @@ async function main() {
   } as const;
 
   // ── Resolve each target. Require exactly one non-protected match. ──
-  console.log(`\n[1] TARGET ACCOUNTS TO PHYSICALLY DELETE`);
   const resolved: { spec: TargetSpec; user: ResolvedUser }[] = [];
   let resolutionOk = true;
 
+  if (LEDGER_ONLY) {
+    console.log(`\n[1] TARGET ACCOUNTS — SKIPPED (--ledger-only: no user is deleted)`);
+  } else {
+  console.log(`\n[1] TARGET ACCOUNTS TO PHYSICALLY DELETE`);
   for (const t of TARGETS) {
     const or: Record<string, unknown>[] = [];
     if (t.id) or.push({ id: t.id });
@@ -233,6 +241,7 @@ async function main() {
         `  primary=${money(u.walletBalance)} aeps=${money(u.aepsBalance)} rev=${money(u.revenueBalance)}  [${u.id}]`
     );
   }
+  } // end !LEDGER_ONLY
 
   // Per-target relation footprint (what step 1 must clear before user.delete).
   if (resolved.length > 0) {

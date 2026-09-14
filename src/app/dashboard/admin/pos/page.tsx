@@ -46,7 +46,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AssignUserPicker, type PickerUser } from "@/components/ui/AssignUserPicker";
-import { cn, formatINR, istToday, istDaysAgo, istDayRangeUtc } from "@/lib/utils";
+import { cn, formatINR, istToday, istDaysAgo, istDayRangeUtc, formatIST, formatISTDate } from "@/lib/utils";
 import { posClassificationLabel } from "@/lib/pos/classification";
 import { type ReportColumn } from "@/lib/reports";
 import { ReportActions } from "@/components/dashboard/ReportActions";
@@ -163,7 +163,7 @@ function cleanName(name: string | null) {
 }
 
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleString("en-IN", {
+  return formatIST(iso, {
     day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit",
   });
 }
@@ -982,7 +982,7 @@ function TransactionsTab({ view }: { view: TxnView }) {
   const showClassification = data?.enrichment?.showClassification ?? false;
 
   const exportColsAll: ReportColumn<PosTransaction>[] = [
-    { key: "txn_time", header: "Time", render: (r) => r.txn_time ? new Date(r.txn_time).toLocaleString("en-IN") : "" },
+    { key: "txn_time", header: "Time", render: (r) => r.txn_time ? formatIST(r.txn_time) : "" },
     { key: "terminal_id", header: "TID" },
     { key: "retailer", header: "Retailer", render: (r) => r.retailer?.shopName || r.retailer?.name || "" },
     { key: "retailer_code", header: "Retailer Code", render: (r) => r.retailer?.userCode || "" },
@@ -1250,9 +1250,9 @@ function TxnSlipDrawer({ txn, showClassification, onClose }: { txn: PosTransacti
     ["Auth Code", txn.auth_code],
     ["Customer", txn.customer_name?.replace(/\s*\/\s*$/, "") || null],
     ["Payer Name", txn.payer_name || null],
-    ["Transaction Time", new Date(txn.txn_time).toLocaleString("en-IN")],
-    ["Posting Date", txn.posting_date ? new Date(txn.posting_date).toLocaleDateString("en-IN") : null],
-    ["Reversed At", txn.reversed_at ? new Date(txn.reversed_at).toLocaleString("en-IN") : null],
+    ["Transaction Time", formatIST(txn.txn_time)],
+    ["Posting Date", txn.posting_date ? formatISTDate(txn.posting_date) : null],
+    ["Reversed At", txn.reversed_at ? formatIST(txn.reversed_at) : null],
     ["Reversal Reason", txn.reversal_reason || null],
   ];
   const rows = rowsAll.filter(([label]) => showClassification || label !== "Card Classification");
@@ -1331,7 +1331,7 @@ type TrackingResponse = {
 
 function fmtDateOnly(iso: string | null) {
   if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  return formatISTDate(iso);
 }
 
 function trackingActionBadge(entry: TrackingEntry) {
@@ -1353,7 +1353,7 @@ function roleLabel(role: string | null | undefined) {
 }
 
 function fmtDayHeading(iso: string) {
-  return new Date(iso).toLocaleDateString("en-IN", {
+  return formatIST(iso, {
     weekday: "long",
     day: "2-digit",
     month: "long",

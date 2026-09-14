@@ -5,6 +5,7 @@ import {
   isNightWindowIST,
   type RiskLimits,
 } from "@/lib/risk/engine";
+import { parseServiceCaps } from "@/lib/risk/limits";
 
 /**
  * Pure rule-evaluation tests for the transaction risk engine. The DB wrapper
@@ -93,6 +94,70 @@ describe("NEW_BENEFICIARY_CAP", () => {
   });
 });
 
+describe("parseServiceCaps", () => {
+  it("keeps valid non-negative numbers (incl. 0 = disabled)", () => {
+    expect(parseServiceCaps({ BILL_CREDIT_CARD: 100000, PAYOUT: 0 })).toEqual({
+      BILL_CREDIT_CARD: 100000,
+      PAYOUT: 0,
+    });
+  });
+
+  it("coerces numeric strings and drops invalid / negative values", () => {
+    expect(
+      parseServiceCaps({ PAYOUT: "50000", DMT_IMPS: -1, X: "abc", Y: null })
+    ).toEqual({ PAYOUT: 50000 });
+  });
+
+  it("returns an empty map for non-object input", () => {
+    expect(parseServiceCaps(null)).toEqual({});
+    expect(parseServiceCaps([1, 2])).toEqual({});
+    expect(parseServiceCaps("nope")).toEqual({});
+  });
+});
+
+describe("SERVICE_DAILY_CAP (per-rail tier cap)", () => {
+  it("allows up to the per-service cap and blocks past it", () => {
+    // Overall cap is fine (well under 500k); only the service cap bites.
+    expect(
+      evaluateRisk(input({ amount: 20_000, serviceCap: 100_000, serviceAmount24h: 80_000 }))
+    ).toHaveLength(0); // exactly at 100k
+    const v = evaluateRisk(
+      input({ amount: 20_001, serviceCap: 100_000, serviceAmount24h: 80_000 })
+    );
+    expect(v.map((x) => x.rule)).toContain("SERVICE_DAILY_CAP");
+  });
+
+  it("does not apply when no service cap is set", () => {
+    expect(
+      evaluateRisk(input({ amount: 400_000, serviceCap: null, serviceAmount24h: 0 }))
+    ).toHaveLength(0);
+  });
+
+  it("blocks a disabled rail (cap 0) for any positive amount", () => {
+    const v = evaluateRisk(input({ amount: 1, serviceCap: 0 }));
+    expect(v.map((x) => x.rule)).toContain("SERVICE_DISABLED");
+  });
+
+  it("halves the per-service cap at night", () => {
+    // 100k service cap → 50k effective at night.
+    expect(
+      evaluateRisk(input({ now: NIGHT, amount: 50_000, serviceCap: 100_000 }))
+    ).toHaveLength(0);
+    const v = evaluateRisk(input({ now: NIGHT, amount: 50_001, serviceCap: 100_000 }));
+    expect(v.map((x) => x.rule)).toContain("NIGHT_SERVICE_CAP");
+  });
+
+  it("is independent of the overall cap", () => {
+    // Under the service cap but over the overall daily cap → overall rule fires.
+    const v = evaluateRisk(
+      input({ amount: 100_000, amount24h: 450_000, serviceCap: 500_000, serviceAmount24h: 0 })
+    );
+    const rules = v.map((x) => x.rule);
+    expect(rules).toContain("DAILY_AMOUNT_CAP");
+    expect(rules).not.toContain("SERVICE_DAILY_CAP");
+  });
+});
+
 describe("multiple violations", () => {
   it("reports every violated rule", () => {
     const v = evaluateRisk(
@@ -100,11 +165,14 @@ describe("multiple violations", () => {
         amount: 600_000,
         txnCount1h: 100,
         isNewBeneficiary: true,
+        serviceCap: 100_000,
+        serviceAmount24h: 50_000,
       })
     );
     const rules = v.map((x) => x.rule);
     expect(rules).toContain("DAILY_AMOUNT_CAP");
     expect(rules).toContain("HOURLY_VELOCITY");
     expect(rules).toContain("NEW_BENEFICIARY_CAP");
+    expect(rules).toContain("SERVICE_DAILY_CAP");
   });
 });

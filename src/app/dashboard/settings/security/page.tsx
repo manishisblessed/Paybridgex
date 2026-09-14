@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { formatISTDate } from "@/lib/utils";
 import {
   ShieldCheck,
   QrCode,
@@ -89,7 +90,7 @@ export default function SecuritySettingsPage() {
     const text = [
       "Paybridgex — 2FA Backup Codes",
       `Account: ${session?.user?.email}`,
-      `Generated: ${new Date().toLocaleDateString()}`,
+      `Generated: ${formatISTDate(new Date())}`,
       "",
       "Keep these codes safe. Each can only be used once.",
       "",

@@ -6,10 +6,11 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { requireActiveScheme } from "@/lib/scheme/gate";
-import { getEffectiveRate, withGst } from "@/lib/scheme/resolver";
+import { getEffectiveRate, getSchemeLimit, withGst } from "@/lib/scheme/resolver";
 import { BBPS_PRICE_SCOPES } from "@/lib/services/priceScope";
 import { toNumber, add } from "@/lib/money";
 import { rechargekitCharges } from "@/lib/partners/sameday-rechargekit";
+import { friendlyPartnerError } from "@/lib/partners/friendlyError";
 import { AuthError } from "@/lib/auth-server";
 
 const Body = z
@@ -49,14 +50,18 @@ export async function POST(req: Request) {
 
   const { amount } = parsed.data;
 
-  const [partnerCharges, rate] = await Promise.all([
+  const [partnerCharges, rate, schemeLimit] = await Promise.all([
     rechargekitCharges(amount),
     getEffectiveRate(user.id, "BILL_CREDIT_CARD", amount, BBPS_PRICE_SCOPES.RECHARGEKIT_CC),
+    getSchemeLimit(user.id, "BILL_CREDIT_CARD"),
   ]);
 
   if (!partnerCharges.ok) {
     return NextResponse.json(
-      { error: partnerCharges.message, code: partnerCharges.code },
+      {
+        error: friendlyPartnerError(partnerCharges.code, partnerCharges.message, "fetch"),
+        code: partnerCharges.code,
+      },
       { status: 502 }
     );
   }
@@ -72,6 +77,11 @@ export async function POST(req: Request) {
   );
   const commission = toNumber(rate.commission);
 
+  // Per-transaction ceiling so the UI can block over-limit amounts before
+  // submit; the pay route rejects the same server-side.
+  const limit = schemeLimit != null ? toNumber(schemeLimit) : null;
+  const withinLimit = rate.source !== "NONE" && (limit == null || amount <= limit);
+
   return NextResponse.json({
     amount,
     partnerCharges: partnerCharges.data,
@@ -81,6 +91,8 @@ export async function POST(req: Request) {
     totalCharge,
     totalDebit,
     commission,
+    limit,
+    withinLimit,
     source: rate.source,
     schemeName: rate.schemeName,
   });

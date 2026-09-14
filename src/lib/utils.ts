@@ -28,6 +28,60 @@ export function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ── IST display formatting ──────────────────────────────────────────────────
+// The platform's operating timezone is Asia/Kolkata (fixed +05:30, no DST).
+// `Intl`/`toLocaleString` only pins the *locale* — WITHOUT an explicit `timeZone`
+// it falls back to the runtime's zone. On the server (API routes / RSC on a UTC
+// host) that silently renders times ~5.5h behind IST (e.g. a 12:30 PM IST txn
+// shows as "07:00 AM"). These helpers pin `Asia/Kolkata` so server- and
+// client-rendered timestamps ALWAYS agree, regardless of host/browser zone.
+export const IST_TIME_ZONE = "Asia/Kolkata";
+
+/**
+ * Format a date/instant for DISPLAY in India Standard Time.
+ * Accepts `Date | ISO string | epoch ms | null | undefined`; invalid/empty
+ * input renders `fallback` (default "—"). Extra `options` are merged on top of
+ * the pinned `timeZone`, so callers keep full control of the format.
+ */
+export function formatIST(
+  value: Date | string | number | null | undefined,
+  options: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" },
+  fallback = "—"
+): string {
+  if (value === null || value === undefined || value === "") return fallback;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return fallback;
+  return d.toLocaleString("en-IN", { timeZone: IST_TIME_ZONE, ...options });
+}
+
+/** IST date only, e.g. "14 Sep 2026". */
+export function formatISTDate(
+  value: Date | string | number | null | undefined,
+  fallback = "—"
+): string {
+  return formatIST(value, { day: "2-digit", month: "short", year: "numeric" }, fallback);
+}
+
+/** IST date + time, e.g. "14 Sep 2026, 12:30 pm". */
+export function formatISTDateTime(
+  value: Date | string | number | null | undefined,
+  fallback = "—"
+): string {
+  return formatIST(
+    value,
+    { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" },
+    fallback
+  );
+}
+
+/** IST time only, e.g. "12:30 pm". */
+export function formatISTTime(
+  value: Date | string | number | null | undefined,
+  fallback = "—"
+): string {
+  return formatIST(value, { hour: "2-digit", minute: "2-digit" }, fallback);
+}
+
 // ── IST business-day helpers ────────────────────────────────────────────────
 // The platform's operating timezone is Asia/Kolkata (fixed +05:30, no DST), and
 // the live payin monitor resets at IST midnight (see `istPeriodStart` in
@@ -114,6 +168,31 @@ export function namesMatch(a: string, b: string): boolean {
   const union = new Set([...setA, ...setB]);
   const similarity = intersection.length / union.size;
   return similarity >= 0.6;
+}
+
+/**
+ * Build the "tombstoned" identity fields for a soft-deleted user so their real
+ * email / phone / userCode / shopName are FREED for reuse while the row itself
+ * is retained (audit trail, FK integrity). Mirrors the convention used by the
+ * maintenance scripts (deleted.<id>@invalid.paybridgex / +91DEL<id-suffix>).
+ *
+ * Without this, the hard `@unique` constraints on email/phone keep an old
+ * account's identity reserved forever — blocking re-creation with the same
+ * email/phone until the row is physically purged.
+ */
+export function tombstonedIdentity(id: string): {
+  email: string;
+  phone: string;
+  userCode: null;
+  shopName: null;
+} {
+  const suffix = id.replace(/[^a-z0-9]/gi, "").slice(-9);
+  return {
+    email: `deleted.${id}@invalid.paybridgex`,
+    phone: `+91DEL${suffix}`,
+    userCode: null,
+    shopName: null,
+  };
 }
 
 /** Generate a strong, human-friendly random password (10 chars, mixed case + digits). */

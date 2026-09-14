@@ -11,6 +11,7 @@ import { generateRandomPassword } from "@/lib/utils";
 import { dec, toNumber } from "@/lib/money";
 import { istMidnightForDate } from "@/lib/rekyc/dates";
 import { isNetworkTier } from "@/lib/security/kycGate";
+import { resolveEffectiveLimits } from "@/lib/risk/limits";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -38,6 +39,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         createdAt: true,
         instantSettlement: true,
         scheme: { select: { id: true, name: true } },
+        limitProfile: { select: { id: true, key: true, name: true } },
         parent: { select: { id: true, name: true, role: true } },
         kyc: { select: { status: true } },
         userLimit: true,
@@ -51,9 +53,14 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     });
     if (!u) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
+    // What the risk engine will actually enforce for this user right now, after
+    // resolving overrides > tier pin > KYC/role policy > default tier.
+    const effectiveLimits = await resolveEffectiveLimits(u.id);
+
     return NextResponse.json({
       user: {
         ...u,
+        effectiveLimits,
         reKycDueAt: u.reKycDueAt?.toISOString() ?? null,
         lastReKycAt: u.lastReKycAt?.toISOString() ?? null,
         walletBalance: toNumber(dec(u.walletBalance)),
@@ -129,6 +136,12 @@ const Body = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("toggleInstantSettlement"),
     enabled: z.boolean(),
+  }),
+  z.object({
+    action: z.literal("assignLimitProfile"),
+    // A LimitProfile id to PIN this user to a tier, or null to revert to
+    // automatic tiering (KYC/role policy).
+    limitProfileId: z.string().min(1).nullable(),
   }),
   z.object({
     action: z.literal("setReKycExempt"),
@@ -260,6 +273,23 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
           create: { userId: target.id, ...data, updatedById: admin.id },
         });
         await audit("network.limits_updated", data);
+        return NextResponse.json({ ok: true });
+      }
+
+      case "assignLimitProfile": {
+        if (body.limitProfileId) {
+          const profile = await prisma.limitProfile.findUnique({
+            where: { id: body.limitProfileId },
+            select: { id: true, key: true },
+          });
+          if (!profile)
+            return NextResponse.json({ error: "Limit tier not found" }, { status: 404 });
+        }
+        await prisma.user.update({
+          where: { id: target.id },
+          data: { limitProfileId: body.limitProfileId },
+        });
+        await audit("network.limit_profile_assigned", { limitProfileId: body.limitProfileId });
         return NextResponse.json({ ok: true });
       }
 

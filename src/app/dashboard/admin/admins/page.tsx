@@ -27,7 +27,7 @@ import { Modal } from "@/components/ui/Modal";
 import { StatTile, StatusPill, TabNav } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { ASSIGNABLE_ADMIN_TABS } from "@/lib/roles";
-import { generateRandomPassword } from "@/lib/utils";
+import { generateRandomPassword, formatIST } from "@/lib/utils";
 
 /**
  * Parse a fetch Response as JSON without ever throwing. An empty or non-JSON
@@ -247,7 +247,7 @@ export default function ManageAdminsPage() {
     {
       key: "createdAt",
       header: "Created",
-      render: (r) => new Date(r.createdAt).toLocaleString("en-IN")
+      render: (r) => formatIST(r.createdAt)
     },
     {
       key: "actions",
@@ -341,7 +341,7 @@ export default function ManageAdminsPage() {
     {
       key: "createdAt",
       header: "Created",
-      render: (r) => new Date(r.createdAt).toLocaleString("en-IN")
+      render: (r) => formatIST(r.createdAt)
     },
     {
       key: "actions",

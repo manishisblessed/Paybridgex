@@ -6,7 +6,7 @@ import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { FilterBar, StatusPill } from "@/components/dashboard/ui";
 import { Reveal } from "@/components/motion";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, formatIST } from "@/lib/utils";
 import { RefreshCw, Search, Download } from "lucide-react";
 
 type Agreement = {
@@ -127,7 +127,7 @@ export default function AgreementsVaultPage() {
       key: "signed",
       header: "Signed at",
       render: (r) => (
-        <span className="text-xs text-ink-500">{new Date(r.uploadedAt).toLocaleString("en-IN")}</span>
+        <span className="text-xs text-ink-500">{formatIST(r.uploadedAt)}</span>
       ),
     },
     {

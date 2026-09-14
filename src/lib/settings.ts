@@ -89,6 +89,23 @@ const SETTING_SCHEMAS = {
     perTxnCap: z.number().positive().default(100_000),
   }),
 
+  /**
+   * Risk limit TIER auto-assignment policy. Applied only when a user has no
+   * explicit `User.limitProfileId` pin: the risk engine derives the tier from
+   * the user's KYC state (and optionally role) so the common case needs no
+   * manual per-user work. Values are LimitProfile `key`s; if a key is missing
+   * or inactive the engine falls back to the `isDefault` tier, then to the
+   * platform risk defaults. Editable at runtime (no deploy).
+   */
+  "limits.tier_policy": z.object({
+    /** Tier for users whose KYC is APPROVED (unless overridden per-role). */
+    kycApprovedProfile: z.string().default("STANDARD"),
+    /** Tier for users whose KYC is not yet APPROVED. */
+    kycPendingProfile: z.string().default("STARTER"),
+    /** Optional per-role tier override for APPROVED users, keyed by Role. */
+    roleOverrides: z.record(z.string()).default({}),
+  }),
+
   /** POS acquirer settlement — instant mode (admin-toggled per user, per brand, or global). */
   "settlement.pos_instant": z.object({
     /** Platform-wide default (overridden per-user by User.instantSettlement or per-brand). */

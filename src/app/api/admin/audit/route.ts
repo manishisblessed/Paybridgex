@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
+import { formatIST } from "@/lib/utils";
 
 export const fetchCache = "force-no-store";
 
@@ -89,7 +90,7 @@ export async function GET(req: Request) {
       ip: l.ip ?? "n/a",
       severity: severityMap(l.action, l.meta),
       flags: flagSummary(l.meta),
-      ts: l.createdAt.toLocaleString("en-IN", {
+      ts: formatIST(l.createdAt, {
         month: "short",
         day: "2-digit",
         hour: "2-digit",

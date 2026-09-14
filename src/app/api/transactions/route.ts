@@ -5,6 +5,7 @@ import { requireAuth, AuthError } from "@/lib/auth-server";
 import { enforceRateLimit, RATE_LIMITS, RateLimitError } from "@/lib/security/rateLimit";
 import { prisma } from "@/lib/db";
 import { toNumber } from "@/lib/money";
+import { formatISTDateTime } from "@/lib/utils";
 import { isAdminRole } from "@/lib/security/ownership";
 
 const CreateBody = z.object({
@@ -83,13 +84,7 @@ export async function GET(req: Request) {
     service: formatService(t.service, t.operator),
     amount: toNumber(t.amount),
     status: displayStatus(t.status),
-    date: t.createdAt.toLocaleString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
+    date: formatISTDateTime(t.createdAt),
     customer: t.customer ?? "—",
     commission: hideCommission ? 0 : toNumber(t.commission),
   }));

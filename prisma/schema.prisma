@@ -106,6 +106,13 @@ model User {
   schemeId String?
   scheme   Scheme? @relation("UserScheme", fields: [schemeId], references: [id])
 
+  // Risk LIMIT TIER. Null = derive the tier automatically from KYC status +
+  // role via the `limits.tier_policy` setting (see resolveEffectiveLimits). A
+  // non-null value PINS the user to a specific tier (admin override). Per-user
+  // absolute overrides still live on UserLimit and win over the tier.
+  limitProfileId String?
+  limitProfile   LimitProfile? @relation("UserLimitProfile", fields: [limitProfileId], references: [id])
+
   // hierarchy
   parentId String?
   parent   User?   @relation("Hierarchy", fields: [parentId], references: [id])
@@ -1912,6 +1919,41 @@ model MdrSlab {
 // ---------- A3: Per-user limits & tiers ----------
 // One row per user (absence = platform defaults from PlatformSetting).
 // Enforced in the transaction orchestrator and settlement engine.
+
+// ---------- Risk limit TIERS (per-service ceiling matrix) ----------
+// A named, reusable limit tier. A user's effective ceilings resolve as:
+//   UserLimit override  >  User.limitProfile (pin)  >  tier from KYC/role
+//   policy (limits.tier_policy)  >  isDefault tier  >  risk-engine defaults.
+// Tiers are runtime-editable by an admin (no deploy) and auto-assigned from
+// KYC state so the common case needs no manual per-user work.
+model LimitProfile {
+  id          String  @id @default(cuid())
+  key         String  @unique // stable identifier: STARTER | STANDARD | PREMIUM | …
+  name        String
+  description String?
+  active      Boolean @default(true)
+  isDefault   Boolean @default(false) // fallback tier when nothing else resolves
+
+  // Overall rolling-24h ceiling across ALL rails (₹). Null = platform default.
+  dailyAmountCap Decimal? @db.Decimal(14, 2)
+  // Overall rolling-24h movement count. Null = no count cap for the tier.
+  dailyCountCap  Int?
+  // Night-window factor (0 < f <= 1) for this tier. Null = platform default.
+  nightFactor    Float?
+
+  // Per-SERVICE rolling-24h ceilings (₹), a JSON map keyed by ServiceCode or
+  // "PAYOUT" (e.g. { "BILL_CREDIT_CARD": 100000, "PAYOUT": 200000 }). A service
+  // absent from the map is constrained only by dailyAmountCap; a value of 0
+  // DISABLES that rail for the tier.
+  serviceCaps Json @default("{}")
+
+  users     User[]   @relation("UserLimitProfile")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@index([isDefault])
+}
 
 model UserLimit {
   id     String @id @default(cuid())

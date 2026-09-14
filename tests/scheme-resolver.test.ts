@@ -48,6 +48,8 @@ vi.mock("@/lib/db", () => ({
 import {
   applyRate,
   getEffectiveRate,
+  resolveRequiredRate,
+  PricingUnavailableError,
   validateNonOverlapping,
   PAYOUT_MODE_SERVICE,
 } from "@/lib/scheme/resolver";
@@ -185,12 +187,63 @@ describe("per-product BBPS price scope", () => {
   });
 
   it("does not cross-match a different partner family", async () => {
-    // A Unified-platform slab must never price a Same Day product (no null slab).
+    // A legacy BulkPe-pinned slab must never price a Same Day product (no null slab).
     state.slabs = [
-      slab({ id: "unified", service: "BILL_ELECTRICITY", provider: "bbps_bulkpe_svc", chargeValue: d(8) }),
+      slab({ id: "bulkpe", service: "BILL_ELECTRICITY", provider: "bbps_bulkpe", chargeValue: d(8) }),
     ];
     const rate = await getEffectiveRate("u1", "BILL_ELECTRICITY", 5000, "bbps_sameday");
     expect(rate.source).toBe("NONE");
+  });
+});
+
+describe("resolveRequiredRate (fail-closed money-route pricing)", () => {
+  // Regression guard for the leak where an amount outside every slab band
+  // priced to ₹0 and was still allowed through. Money routes must fail CLOSED.
+  it("returns the resolved rate when a slab covers the amount", async () => {
+    const rate = await resolveRequiredRate("u1", "DMT_IMPS", 10000);
+    expect(rate.source).toBe("USER_SCHEME");
+    expect(toFixedString(rate.charge)).toBe("10.00");
+  });
+
+  it("throws PricingUnavailableError when the amount is above the top slab", async () => {
+    state.slabs = [slab({ minAmount: d(0), maxAmount: d(49999) })];
+    await expect(resolveRequiredRate("u1", "DMT_IMPS", 50000)).rejects.toBeInstanceOf(
+      PricingUnavailableError
+    );
+  });
+
+  it("throws PricingUnavailableError when the amount falls in a slab gap", async () => {
+    state.slabs = [
+      slab({ id: "low", minAmount: d(0), maxAmount: d(1000) }),
+      slab({ id: "high", minAmount: d(2000), maxAmount: d(5000) }),
+    ];
+    await expect(resolveRequiredRate("u1", "DMT_IMPS", 1500)).rejects.toBeInstanceOf(
+      PricingUnavailableError
+    );
+  });
+
+  it("throws PricingUnavailableError when the user has no active scheme", async () => {
+    state.users.set("u1", { id: "u1", schemeId: null });
+    await expect(resolveRequiredRate("u1", "DMT_IMPS", 10000)).rejects.toBeInstanceOf(
+      PricingUnavailableError
+    );
+  });
+
+  it("carries a 422 status and PRICING_UNAVAILABLE code", async () => {
+    state.slabs = [slab({ minAmount: d(0), maxAmount: d(49999) })];
+    const err = await resolveRequiredRate("u1", "DMT_IMPS", 60000).catch((e) => e);
+    expect(err).toBeInstanceOf(PricingUnavailableError);
+    expect(err.statusCode).toBe(422);
+    expect(err.code).toBe("PRICING_UNAVAILABLE");
+  });
+
+  it("allows a genuinely free tier (slab exists with a ₹0 charge)", async () => {
+    // A configured slab that charges ₹0 is intentional and must NOT be treated
+    // as 'unpriced' — only a missing band fails closed.
+    state.slabs = [slab({ chargeType: "FLAT", chargeValue: d(0) })];
+    const rate = await resolveRequiredRate("u1", "DMT_IMPS", 10000);
+    expect(rate.source).toBe("USER_SCHEME");
+    expect(toFixedString(rate.charge)).toBe("0.00");
   });
 });
 

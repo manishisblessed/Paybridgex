@@ -25,7 +25,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input, Label } from "@/components/ui/Input";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatIST } from "@/lib/utils";
 import { rejectionReasonLabel } from "@/lib/qr/rejectionReasons";
 import { QrSettlementReportTab } from "./QrSettlementReportTab";
 
@@ -574,7 +574,7 @@ export default function QrCollectionsPage() {
       key: "paidAt",
       header: "Paid at",
       render: (r) =>
-        r.paidAt ? new Date(r.paidAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—",
+        r.paidAt ? formatIST(r.paidAt, { dateStyle: "medium", timeStyle: "short" }) : "—",
     },
     { key: "qrLabel", header: "QR" },
     {
@@ -605,7 +605,7 @@ export default function QrCollectionsPage() {
     {
       key: "createdAt",
       header: "Submitted",
-      render: (r) => new Date(r.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+      render: (r) => formatIST(r.createdAt, { dateStyle: "medium", timeStyle: "short" }),
     },
     {
       key: "id",

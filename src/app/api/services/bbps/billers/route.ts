@@ -8,6 +8,7 @@ import { toErrorResponse } from "@/lib/security/apiErrors";
 import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { bbpsServiceKey } from "@/lib/services/bbpsKey";
+import { friendlyPartnerError } from "@/lib/partners/friendlyError";
 import { AuthError } from "@/lib/auth-server";
 
 /**
@@ -46,7 +47,10 @@ export async function GET(req: Request) {
     if (r.ok) return NextResponse.json({ source: bbps.name, billers: r.data });
     // Provider errored (or doesn't serve this category) — fall through to DB.
     if (r.code !== "UNSUPPORTED_CATEGORY") {
-      return NextResponse.json({ error: r.message, code: r.code }, { status: 502 });
+      return NextResponse.json(
+        { error: friendlyPartnerError(r.code, r.message, "fetch"), code: r.code },
+        { status: 502 }
+      );
     }
   }
 

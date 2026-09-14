@@ -185,7 +185,11 @@ export function verifySamedayPosWebhook(
   signature: string | null,
   timestamp: string | null
 ): WebhookVerifyResult {
-  const secret = process.env.SAMEDAY_POS_WEBHOOK_SECRET;
+  // One shared secret signs every Same Day webhook channel (POS · Settlement ·
+  // Payout · RechargeKit). Prefer the unified var; fall back to the POS-specific
+  // one so existing deployments keep verifying without a config change.
+  const secret =
+    process.env.SAMEDAY_WEBHOOK_SECRET || process.env.SAMEDAY_POS_WEBHOOK_SECRET;
   if (!secret) return "SKIP";
   if (!signature || !timestamp) return "INVALID";
 
@@ -200,6 +204,13 @@ export function verifySamedayPosWebhook(
   if (a.length !== b.length) return "INVALID";
   return crypto.timingSafeEqual(a, b) ? "VALID" : "INVALID";
 }
+
+/**
+ * Provider-neutral alias. Every Same Day webhook channel (POS · Settlement ·
+ * Payout · RechargeKit) is signed with the exact same scheme and shared secret,
+ * so the unified receiver (POST /api/webhooks/sameday) verifies through this.
+ */
+export const verifySamedayWebhook = verifySamedayPosWebhook;
 
 /**
  * Legacy overload: returns boolean | "SKIP" for callers that only need pass/fail.

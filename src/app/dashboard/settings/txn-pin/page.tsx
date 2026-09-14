@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { PinInput } from "@/components/security/PinInput";
 import { Reveal } from "@/components/motion";
+import { formatIST } from "@/lib/utils";
 
 type Status = { isSet: boolean; setAt: string | null; lockedUntil: string | null };
 
@@ -124,7 +125,7 @@ export default function TxnPinPage() {
           <span>
             PIN entry is temporarily locked after too many wrong attempts. Try
             again after{" "}
-            {new Date(status!.lockedUntil!).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+            {formatIST(status!.lockedUntil!, { hour: "2-digit", minute: "2-digit" })}
             .
           </span>
         </div>

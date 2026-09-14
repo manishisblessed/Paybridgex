@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ShieldAlert, CalendarClock, ArrowRight } from "lucide-react";
 import useSWR from "swr";
 import { Button } from "@/components/ui/Button";
+import { formatIST } from "@/lib/utils";
 
 type ReKycStatus = {
   reKycRequired: boolean;
@@ -38,11 +39,7 @@ export function ReKycGate() {
   if (!show) return null;
 
   const due = status?.reKycDueAt
-    ? new Date(status.reKycDueAt).toLocaleDateString("en-IN", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
+    ? formatIST(status.reKycDueAt, { day: "numeric", month: "long", year: "numeric" })
     : null;
 
   return (

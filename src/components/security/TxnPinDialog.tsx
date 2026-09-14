@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AlertCircle, KeyRound, Lock, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PinInput } from "./PinInput";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatIST } from "@/lib/utils";
 
 /**
  * Transaction-PIN confirmation sheet, shown at the moment of payment on
@@ -137,7 +137,7 @@ export function TxnPinDialog({
               <span>
                 PIN entry is locked after too many wrong attempts.
                 {lockedUntil && (
-                  <> Try again after {new Date(lockedUntil).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}.</>
+                  <> Try again after {formatIST(lockedUntil, { hour: "2-digit", minute: "2-digit" })}.</>
                 )}
               </span>
             </div>

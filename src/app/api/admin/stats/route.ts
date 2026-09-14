@@ -5,6 +5,7 @@ import { getPartner, partnerStatus } from "@/lib/partners";
 import { flags } from "@/lib/env";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { add, dec, toNumber } from "@/lib/money";
+import { formatIST } from "@/lib/utils";
 
 export const fetchCache = "force-no-store";
 
@@ -224,7 +225,7 @@ export async function GET() {
       action: l.action,
       target: [l.entity, l.entityId].filter(Boolean).join(" · ") || "—",
       severity: severityMap(l.action),
-      ts: l.createdAt.toLocaleString("en-IN", {
+      ts: formatIST(l.createdAt, {
         month: "short",
         day: "2-digit",
         hour: "2-digit",

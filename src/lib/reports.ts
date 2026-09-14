@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { formatIST } from "@/lib/utils";
 
 /* ----------------------------------------------------------------------- */
 /*  Column descriptor for exports                                           */
@@ -100,7 +101,7 @@ export function downloadPDF<T>(
     return;
   }
 
-  const generatedAt = new Date().toLocaleString("en-IN");
+  const generatedAt = formatIST(new Date());
   const totalRows = rows.length;
 
   const head = columns

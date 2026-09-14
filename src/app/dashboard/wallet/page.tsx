@@ -29,7 +29,7 @@ import {
   TableSkeletonRows,
 } from "@/components/dashboard/ui";
 import { CountUp, Reveal } from "@/components/motion";
-import { generateRefId, formatINR } from "@/lib/utils";
+import { generateRefId, formatINR, formatIST } from "@/lib/utils";
 import { useAuth } from "@/lib/useAuth";
 
 type WalletTxn = {
@@ -536,7 +536,7 @@ export default function WalletPage() {
                       {formatINR(t.balanceAfter)}
                     </td>
                     <td className="text-xs text-ink-500">
-                      {new Date(t.createdAt).toLocaleString("en-IN", {
+                      {formatIST(t.createdAt, {
                         dateStyle: "medium",
                         timeStyle: "short",
                       })}

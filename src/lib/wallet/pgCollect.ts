@@ -19,6 +19,7 @@ import { nanoid } from "nanoid";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { getPartner, assertRealMoneyProvider } from "../partners";
+import { friendlyPartnerError } from "../partners/friendlyError";
 import { round } from "../money";
 import { handlePgCapture } from "../settlement/pg";
 
@@ -87,11 +88,12 @@ export async function initiatePgCollect(input: {
   });
 
   if (!r.ok) {
+    const friendly = friendlyPartnerError(r.code, r.message, "generic");
     await prisma.transaction.update({
       where: { id: txn.id },
-      data: { status: "FAILED", errorCode: r.code, errorMessage: r.message },
+      data: { status: "FAILED", errorCode: r.code, errorMessage: friendly },
     });
-    throw new PgCollectError(r.message, 502, r.code);
+    throw new PgCollectError(friendly, 502, r.code);
   }
 
   await prisma.transaction.update({
