@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAdminActivity } from "@/lib/security/adminActivity";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { prisma } from "@/lib/db";
-import { serializeProfile, serviceCapsSchema } from "../route";
+import { serializeProfile, serviceCapsSchema } from "../shared";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
