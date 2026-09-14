@@ -4,6 +4,7 @@ import { requireAuth, AuthError } from "@/lib/auth-server";
 import { assertKycCurrent, ReKycRequiredError } from "@/lib/security/kycGate";
 import { toNumber } from "@/lib/money";
 import { quotePayoutForUser, GST_PERCENT } from "@/lib/payout/charges";
+import { getSchemeLimit, PAYOUT_MODE_SERVICE } from "@/lib/scheme/resolver";
 import { requireActiveScheme, NoSchemeError } from "@/lib/scheme/gate";
 
 // Only IMPS is exposed to the payout UI today. Kept as an enum (not a literal)
@@ -42,12 +43,24 @@ export async function GET(req: Request) {
   });
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const q = await quotePayoutForUser(user.id, parsed.data.amount, parsed.data.mode);
+  const [q, schemeLimit] = await Promise.all([
+    quotePayoutForUser(user.id, parsed.data.amount, parsed.data.mode),
+    getSchemeLimit(user.id, PAYOUT_MODE_SERVICE[parsed.data.mode]),
+  ]);
+
+  // withinLimit is true only when a real scheme slab priced this (amount, mode).
+  // A static-fallback price (source !== "USER_SCHEME") means the scheme has no
+  // slab covering it — the submit route rejects it, so the UI blocks here too.
+  const limit = schemeLimit != null ? toNumber(schemeLimit) : null;
+  const withinLimit = q.source === "USER_SCHEME";
+
   return NextResponse.json({
     gstPercent: GST_PERCENT,
     amount: toNumber(q.amount),
     serviceCharge: toNumber(q.serviceCharge),
     gst: toNumber(q.gst),
     totalDebit: toNumber(q.totalDebit),
+    limit,
+    withinLimit,
   });
 }

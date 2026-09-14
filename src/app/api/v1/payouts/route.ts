@@ -17,7 +17,7 @@ import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { quotePayoutForUser } from "@/lib/payout/charges";
 import { enqueuePayoutInitiate } from "@/lib/payout/service";
 import { requireActiveScheme } from "@/lib/scheme/gate";
-import { getSchemeLimit, PAYOUT_MODE_SERVICE } from "@/lib/scheme/resolver";
+import { getSchemeLimit, PAYOUT_MODE_SERVICE, PricingUnavailableError } from "@/lib/scheme/resolver";
 import { dec, gt } from "@/lib/money";
 import type { SessionUser } from "@/lib/auth-server";
 
@@ -161,7 +161,8 @@ export async function POST(req: Request) {
       }
     }
 
-    const quote = await quotePayoutForUser(userId, body.amount, body.mode);
+    // Fail closed when the scheme has no matching slab for this (amount, mode).
+    const quote = await quotePayoutForUser(userId, body.amount, body.mode, { requireScheme: true });
 
     const handleForRisk = body.mode === "UPI" ? body.vpa! : body.accountNumber!;
     await assertTransactionRisk({
@@ -241,6 +242,12 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { ok: false, error: { code: "INSUFFICIENT_FUNDS", message: "Insufficient spendable balance for this payout" } },
         { status: 400 }
+      );
+    }
+    if (e instanceof PricingUnavailableError) {
+      return NextResponse.json(
+        { ok: false, error: { code: e.code, message: e.message } },
+        { status: e.statusCode }
       );
     }
     return toErrorResponse(e);

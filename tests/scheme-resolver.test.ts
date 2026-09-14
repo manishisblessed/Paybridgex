@@ -53,6 +53,7 @@ import {
   validateNonOverlapping,
   PAYOUT_MODE_SERVICE,
 } from "@/lib/scheme/resolver";
+import { quotePayoutForUser } from "@/lib/payout/charges";
 
 const d = (v: number | string) => new Prisma.Decimal(v);
 
@@ -244,6 +245,49 @@ describe("resolveRequiredRate (fail-closed money-route pricing)", () => {
     const rate = await resolveRequiredRate("u1", "DMT_IMPS", 10000);
     expect(rate.source).toBe("USER_SCHEME");
     expect(toFixedString(rate.charge)).toBe("0.00");
+  });
+});
+
+describe("quotePayoutForUser — fail-closed on missing scheme slab", () => {
+  // Regression guard for the payout leak where an amount above the top slab
+  // (or with no payout slab at all) priced off the STATIC fallback and settled.
+  const payoutSlab = (over: Record<string, unknown> = {}) =>
+    slab({
+      service: "PAYOUT",
+      provider: "SAMEDAY",
+      minAmount: d(100),
+      maxAmount: d(50000),
+      chargeType: "FLAT",
+      chargeValue: d(25),
+      ...over,
+    });
+
+  it("prices from the scheme slab when one covers the amount", async () => {
+    state.slabs = [payoutSlab()];
+    const q = await quotePayoutForUser("u1", 10000, "IMPS", { requireScheme: true });
+    expect(q.source).toBe("USER_SCHEME");
+    expect(toFixedString(q.serviceCharge)).toBe("25.00");
+  });
+
+  it("throws PricingUnavailableError above the top slab when requireScheme is set", async () => {
+    state.slabs = [payoutSlab()]; // covers 100–50000
+    await expect(
+      quotePayoutForUser("u1", 50005, "IMPS", { requireScheme: true })
+    ).rejects.toBeInstanceOf(PricingUnavailableError);
+  });
+
+  it("throws PricingUnavailableError when the scheme has no payout slab at all", async () => {
+    state.slabs = []; // no slabs of any kind
+    await expect(
+      quotePayoutForUser("u1", 1000, "IMPS", { requireScheme: true })
+    ).rejects.toBeInstanceOf(PricingUnavailableError);
+  });
+
+  it("falls back to static slabs for previews (requireScheme not set)", async () => {
+    state.slabs = [payoutSlab()];
+    const q = await quotePayoutForUser("u1", 50005, "IMPS"); // above the slab
+    expect(q.source).toBe("STATIC_SLABS");
+    expect(toFixedString(q.serviceCharge)).toBe("15.00"); // IMPS >25000 static
   });
 });
 

@@ -1,6 +1,6 @@
 import type { PayoutMode } from "@prisma/client";
 import { add, dec, gt, percentOf, round, sub, type Money } from "@/lib/money";
-import { getEffectiveRate, PAYOUT_MODE_SERVICE } from "@/lib/scheme/resolver";
+import { getEffectiveRate, PAYOUT_MODE_SERVICE, PricingUnavailableError } from "@/lib/scheme/resolver";
 
 /**
  * Payout pricing.
@@ -88,14 +88,22 @@ export function quotePayout(amount: Money | string | number, mode: PayoutMode): 
 /**
  * User-aware payout quote. The service charge resolves from the user's
  * assigned Scheme via getEffectiveRate (flat model — no default-scheme
- * fallback; the scheme gate blocks unassigned network users upstream). If the
- * scheme has no slab for this amount/mode, the static SLABS price the charge
- * so staff accounts and unconfigured bands stay functional.
+ * fallback; the scheme gate blocks unassigned network users upstream).
+ *
+ * `requireScheme` controls what happens when the scheme has NO slab covering
+ * this (amount, mode):
+ *   - false (default, used by previews): fall back to the static SLABS so a
+ *     preview / staff tooling still shows a number.
+ *   - true (used by every money-moving submit route): FAIL CLOSED — throw
+ *     {@link PricingUnavailableError}. This is the guard for the leak where a
+ *     payout above the top slab (or with no payout slab at all) silently
+ *     priced off the static fallback and settled anyway.
  */
 export async function quotePayoutForUser(
   userId: string,
   amount: Money | string | number,
-  mode: PayoutMode
+  mode: PayoutMode,
+  opts: { requireScheme?: boolean } = {}
 ): Promise<PayoutQuote & { source: string; vendorCharge: Money }> {
   const amt = round(amount);
   const service = PAYOUT_MODE_SERVICE[mode];
@@ -124,10 +132,13 @@ export async function quotePayoutForUser(
         gst = percentOf(serviceCharge, GST_PERCENT);
       }
     } else {
+      // No scheme slab covers this (amount, mode). Money routes MUST fail closed.
+      if (opts.requireScheme) throw new PricingUnavailableError();
       serviceCharge = payoutServiceCharge(amt, mode);
       gst = percentOf(serviceCharge, GST_PERCENT);
     }
   } else {
+    if (opts.requireScheme) throw new PricingUnavailableError();
     serviceCharge = payoutServiceCharge(amt, mode);
     gst = percentOf(serviceCharge, GST_PERCENT);
   }

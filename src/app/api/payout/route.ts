@@ -22,7 +22,7 @@ import { enqueuePayoutInitiate } from "@/lib/payout/service";
 import { assertServiceEnabled, ServiceDisabledError } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { requireActiveScheme, NoSchemeError } from "@/lib/scheme/gate";
-import { getSchemeLimit, PAYOUT_MODE_SERVICE } from "@/lib/scheme/resolver";
+import { getSchemeLimit, PAYOUT_MODE_SERVICE, PricingUnavailableError } from "@/lib/scheme/resolver";
 import { dec, gt } from "@/lib/money";
 
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
@@ -225,7 +225,18 @@ export async function POST(req: Request) {
     }
   }
 
-  const quote = await quotePayoutForUser(user.id, body.amount, body.mode);
+  // Fail-closed pricing: a payout whose scheme has no matching slab for this
+  // (amount, mode) must NOT price off the static fallback and settle — reject
+  // it. Catches the no-slab / gap / below-floor cases the ceiling check above
+  // does not (e.g. a scheme with no payout slab at all → getSchemeLimit null).
+  let quote;
+  try {
+    quote = await quotePayoutForUser(user.id, body.amount, body.mode, { requireScheme: true });
+  } catch (e) {
+    if (e instanceof PricingUnavailableError)
+      return NextResponse.json({ error: e.message, code: e.code }, { status: e.statusCode });
+    throw e;
+  }
 
   // Risk rules: rolling daily/night caps, hourly velocity, and the
   // new-beneficiary cooling cap (mule defense). Evaluated on the full debit.

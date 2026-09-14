@@ -110,7 +110,16 @@ type Payout = {
 
 type Balances = { walletBalance: number; heldBalance: number; spendable: number };
 
-type Quote = { serviceCharge: number; gst: number; totalDebit: number; gstPercent: number };
+type Quote = {
+  serviceCharge: number;
+  gst: number;
+  totalDebit: number;
+  gstPercent: number;
+  /** false when no scheme slab covers this amount (server rejects the submit). */
+  withinLimit?: boolean;
+  /** Per-transaction ceiling (₹) from the scheme, or null when uncapped. */
+  limit?: number | null;
+};
 
 type View = "home" | "process-payout" | "add-beneficiary" | "history";
 type WizardStep = "select-account" | "enter-amount" | "confirm" | "result";
@@ -836,6 +845,10 @@ function ProcessPayoutWizard({
     [quote, spendable]
   );
 
+  // No scheme slab covers this amount (above the ceiling / gap / no payout slab).
+  // The server rejects the submit; block here so the user never reaches confirm.
+  const overLimit = useMemo(() => quote != null && quote.withinLimit === false, [quote]);
+
   async function submitWithPin(pin: string): Promise<string | null> {
     if (!selected) return "No beneficiary selected";
     setSubmitting(true);
@@ -998,7 +1011,16 @@ function ProcessPayoutWizard({
             </div>
           )}
 
-          {insufficient && (
+          {overLimit && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {quote?.limit != null
+                ? `This amount is above your allowed limit of ${inr2(quote.limit)} for payouts.`
+                : "This amount is outside your allowed range for payouts."}{" "}
+              Enter an amount within your approved limit to continue.
+            </p>
+          )}
+
+          {insufficient && !overLimit && (
             <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
               Total debit exceeds your spendable balance.
             </p>
@@ -1010,7 +1032,7 @@ function ProcessPayoutWizard({
             </Button>
             <Button
               onClick={() => setStep("confirm")}
-              disabled={!quote || insufficient || amountNum <= 0}
+              disabled={!quote || insufficient || overLimit || amountNum <= 0}
             >
               Review & confirm
               <ArrowRight className="h-4 w-4" />
