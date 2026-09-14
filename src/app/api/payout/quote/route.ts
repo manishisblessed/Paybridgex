@@ -54,12 +54,19 @@ export async function GET(req: Request) {
   const limit = schemeLimit != null ? toNumber(schemeLimit) : null;
   const withinLimit = q.source === "USER_SCHEME";
 
+  // When no scheme slab covers the amount, do NOT surface the static-fallback
+  // charge (that ₹15 is never actually applied — the submit fails closed).
+  // Mirror the BBPS/Credit-Card preview and show ₹0 so the UI is consistent.
+  const serviceCharge = withinLimit ? toNumber(q.serviceCharge) : 0;
+  const gst = withinLimit ? toNumber(q.gst) : 0;
+  const totalDebit = withinLimit ? toNumber(q.totalDebit) : toNumber(q.amount);
+
   return NextResponse.json({
     gstPercent: GST_PERCENT,
     amount: toNumber(q.amount),
-    serviceCharge: toNumber(q.serviceCharge),
-    gst: toNumber(q.gst),
-    totalDebit: toNumber(q.totalDebit),
+    serviceCharge,
+    gst,
+    totalDebit,
     limit,
     withinLimit,
   });
