@@ -20,6 +20,20 @@ import { Input } from "@/components/ui/Input";
 import { formatINR } from "@/lib/utils";
 import { toDisplayRole } from "@/lib/auth";
 
+type NotifItem = { id: string; title: string; body: string; href: string | null; read: boolean; createdAt: string };
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+}
+
 export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const router = useRouter();
   const { data: session } = useSession();
@@ -28,7 +42,73 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const [payinToday, setPayinToday] = useState<number | null>(null);
   const [revenueBalance, setRevenueBalance] = useState<number | null>(null);
 
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifs, setNotifs] = useState<NotifItem[]>([]);
+  const [unread, setUnread] = useState(0);
+  const notifRef = useRef<HTMLDivElement>(null);
+
   const lastFetchedAt = useRef(0);
+
+  const fetchNotifs = useCallback(async () => {
+    if (document.hidden) return;
+    try {
+      const res = await fetch("/api/notifications");
+      if (!res.ok) return;
+      const d = await res.json();
+      setNotifs(Array.isArray(d.notifications) ? d.notifications : []);
+      setUnread(typeof d.unread === "number" ? d.unread : 0);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchNotifs();
+    const id = setInterval(fetchNotifs, 30_000);
+    const onFocus = () => fetchNotifs();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [fetchNotifs]);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [notifOpen]);
+
+  const onClickNotif = useCallback(async (n: NotifItem) => {
+    setNotifOpen(false);
+    if (!n.read) {
+      setUnread((u) => Math.max(0, u - 1));
+      setNotifs((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      try {
+        await fetch("/api/notifications", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: n.id }),
+        });
+      } catch {}
+    }
+    if (n.href) router.push(n.href);
+  }, [router]);
+
+  const markAllRead = useCallback(async () => {
+    setUnread(0);
+    setNotifs((prev) => prev.map((x) => ({ ...x, read: true })));
+    try {
+      await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      });
+    } catch {}
+  }, []);
 
   const fetchBalance = useCallback(async (force = false) => {
     // Background tabs skip polling entirely; focus refetches are throttled so
@@ -196,14 +276,60 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           </div>
         )}
 
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-ink-100 text-ink-600 transition-colors hover:border-brand-200 hover:bg-brand-50/60 hover:text-brand-700"
-        >
-          <Bell className="h-4 w-4" />
-          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white" />
-        </button>
+        <div className="relative" ref={notifRef}>
+          <button
+            type="button"
+            aria-label="Notifications"
+            onClick={() => { setNotifOpen((o) => !o); if (!notifOpen) fetchNotifs(); }}
+            className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-ink-100 text-ink-600 transition-colors hover:border-brand-200 hover:bg-brand-50/60 hover:text-brand-700"
+          >
+            <Bell className="h-4 w-4" />
+            {unread > 0 && (
+              <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white ring-2 ring-white">
+                {unread > 9 ? "9+" : unread}
+              </span>
+            )}
+          </button>
+
+          {notifOpen && (
+            <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-soft">
+              <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
+                <p className="text-sm font-semibold text-ink-900">Notifications</p>
+                {unread > 0 && (
+                  <button type="button" onClick={markAllRead} className="text-xs font-semibold text-brand-600 hover:text-brand-800">
+                    Mark all read
+                  </button>
+                )}
+              </div>
+              <div className="max-h-96 overflow-y-auto">
+                {notifs.length === 0 ? (
+                  <div className="px-4 py-10 text-center text-sm text-ink-400">
+                    <Bell className="mx-auto mb-2 h-6 w-6 text-ink-300" />
+                    You&apos;re all caught up.
+                  </div>
+                ) : (
+                  notifs.map((n) => (
+                    <button
+                      key={n.id}
+                      type="button"
+                      onClick={() => onClickNotif(n)}
+                      className={`flex w-full items-start gap-2.5 border-b border-ink-50 px-4 py-3 text-left transition last:border-0 hover:bg-ink-50 ${n.read ? "" : "bg-brand-50/40"}`}
+                    >
+                      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${n.read ? "bg-transparent" : "bg-brand-500"}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className={`truncate text-sm ${n.read ? "font-medium text-ink-700" : "font-semibold text-ink-900"}`}>{n.title}</span>
+                          <span className="shrink-0 text-[10px] text-ink-400">{timeAgo(n.createdAt)}</span>
+                        </span>
+                        <span className="mt-0.5 line-clamp-2 block text-xs text-ink-500">{n.body}</span>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="relative">
           <button

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { formatIST, formatISTDate } from "@/lib/utils";
+import { formatIST, formatISTDate, compareNames } from "@/lib/utils";
 import {
   AlertTriangle,
   Building2,
@@ -414,6 +414,17 @@ export function DetailsTab({ kyc }: { kyc: KycDetailData }) {
                   </div>
                 ))}
             </div>
+
+            {kyc.aadhaarName &&
+              kyc.panName &&
+              compareNames(kyc.aadhaarName, kyc.panName) === "similar" && (
+                <p className="mt-3 flex items-start gap-1.5 text-xs font-semibold text-amber-800">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  Note: the Aadhaar and PAN names look similar but are not
+                  identical — the applicant self-declared both belong to them.
+                  Please verify the identity documents before approving.
+                </p>
+              )}
 
             {kyc.nameDeclarationAccepted && (
               <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-emerald-700">

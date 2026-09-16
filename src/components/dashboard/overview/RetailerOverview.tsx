@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Plus,
   Sparkles,
+  Truck,
 } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { TransactionsTable } from "@/components/dashboard/TransactionsTable";
@@ -158,6 +159,8 @@ export function RetailerOverview({ session }: { session: Session }) {
         )}
       </Stagger>
 
+      <PosBookingStrip />
+
       <div className="grid gap-4 lg:grid-cols-3">
         <Reveal className="lg:col-span-2" distance={18} duration={0.5}>
           <div className="h-full rounded-2xl border border-ink-100 bg-white p-5 shadow-sm">
@@ -291,5 +294,78 @@ function WalletCard({ balance }: { balance: number }) {
         Manage wallet <ArrowRight className="h-3 w-3" />
       </Link>
     </div>
+  );
+}
+
+type StripBooking = {
+  id: string;
+  status: "APPLIED" | "ASSIGNED" | "DISPATCHED" | "DELIVERED" | "CANCELLED";
+  statusLabel: string;
+  stepIndex: number;
+  plan: { name: string };
+  machine: { tid: string | null; serial: string | null } | null;
+};
+
+const STRIP_STEPS = ["Applied", "Assigned", "Dispatched", "Delivered"];
+
+function PosBookingStrip() {
+  const [booking, setBooking] = useState<StripBooking | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/pos/booking")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!alive || !d?.bookings) return;
+        const list = d.bookings as StripBooking[];
+        // Prefer an in-progress order; otherwise the most recent overall.
+        const active = list.find((b) => b.status !== "DELIVERED" && b.status !== "CANCELLED");
+        setBooking(active ?? list[0] ?? null);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  if (!booking || booking.status === "CANCELLED") return null;
+
+  const machineLabel = booking.machine?.tid ?? booking.machine?.serial ?? null;
+  const delivered = booking.status === "DELIVERED";
+
+  return (
+    <Link
+      href="/dashboard/pos-booking"
+      className="group flex flex-col gap-4 rounded-2xl border border-ink-100 bg-white p-5 shadow-sm transition hover:border-brand-200 hover:shadow-soft sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div className="flex items-center gap-3">
+        <span className={cn(
+          "grid h-11 w-11 place-items-center rounded-xl text-white shadow-soft",
+          delivered ? "bg-emerald-500" : "bg-gradient-to-br from-brand-600 to-accent-500",
+        )}>
+          <Truck className="h-5 w-5" />
+        </span>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-widest text-ink-500">POS Booking</p>
+          <p className="font-display text-sm font-semibold text-ink-900">
+            {booking.plan.name} · {booking.statusLabel}
+            {machineLabel && <span className="ml-1 font-mono text-xs text-ink-500">({machineLabel})</span>}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          {STRIP_STEPS.map((label, i) => {
+            const done = i <= booking.stepIndex;
+            return (
+              <div key={label} className="flex items-center gap-1.5">
+                <span className={cn("h-2 w-2 rounded-full", done ? (delivered ? "bg-emerald-500" : "bg-brand-500") : "bg-ink-200")} />
+                {i < STRIP_STEPS.length - 1 && <span className={cn("h-0.5 w-6 rounded-full", i < booking.stepIndex ? (delivered ? "bg-emerald-500" : "bg-brand-500") : "bg-ink-200")} />}
+              </div>
+            );
+          })}
+        </div>
+        <ArrowRight className="h-4 w-4 text-ink-300 transition group-hover:translate-x-1 group-hover:text-brand-600" />
+      </div>
+    </Link>
   );
 }

@@ -19,6 +19,7 @@ import {
   BookText,
   CalendarClock,
   ShieldCheck,
+  ArrowLeftRight,
   type LucideIcon,
 } from "lucide-react";
 import type { ReportType, ReportFieldFormat } from "./types";
@@ -30,6 +31,8 @@ export type ReportColumnDef = {
   header: string;
   format?: ReportFieldFormat;
   align?: "left" | "right" | "center";
+  /** Optional colour hint applied to both the header and cell values. */
+  color?: "green" | "red" | "orange" | "yellow";
 };
 
 export type FilterOption = { value: string; label: string };
@@ -51,6 +54,13 @@ export type ReportConfig = {
   accent: Accent;
   columns: ReportColumnDef[];
   filters: ReportFilterConfig;
+  /**
+   * When true, rows expose a "Raise ticket" action so users can open a support
+   * dispute straight from the transaction. Only enable on reports whose `refId`
+   * column is a real `Transaction.refId` owned by the user (validated server-side
+   * in createDispute). Aggregate/ledger reports must leave this off.
+   */
+  raiseTicket?: boolean;
 };
 
 /* ------- option helpers --------------------------------------------- */
@@ -139,12 +149,12 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
     columns: [
       { key: "service", header: "Service" },
       { key: "txns", header: "Txns", format: "int", align: "right" },
-      { key: "success", header: "Success", format: "int", align: "right" },
-      { key: "failed", header: "Failed", format: "int", align: "right" },
+      { key: "success", header: "Success", format: "int", align: "right", color: "green" },
+      { key: "failed", header: "Failed", format: "int", align: "right", color: "red" },
       { key: "successRate", header: "Success %", format: "percent", align: "right" },
       { key: "gross", header: "Turnover", format: "money", align: "right" },
-      { key: "fee", header: "Fees", format: "money", align: "right" },
-      { key: "commission", header: "Commission", format: "money", align: "right" },
+      { key: "fee", header: "Fees", format: "money", align: "right", color: "orange" },
+      { key: "commission", header: "Commission", format: "money", align: "right", color: "yellow" },
     ],
     filters: { dateRange: true, service: { label: "Service", options: opts(SERVICE_CODES) } },
   },
@@ -173,6 +183,32 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
     },
   },
 
+  "push-pull": {
+    type: "push-pull",
+    title: "Push / Pull Report",
+    short: "Push / Pull",
+    description:
+      "Wallet push & pull transfers — both network parent→child and admin-initiated — across your hierarchy with amounts and notes.",
+    icon: ArrowLeftRight,
+    accent: "violet",
+    columns: [
+      { key: "date", header: "Date", format: "datetime" },
+      { key: "source", header: "Source", format: "badge" },
+      { key: "fromUser", header: "From" },
+      { key: "fromRole", header: "From Role", format: "badge" },
+      { key: "toUser", header: "To" },
+      { key: "toRole", header: "To Role", format: "badge" },
+      { key: "direction", header: "Type", format: "badge" },
+      { key: "amount", header: "Amount", format: "money", align: "right" },
+      { key: "note", header: "Note" },
+    ],
+    filters: {
+      dateRange: true,
+      search: "Search name / user ID / note…",
+      status: { label: "Type", options: opts(["PUSH", "PULL"]) },
+    },
+  },
+
   pg: {
     type: "pg",
     title: "Payment Gateway Report",
@@ -195,6 +231,7 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       search: "Search txn / customer…",
       status: { label: "Status", options: opts(TXN_STATUS) },
     },
+    raiseTicket: true,
   },
 
   payout: {
@@ -254,6 +291,7 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       status: { label: "Status", options: opts(TXN_STATUS) },
       service: { label: "Bill type", options: opts(BILL_SERVICE_CODES) },
     },
+    raiseTicket: true,
   },
 
   "credit-card": {
@@ -284,6 +322,7 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       search: "Search txn / ref / retailer / card / bank…",
       status: { label: "Status", options: opts(TXN_STATUS) },
     },
+    raiseTicket: true,
   },
 
   qr: {

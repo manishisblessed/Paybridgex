@@ -11,6 +11,7 @@ export const REPORT_TYPES = [
   "daily-user",
   "summary",
   "fund",
+  "push-pull",
   "pg",
   "payout",
   "bill-payment",

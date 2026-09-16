@@ -333,6 +333,253 @@ async function reportFund(user: SessionUser, params: ReportParams): Promise<Repo
 }
 
 /* --------------------------------------------------------------------- */
+/*  2b · Push / Pull (network + admin wallet push/pull)                   */
+/* --------------------------------------------------------------------- */
+
+/**
+ * Unified push/pull report sourcing from TWO tables:
+ *   1. NetworkWalletTransfer — parent→child push/pull
+ *   2. WalletOperation (type PUSH|PULL, status COMPLETED) — admin-initiated
+ *
+ * Both are merged into a single date-sorted list with role-based scoping:
+ *  - RT  → sees transfers where they are the target (toId / targetUserId)
+ *  - DT  → sees transfers involving self + their RTs
+ *  - MD  → sees transfers involving self + DTs + RTs
+ *  - SD  → sees transfers involving self + MDs + DTs + RTs
+ *  - Admin / Master Admin → sees all transfers
+ */
+
+type PushPullRow = {
+  date: string;
+  fromUser: string;
+  fromRole: string;
+  toUser: string;
+  toRole: string;
+  direction: string;
+  amount: number;
+  note: string;
+  source: string;
+};
+
+async function reportPushPull(user: SessionUser, params: ReportParams): Promise<ReportResult> {
+  const ids = await allowedUserIds(user);
+  const createdAt = dateFilter(params);
+
+  /* ── 1. NetworkWalletTransfer (parent→child) ─────────────────────── */
+
+  const nwtWhere: Prisma.NetworkWalletTransferWhereInput = (() => {
+    const ownershipOr = ids
+      ? [{ fromId: { in: ids } }, { toId: { in: ids } }]
+      : null;
+    const searchOr = params.q
+      ? [
+          { from: { name: { contains: params.q, mode: "insensitive" as const } } },
+          { from: { userCode: { contains: params.q, mode: "insensitive" as const } } },
+          { to: { name: { contains: params.q, mode: "insensitive" as const } } },
+          { to: { userCode: { contains: params.q, mode: "insensitive" as const } } },
+          { note: { contains: params.q, mode: "insensitive" as const } },
+        ]
+      : null;
+
+    const base: Prisma.NetworkWalletTransferWhereInput = {
+      ...(createdAt ? { createdAt } : {}),
+      ...(params.status ? { direction: params.status } : {}),
+    };
+
+    if (ownershipOr && searchOr) return { ...base, AND: [{ OR: ownershipOr }, { OR: searchOr }] };
+    if (ownershipOr) return { ...base, OR: ownershipOr };
+    if (searchOr) return { ...base, OR: searchOr };
+    return base;
+  })();
+
+  /* ── 2. WalletOperation (admin push/pull) ────────────────────────── */
+
+  const woWhere: Prisma.WalletOperationWhereInput = (() => {
+    const ownershipOr = ids
+      ? [{ targetUserId: { in: ids } }, { actorId: { in: ids } }]
+      : null;
+    const searchOr = params.q
+      ? [
+          { targetUser: { name: { contains: params.q, mode: "insensitive" as const } } },
+          { targetUser: { userCode: { contains: params.q, mode: "insensitive" as const } } },
+          { actor: { name: { contains: params.q, mode: "insensitive" as const } } },
+          { actor: { userCode: { contains: params.q, mode: "insensitive" as const } } },
+          { remarks: { contains: params.q, mode: "insensitive" as const } },
+        ]
+      : null;
+
+    const base: Prisma.WalletOperationWhereInput = {
+      status: "COMPLETED",
+      ...(createdAt ? { createdAt } : {}),
+      ...(params.status ? { type: params.status as "PUSH" | "PULL" } : {}),
+    };
+
+    if (ownershipOr && searchOr) return { ...base, AND: [{ OR: ownershipOr }, { OR: searchOr }] };
+    if (ownershipOr) return { ...base, OR: ownershipOr };
+    if (searchOr) return { ...base, OR: searchOr };
+    return base;
+  })();
+
+  /* ── Parallel queries ────────────────────────────────────────────── */
+
+  const [
+    nwtList, nwtTotal, nwtPush, nwtPull,
+    woList, woTotal, woPush, woPull,
+  ] = await Promise.all([
+    prisma.networkWalletTransfer.findMany({
+      where: nwtWhere,
+      orderBy: { createdAt: "desc" },
+      include: {
+        from: { select: { name: true, userCode: true, role: true } },
+        to: { select: { name: true, userCode: true, role: true } },
+      },
+      take: EXPORT_ROW_CAP,
+    }),
+    prisma.networkWalletTransfer.count({ where: nwtWhere }),
+    prisma.networkWalletTransfer.aggregate({
+      where: { ...nwtWhere, direction: "PUSH" },
+      _sum: { amount: true },
+    }),
+    prisma.networkWalletTransfer.aggregate({
+      where: { ...nwtWhere, direction: "PULL" },
+      _sum: { amount: true },
+    }),
+    prisma.walletOperation.findMany({
+      where: woWhere,
+      orderBy: { createdAt: "desc" },
+      include: {
+        targetUser: { select: { name: true, userCode: true, role: true } },
+        actor: { select: { name: true, userCode: true, role: true } },
+      },
+      take: EXPORT_ROW_CAP,
+    }),
+    prisma.walletOperation.count({ where: woWhere }),
+    prisma.walletOperation.aggregate({
+      where: { ...woWhere, type: "PUSH" },
+      _sum: { amount: true },
+    }),
+    prisma.walletOperation.aggregate({
+      where: { ...woWhere, type: "PULL" },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  /* ── Merge into a unified row set ────────────────────────────────── */
+
+  const nwtRows: PushPullRow[] = nwtList.map((t) => ({
+    date: t.createdAt.toISOString(),
+    fromUser: t.from?.name
+      ? `${t.from.name} (${t.from.userCode ?? t.fromId.slice(0, 8).toUpperCase()})`
+      : t.fromId.slice(0, 8).toUpperCase(),
+    fromRole: t.from?.role ?? "—",
+    toUser: t.to?.name
+      ? `${t.to.name} (${t.to.userCode ?? t.toId.slice(0, 8).toUpperCase()})`
+      : t.toId.slice(0, 8).toUpperCase(),
+    toRole: t.to?.role ?? "—",
+    direction: t.direction,
+    amount: toNumber(t.amount),
+    note: t.note ?? "—",
+    source: "Network",
+  }));
+
+  const woRows: PushPullRow[] = woList.map((op) => ({
+    date: op.createdAt.toISOString(),
+    fromUser: op.type === "PUSH"
+      ? (op.actor?.name
+          ? `${op.actor.name} (${op.actor.userCode ?? op.actorId.slice(0, 8).toUpperCase()})`
+          : op.actorId.slice(0, 8).toUpperCase())
+      : (op.targetUser?.name
+          ? `${op.targetUser.name} (${op.targetUser.userCode ?? op.targetUserId.slice(0, 8).toUpperCase()})`
+          : op.targetUserId.slice(0, 8).toUpperCase()),
+    fromRole: op.type === "PUSH" ? (op.actor?.role ?? "—") : (op.targetUser?.role ?? "—"),
+    toUser: op.type === "PUSH"
+      ? (op.targetUser?.name
+          ? `${op.targetUser.name} (${op.targetUser.userCode ?? op.targetUserId.slice(0, 8).toUpperCase()})`
+          : op.targetUserId.slice(0, 8).toUpperCase())
+      : (op.actor?.name
+          ? `${op.actor.name} (${op.actor.userCode ?? op.actorId.slice(0, 8).toUpperCase()})`
+          : op.actorId.slice(0, 8).toUpperCase()),
+    toRole: op.type === "PUSH" ? (op.targetUser?.role ?? "—") : (op.actor?.role ?? "—"),
+    direction: op.type,
+    amount: toNumber(op.amount),
+    note: op.remarks ?? "—",
+    source: "Admin",
+  }));
+
+  // Sort merged by date descending.
+  const allRows = [...nwtRows, ...woRows].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  const combinedTotal = nwtTotal + woTotal;
+  const pushed = add(dec(nwtPush._sum.amount ?? 0), dec(woPush._sum.amount ?? 0));
+  const pulled = add(dec(nwtPull._sum.amount ?? 0), dec(woPull._sum.amount ?? 0));
+
+  // Manual pagination over the merged set.
+  const { take, skip } = paginate(params);
+  const rows = allRows.slice(skip, skip + take);
+
+  /* ── Trend sparkline ─────────────────────────────────────────────── */
+
+  const { from, to } = effectiveRange(params);
+
+  const nwtIdCond =
+    ids === null || ids.length === 0
+      ? Prisma.empty
+      : Prisma.sql`AND ("fromId" IN (${Prisma.join(ids)}) OR "toId" IN (${Prisma.join(ids)}))`;
+
+  const woIdCond =
+    ids === null || ids.length === 0
+      ? Prisma.empty
+      : Prisma.sql`AND ("targetUserId" IN (${Prisma.join(ids)}) OR "actorId" IN (${Prisma.join(ids)}))`;
+
+  const trendRows = await prisma.$queryRaw<{ day: Date; total: number }[]>(Prisma.sql`
+    SELECT day, SUM(total)::float8 AS total FROM (
+      SELECT date_trunc('day', "createdAt") AS day,
+             COALESCE(SUM("amount"), 0)::float8 AS total
+      FROM "NetworkWalletTransfer"
+      WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
+        ${nwtIdCond}
+      GROUP BY 1
+
+      UNION ALL
+
+      SELECT date_trunc('day', "createdAt") AS day,
+             COALESCE(SUM("amount"), 0)::float8 AS total
+      FROM "WalletOperation"
+      WHERE "status" = 'COMPLETED'
+        AND "createdAt" >= ${from} AND "createdAt" <= ${to}
+        ${woIdCond}
+      GROUP BY 1
+    ) combined
+    GROUP BY day
+    ORDER BY day ASC
+  `);
+
+  const trend = trendToSeries(
+    trendRows.map((r) => ({ value: Number(r.total) })),
+    "Daily push/pull volume",
+    "#7c3aed"
+  );
+
+  return {
+    rows,
+    total: combinedTotal,
+    page: params.page,
+    pageSize: params.pageSize,
+    totals: { date: "Total", amount: toNumber(add(pushed, pulled)) },
+    summary: [
+      count("Total transfers", combinedTotal, "violet"),
+      money("Total pushed", pushed, "emerald"),
+      money("Total pulled", pulled, "accent"),
+      money("Net volume", add(pushed, pulled), "brand"),
+    ],
+    trend,
+    note: combinedTotal === 0 ? "No push/pull transfers were found for this range." : null,
+  };
+}
+
+/* --------------------------------------------------------------------- */
 /*  3 · Payment Gateway (Razorpay / UPI-collect transactions)            */
 /* --------------------------------------------------------------------- */
 
@@ -1317,6 +1564,7 @@ const RUNNERS: Record<ReportType, (u: SessionUser, p: ReportParams) => Promise<R
   "daily-user": reportDailyUser,
   summary: reportSummary,
   fund: reportFund,
+  "push-pull": reportPushPull,
   pg: reportPg,
   payout: reportPayout,
   "bill-payment": reportBillPayment,

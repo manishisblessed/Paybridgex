@@ -147,6 +147,7 @@ export const ASSIGNABLE_ADMIN_TABS = [
   { href: "pg", label: "Payment Gateway" },
   { href: "pos", label: "POS Transactions" },
   { href: "pos-rental", label: "POS Rental & Billing" },
+  { href: "pos-bookings", label: "POS Bookings" },
   { href: "kyc", label: "KYC Approvals" },
   { href: "schemes", label: "Pricing Schemes" },
   { href: "brands", label: "Brands & MDR" },
@@ -230,6 +231,7 @@ const adminRails: NavItem[] = [
   { href: "/dashboard/admin/pg", label: "Payment Gateway", icon: CreditCard },
   { href: "/dashboard/admin/pos", label: "POS Transactions", icon: Monitor },
   { href: "/dashboard/admin/pos-rental", label: "POS Rental & Billing", icon: ReceiptText },
+  { href: "/dashboard/admin/pos-bookings", label: "POS Bookings", icon: PackagePlus },
   { href: "/dashboard/admin/qr", label: "QR Collections", icon: QrCode },
   { href: "/dashboard/admin/aeps", label: "AePS Centre", icon: Fingerprint },
   { href: "/dashboard/admin/services", label: "Service Switches", icon: Power },
@@ -337,7 +339,8 @@ export const navByRole: Record<Role, NavGroup[]> = {
       items: [
         { href: "/dashboard", label: "Home", icon: LayoutDashboard },
         { href: "/dashboard/earnings", label: "My Earnings", icon: CircleDollarSign },
-        { href: "/dashboard/my-scheme", label: "My Pricing Plan", icon: Layers }
+        { href: "/dashboard/my-scheme", label: "My Pricing Plan", icon: Layers },
+        { href: "/dashboard/pos-booking", label: "Book POS Machine", icon: PackagePlus }
       ]
     },
     { heading: "Money In", items: moneyInServices },

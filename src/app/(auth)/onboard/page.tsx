@@ -34,7 +34,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { OtpInput } from "@/components/ui/OtpInput";
 import { PanInput } from "@/components/ui/PanInput";
-import { namesMatch, formatIST, formatISTDate } from "@/lib/utils";
+import { namesMatch, compareNames, formatIST, formatISTDate } from "@/lib/utils";
 import { extractGpsFromFile } from "@/lib/gps";
 import { LivenessVideoCapture } from "@/components/kyc/LivenessVideoCapture";
 import { SelfieCapture } from "@/components/kyc/SelfieCapture";
@@ -199,12 +199,20 @@ function OnboardContent() {
     : "";
   const businessNameForMatch = (gstShopName || form.shopName || "").trim();
 
-  // PAN step: PAN registered name must match the Aadhaar name. If either name
-  // is missing we don't block (nothing to compare against yet).
-  const panNameMatchesAadhaar =
-    !aadhaarResult?.name ||
-    !panResult?.registered_name ||
-    namesMatch(aadhaarResult.name, panResult.registered_name);
+  // PAN step: cross-check the PAN registered name against the Aadhaar name.
+  //  - "match":    identical / clearly the same name → proceed freely.
+  //  - "similar":  looks like the same person but not identical (e.g. a prefix
+  //                like "Nitin" vs "Nitinkumar", reordering, or a minor typo).
+  //                The applicant may proceed AFTER self-declaring both names are
+  //                theirs; the account then goes to manual admin review.
+  //  - "mismatch": unrelated names → hard block.
+  // If either name is missing there's nothing to compare yet, so don't block.
+  const panAadhaarNameLevel: "match" | "similar" | "mismatch" =
+    !aadhaarResult?.name || !panResult?.registered_name
+      ? "match"
+      : compareNames(aadhaarResult.name, panResult.registered_name);
+  const panNameMatchesAadhaar = panAadhaarNameLevel === "match";
+  const panAadhaarSimilar = panAadhaarNameLevel === "similar";
 
   // Bank step: the account-holder name must match at least one of the
   // Aadhaar name, PAN name, or Business name. When none match, Continue is
@@ -225,9 +233,21 @@ function OnboardContent() {
   // Aadhaar/PAN name) is a valid match and does NOT count as a mismatch.
   const nameMismatch = !!bankResult?.nameAtBank && !bankNameMatchesAny;
 
-  // Name-mismatch self-declaration popup
+  // Name-mismatch self-declaration popup (bank holder name at final submit)
   const [showNameDeclaration, setShowNameDeclaration] = useState(false);
   const [nameDeclarationChecked, setNameDeclarationChecked] = useState(false);
+  // Inline self-declaration on the PAN step for a "similar" (not identical)
+  // PAN vs Aadhaar name.
+  const [panNameDeclarationChecked, setPanNameDeclarationChecked] =
+    useState(false);
+
+  // Combine the bank-name mismatch with the PAN↔Aadhaar "similar name" case so
+  // either one routes the submission through the self-declaration + manual admin
+  // review path (nameMismatch → PENDING_REVIEW).
+  const anyNameMismatch = nameMismatch || panAadhaarSimilar;
+  const anyNameDeclarationAccepted =
+    (!nameMismatch || nameDeclarationChecked) &&
+    (!panAadhaarSimilar || panNameDeclarationChecked);
 
   // OTP state
   const [otpCode, setOtpCode] = useState("");
@@ -884,6 +904,8 @@ function OnboardContent() {
   // ----- Edit verified steps (redo a verification with corrected details) -----
   function editPan() {
     setPanResult(null);
+    // Re-entering the PAN invalidates any prior "similar name" self-declaration.
+    setPanNameDeclarationChecked(false);
     setError("");
   }
 
@@ -1122,8 +1144,8 @@ function OnboardContent() {
           bankAccountStatus: form.bankAccountStatus || undefined,
           gstin: form.gstin.toUpperCase() || undefined,
           msmeNumber: form.msmeNumber || undefined,
-          nameMismatch,
-          nameDeclarationAccepted: nameMismatch && nameDeclarationChecked,
+          nameMismatch: anyNameMismatch,
+          nameDeclarationAccepted: anyNameMismatch && anyNameDeclarationAccepted,
           dob: form.dob || form.aadhaarDob || undefined,
         }),
       });
@@ -1154,8 +1176,14 @@ function OnboardContent() {
       case 3:
         return aadhaarVerified;
       case 4:
-        // PAN verified AND the PAN name must match the Aadhaar name.
-        return !!panResult && panNameMatchesAadhaar;
+        // PAN verified AND either the name matches Aadhaar, or (when the names
+        // only look similar) the applicant has self-declared both are theirs.
+        // A true mismatch (unrelated names) stays hard-blocked.
+        return (
+          !!panResult &&
+          (panNameMatchesAadhaar ||
+            (panAadhaarSimilar && panNameDeclarationChecked))
+        );
       case 5:
         // GST & MSME (moved before Bank). GST is optional, but a business /
         // shop name is always required so the bank name can be matched against
@@ -1747,7 +1775,40 @@ function OnboardContent() {
                       name2={panResult.registered_name}
                     />
                   )}
-                  {!panNameMatchesAadhaar && (
+                  {/* Names look similar but not identical → let the applicant
+                      self-declare both belong to them, then proceed to manual
+                      admin review. */}
+                  {panAadhaarSimilar && (
+                    <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>
+                          The names on your Aadhaar and PAN look similar but are
+                          not identical. If both belong to you, please confirm
+                          below. Your account will then be submitted for manual
+                          verification and approval by our team.
+                        </span>
+                      </div>
+                      <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-amber-300 bg-white px-3 py-2.5">
+                        <input
+                          type="checkbox"
+                          checked={panNameDeclarationChecked}
+                          onChange={(e) =>
+                            setPanNameDeclarationChecked(e.target.checked)
+                          }
+                          className="mt-0.5 h-4 w-4 shrink-0 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
+                        />
+                        <span className="text-ink-700">
+                          I declare that the names on my Aadhaar (
+                          <strong>{aadhaarResult?.name}</strong>) and PAN (
+                          <strong>{panResult.registered_name}</strong>) both
+                          belong to me and are variations of my own legal name.
+                        </span>
+                      </label>
+                    </div>
+                  )}
+
+                  {panAadhaarNameLevel === "mismatch" && (
                     <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                       <span>

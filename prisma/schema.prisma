@@ -53,6 +53,10 @@ model User {
   pinLoginEnabled        Boolean   @default(false) // may authenticate with TPIN instead of TOTP
   pinLoginRiskAcceptedAt DateTime? // when the user accepted the no-2FA liability
   pinLoginRiskAcceptedIp String?   // IP that accepted the liability (audit)
+  // The user's preferred second factor when BOTH an authenticator app and TPIN
+  // login are available. "authenticator" | "tpin" | null. Null = ask every time
+  // (show the chooser). Only meaningful for accounts with pinLoginEnabled + 2FA.
+  preferredLoginMethod   String?
 
   // Server-side session invalidation. Every issued JWT carries the tokenVersion
   // it was minted with; the jwt/session callbacks reject any token whose version
@@ -207,6 +211,7 @@ model User {
   settlementConfig      UserSettlementConfig?
   posSubscriptions      PosSubscription[]     @relation("PosSubscriber")
   posRentalPlansOwned   PosRentalPlan[]       @relation("PosRentalPlanOwner")
+  posBookings           PosBookingRequest[]   @relation("PosBookingRequester")
   aepsMerchant          AepsMerchant?
   aepsSettlementAccounts AepsSettlementAccount[] @relation("AepsAccountOwner")
   aepsSettlements       AepsSettlement[]      @relation("AepsSettlementOwner")
@@ -992,10 +997,14 @@ model Notification {
   title     String
   body      String
   channel   String // INAPP | EMAIL | SMS | PUSH
+  // Optional in-app deep link. When set, clicking the notification navigates
+  // here (e.g. "/dashboard/admin/pos-bookings") and marks it read.
+  href      String?
   readAt    DateTime?
   createdAt DateTime  @default(now())
 
   @@index([userId, readAt])
+  @@index([userId, createdAt])
 }
 
 // ---------- Disputes / Support tickets (Phase 3 — agent experience) ----------
@@ -1490,6 +1499,7 @@ model PosMachine {
 
   assignmentLogs PosAssignmentLog[]
   subscriptions  PosSubscription[]
+  bookings       PosBookingRequest[]
 
   @@index([assignedUserId])
   @@index([status])
@@ -2131,6 +2141,7 @@ model PosRentalPlan {
   owner   User?   @relation("PosRentalPlanOwner", fields: [ownerId], references: [id])
 
   subscriptions PosSubscription[]
+  bookings      PosBookingRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2222,6 +2233,89 @@ model PosRentalInvoice {
 
   @@unique([subscriptionId, periodKey])
   @@index([status, createdAt])
+}
+
+// ---------- POS machine booking (retailer self-service ordering) ----------
+// A retailer applies for a POS machine against a rental plan; ops assigns a
+// physical machine, dispatches, then marks delivered. The upfront charge
+// (deposit + setup + first month rent) is debited at APPLY; a matching PAID
+// invoice is stamped on ASSIGN so the monthly billing engine skips the cycle.
+// Every transition is stamped as a PosBookingEvent so the applicant sees a
+// real-time timeline.
+
+enum PosBookingStatus {
+  APPLIED
+  ASSIGNED
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+}
+
+model PosBookingRequest {
+  id String @id @default(cuid())
+
+  // Applicant (the network user who booked the machine).
+  userId String
+  user   User   @relation("PosBookingRequester", fields: [userId], references: [id])
+
+  // The rental plan chosen at booking (drives the machine model + pricing).
+  planId String
+  plan   PosRentalPlan @relation(fields: [planId], references: [id])
+
+  status PosBookingStatus @default(APPLIED)
+
+  // Delivery details captured at step 2.
+  deliveryAddress String
+  contactName     String?
+  contactPhone    String?
+
+  // Pricing snapshot captured at booking (immune to later plan edits).
+  monthlyRent Decimal  @db.Decimal(14, 2)
+  includeGst  Boolean  @default(false)
+  gstAmount   Decimal  @default(0) @db.Decimal(14, 2) // GST on the first month's rent
+  setupFee    Decimal  @default(0) @db.Decimal(14, 2)
+  deposit     Decimal  @default(0) @db.Decimal(14, 2)
+  amountPaid  Decimal  @default(0) @db.Decimal(14, 2) // total debited upfront
+  billingDay  Int      @default(1)
+
+  // Wallet references for the upfront charge and any refund on cancel.
+  chargeTxnId String? @unique
+  refundTxnId String? @unique
+
+  // Fulfilment — populated as ops progresses the order.
+  machineId      String?
+  machine        PosMachine? @relation(fields: [machineId], references: [id])
+  subscriptionId String? // PosSubscription created on assignment
+  assignedById   String? // admin who allocated the machine
+  assignedAt     DateTime?
+  dispatchedAt   DateTime?
+  courier        String?
+  trackingRef    String?
+  deliveredAt    DateTime?
+  cancelledAt    DateTime?
+  cancelReason   String?
+
+  events PosBookingEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@index([machineId])
+}
+
+model PosBookingEvent {
+  id        String            @id @default(cuid())
+  bookingId String
+  booking   PosBookingRequest @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  status   PosBookingStatus // status the booking entered at this event
+  note     String?
+  byUserId String? // actor (applicant or admin); null = system
+  createdAt DateTime @default(now())
+
+  @@index([bookingId, createdAt])
 }
 
 // ---------- A6: AEPS control centre ----------

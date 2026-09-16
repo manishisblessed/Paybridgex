@@ -9,6 +9,7 @@ import { needsSuccessorApproval } from "@/lib/declaration/types";
 import { getRequiredDocTypes, docTypeLabel } from "@/lib/onboarding/requiredDocuments";
 import { generateNextUserCode } from "@/lib/userCode";
 import { defaultServicesForRole } from "@/lib/settings";
+import { compareNames } from "@/lib/utils";
 import {
   isIdentityTaken,
   identityTakenMessage,
@@ -216,7 +217,7 @@ export async function POST(
 
   const verifications = await prisma.verificationResult.findMany({
     where: { inviteId: invite.id },
-    select: { type: true, status: true },
+    select: { type: true, status: true, verifiedName: true, createdAt: true },
   });
   const verifiedTypes = new Set(
     verifications.filter((v) => v.status === "Success").map((v) => v.type)
@@ -230,6 +231,28 @@ export async function POST(
   const hasAadhaar = verifiedTypes.has("AADHAAR_DIGILOCKER");
   const hasPan = verifiedTypes.has("PAN_360");
   const hasBank = verifiedTypes.has("BANK_PENNY_DROP") || verifiedTypes.has("BANK_ADVANCE");
+
+  // Latest server-recorded verified name for a given verification type. Used to
+  // re-check the PAN ↔ Aadhaar name comparison server-side (the wizard does this
+  // client-side, but registration is a public token endpoint that must not trust
+  // the client's `nameMismatch` flag).
+  const latestVerifiedName = (type: string): string | null =>
+    verifications
+      .filter((v) => v.type === type && v.status === "Success" && v.verifiedName)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]
+      ?.verifiedName ?? null;
+
+  const serverAadhaarName = latestVerifiedName("AADHAAR_DIGILOCKER");
+  const serverPanName = latestVerifiedName("PAN_360");
+
+  // "match" → identical, "similar" → plausibly same person (needs declaration +
+  // manual review), "mismatch" → unrelated names (hard block). If either name is
+  // missing there's nothing to compare, so treat as "match" and let other gates
+  // (hasPan/hasAadhaar) handle completeness.
+  const panAadhaarLevel =
+    serverAadhaarName && serverPanName
+      ? compareNames(serverAadhaarName, serverPanName)
+      : "match";
 
   const uploadedDocsList = Array.from(uploadedDocTypes);
   const hasSelfie = uploadedDocTypes.has("SELFIE");
@@ -283,10 +306,25 @@ export async function POST(
     }
   }
 
-  // When the applicant's Aadhaar/PAN/Bank names don't match, they must
-  // explicitly self-declare (via the onboarding popup) that all names belong to
-  // them. Without that acknowledgement we cannot accept the submission.
-  if (data.nameMismatch && !data.nameDeclarationAccepted) {
+  // Unrelated PAN vs Aadhaar names are a hard block — no declaration can override
+  // completely different identities.
+  if (panAadhaarLevel === "mismatch") {
+    gateErrors.push(
+      "The name on your PAN does not match your Aadhaar name. Please recheck the PAN entered, or contact support if this is an error."
+    );
+  }
+
+  // Server-authoritative name-mismatch flag: the account must go through the
+  // self-declaration + manual review path when EITHER the client reports a
+  // mismatch (e.g. bank holder name) OR the server detects a "similar" (not
+  // identical) PAN ↔ Aadhaar name. We never trust the client's flag alone.
+  const effectiveNameMismatch =
+    data.nameMismatch || panAadhaarLevel === "similar";
+
+  // When names don't match exactly, the applicant must explicitly self-declare
+  // (via the onboarding popup / inline checkbox) that all names belong to them.
+  // Without that acknowledgement we cannot accept the submission.
+  if (effectiveNameMismatch && !data.nameDeclarationAccepted) {
     gateErrors.push(
       "Please confirm the name declaration for your Aadhaar, PAN and bank records"
     );
@@ -303,13 +341,15 @@ export async function POST(
     );
   }
 
-  const allVerified = hasPan && hasAadhaar && hasBank && !data.nameMismatch && hasSelfie;
+  const allVerified =
+    hasPan && hasAadhaar && hasBank && !effectiveNameMismatch && hasSelfie;
   const newStatus = allVerified ? "VERIFIED" : "REGISTERED";
 
   // A declared name mismatch is a valid submission that simply needs manual
   // admin approval — it must land in the KYC review queue (PENDING_REVIEW),
   // not sit at NOT_STARTED where admins can't action it.
-  const nameDeclarationAccepted = data.nameMismatch && data.nameDeclarationAccepted;
+  const nameDeclarationAccepted =
+    effectiveNameMismatch && data.nameDeclarationAccepted;
   const kycStatus =
     allVerified || nameDeclarationAccepted ? "PENDING_REVIEW" : "NOT_STARTED";
   const nameDeclarationAt = nameDeclarationAccepted ? new Date() : undefined;
@@ -389,7 +429,7 @@ export async function POST(
         bankAccountStatus: data.bankAccountStatus,
         gstin: data.gstin?.toUpperCase(),
         msmeNumber: data.msmeNumber || undefined,
-        nameMismatch: data.nameMismatch,
+        nameMismatch: effectiveNameMismatch,
         nameDeclarationAccepted,
         nameDeclarationAt,
         dob: parseDob(data.dob),
@@ -415,7 +455,7 @@ export async function POST(
     bankAccountStatus: data.bankAccountStatus,
     gstin: data.gstin?.toUpperCase(),
     msmeNumber: data.msmeNumber || undefined,
-    nameMismatch: data.nameMismatch,
+    nameMismatch: effectiveNameMismatch,
     nameDeclarationAccepted,
     nameDeclarationAt,
     dob: parseDob(data.dob),
@@ -457,7 +497,7 @@ export async function POST(
         uploadedDocs: uploadedDocsList,
         hasSelfie,
         allVerified,
-        nameMismatch: data.nameMismatch,
+        nameMismatch: effectiveNameMismatch,
         nameDeclarationAccepted,
       },
     },

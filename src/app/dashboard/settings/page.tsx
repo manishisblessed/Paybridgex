@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Settings, Bell, ShieldCheck, KeyRound, Mail, Lock, ChevronRight } from "lucide-react";
+import { Settings, Bell, ShieldCheck, KeyRound, Mail, Lock, ChevronRight, Fingerprint } from "lucide-react";
 import { ServicePageHeader } from "@/components/dashboard/ServicePage";
 import { Panel } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
@@ -94,6 +94,29 @@ export default function SettingsPage() {
                 <p className="mt-1 text-xs text-ink-500">
                   The 4-digit PIN that confirms every payment — bill pay, recharge,
                   transfers and payouts. Set it up or change it here.
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="h-5 w-5 shrink-0 text-ink-400" />
+          </Link>
+        </StaggerItem>
+
+        <StaggerItem distance={14} duration={0.35}>
+          <Link
+            href="/dashboard/settings/login-method"
+            className="flex items-center justify-between rounded-2xl border border-brand-200 bg-gradient-to-r from-brand-50/70 to-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-soft"
+          >
+            <div className="flex items-start gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 text-white shadow-soft">
+                <Fingerprint className="h-4 w-4" />
+              </span>
+              <div>
+                <h3 className="font-display text-base font-semibold text-ink-900">
+                  Login method
+                </h3>
+                <p className="mt-1 text-xs text-ink-500">
+                  Sign in with your authenticator app or your transaction PIN.
+                  Turn on PIN login yourself and choose your default.
                 </p>
               </div>
             </div>

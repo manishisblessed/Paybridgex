@@ -170,6 +170,83 @@ export function namesMatch(a: string, b: string): boolean {
   return similarity >= 0.6;
 }
 
+/** Levenshtein edit distance between two strings (used for near-token matching). */
+function editDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  let curr = new Array<number>(n + 1).fill(0);
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+export type NameMatchLevel = "match" | "similar" | "mismatch";
+
+/**
+ * Classify how closely two names align, returning one of three levels:
+ *  - "match":    effectively the same name (exact, reordered, or high overlap).
+ *                Uses the same rule as `namesMatch`, so existing behaviour is
+ *                preserved for genuine matches.
+ *  - "similar":  not an exact match, but strong partial overlap makes it
+ *                plausibly the same person — e.g. a shared surname/given name, a
+ *                prefix like "Nitin" vs "Nitinkumar", reordering, or a one-char
+ *                typo. These should require a self-declaration + manual review.
+ *  - "mismatch": essentially unrelated names — should be hard-blocked.
+ */
+export function compareNames(a: string, b: string): NameMatchLevel {
+  if (!a || !b) return "mismatch";
+  if (namesMatch(a, b)) return "match";
+
+  const normalize = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z\s]/g, "")
+      .replace(/\b(mr|mrs|ms|shri|smt|dr|prof|kumari|sri|late)\b/g, "")
+      .trim()
+      .replace(/\s+/g, " ");
+
+  // Word tokens only — drop single-letter initials (e.g. the "A" in
+  // "NITINKUMAR A HOTWANI") so they don't dilute the comparison.
+  const wordsA = normalize(a)
+    .split(" ")
+    .filter((w) => w.length > 1);
+  const wordsB = normalize(b)
+    .split(" ")
+    .filter((w) => w.length > 1);
+  if (wordsA.length === 0 || wordsB.length === 0) return "mismatch";
+
+  const tokenAlike = (t1: string, t2: string): boolean => {
+    if (t1 === t2) return true;
+    // One token is a prefix of the other (e.g. "nitin" vs "nitinkumar").
+    const [short, long] = t1.length <= t2.length ? [t1, t2] : [t2, t1];
+    if (short.length >= 3 && long.startsWith(short)) return true;
+    // Tolerate a single-character typo.
+    if (editDistance(t1, t2) <= 1) return true;
+    return false;
+  };
+
+  // How many tokens of the SHORTER name have a soft match in the longer name.
+  const [shortWords, longWords] =
+    wordsA.length <= wordsB.length ? [wordsA, wordsB] : [wordsB, wordsA];
+  const matched = shortWords.filter((w) =>
+    longWords.some((o) => tokenAlike(w, o))
+  ).length;
+  const ratio = matched / shortWords.length;
+
+  // Require at least half of the shorter name's words to plausibly appear in the
+  // other name for it to count as "similar" rather than a hard mismatch.
+  return ratio >= 0.5 ? "similar" : "mismatch";
+}
+
 /**
  * Build the "tombstoned" identity fields for a soft-deleted user so their real
  * email / phone / userCode / shopName are FREED for reuse while the row itself

@@ -191,12 +191,48 @@ export async function POST(req: Request) {
       },
     });
 
-    // TPIN login: a master-admin has waived mandatory 2FA for this account and
-    // allowed authentication with the transaction PIN as the second factor. The
-    // frontend collects the PIN + risk acceptance and calls
-    // /api/auth/pin-login/verify with this tempToken. Requires a PIN to be set;
-    // if it isn't, fall through to the normal (setup) path.
-    if (user.twoFactorExempt && user.pinLoginEnabled && user.txnPinHash) {
+    // Second-factor selection. A user can enable signing in with their
+    // transaction PIN instead of an authenticator app (self-service, guarded by
+    // a liability declaration). When allowed, the choice of which factor to use
+    // is the USER's:
+    //   - Authenticator (TOTP) is available when 2FA is set up.
+    //   - TPIN login is available when the user enabled it AND a PIN is set (the
+    //     pin-login/verify route requires twoFactorExempt too).
+    // If BOTH are available we let the user pick; otherwise we route straight to
+    // whichever single factor is available.
+    const canAuthenticator = Boolean(user.twoFactorEnabled && user.twoFactorSecret);
+    const canPinLogin = Boolean(
+      user.twoFactorExempt && user.pinLoginEnabled && user.txnPinHash
+    );
+
+    // Both factors available — the user chooses authenticator or TPIN. If they
+    // have saved a default preference we surface it so the frontend can skip
+    // straight to that method (while still letting them switch).
+    if (canAuthenticator && canPinLogin) {
+      const tempToken = createTempToken(user.id);
+      const preferredMethod =
+        user.preferredLoginMethod === "tpin"
+          ? "pinlogin"
+          : user.preferredLoginMethod === "authenticator"
+            ? "2fa"
+            : null;
+      return NextResponse.json({
+        ok: true,
+        needsMethodChoice: true,
+        preferredMethod,
+        needs2FA: false,
+        needsPinLogin: false,
+        needsSetup: false,
+        riskAccepted: Boolean(user.pinLoginRiskAcceptedAt),
+        tempToken,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      });
+    }
+
+    // TPIN login: the account is allowed to authenticate with the transaction
+    // PIN as the second factor. The frontend collects the PIN + risk acceptance
+    // and calls /api/auth/pin-login/verify with this tempToken.
+    if (canPinLogin) {
       const tempToken = createTempToken(user.id);
       return NextResponse.json({
         ok: true,
@@ -209,8 +245,8 @@ export async function POST(req: Request) {
       });
     }
 
-    // 2FA is mandatory for all users.
-    if (user.twoFactorEnabled && user.twoFactorSecret) {
+    // 2FA is mandatory for all users without a TPIN-login waiver.
+    if (canAuthenticator) {
       const tempToken = createTempToken(user.id);
       return NextResponse.json({
         ok: true,
