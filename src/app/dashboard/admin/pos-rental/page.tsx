@@ -1163,12 +1163,18 @@ type MachineRow = {
   serial: string; tid: string; mid: string; model: string; brand: string;
   company: string; condition: string; status: string; location: string;
   city: string; state: string;
+  // Brand tenancy (MDR rate card) this terminal is priced against. Empty = none
+  // (captures fall back to the assignee's own scheme).
+  brandId: string;
 };
 
 const emptyRow = (): MachineRow => ({
   serial: "", tid: "", mid: "", model: "", brand: "", company: "",
   condition: "NEW", status: "active", location: "", city: "", state: "",
+  brandId: "",
 });
+
+type IntakeBrandOption = { id: string; name: string; active: boolean; rates: number };
 
 type IntakeMode = "table" | "csv";
 
@@ -1180,7 +1186,28 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
   const [busy, setBusy] = useState(false);
 
   // Shared defaults applied to every new row
-  const [defaults, setDefaults] = useState({ brand: "", company: "", condition: "NEW", status: "active", city: "", state: "" });
+  const [defaults, setDefaults] = useState({ brand: "", company: "", condition: "NEW", status: "active", city: "", state: "", brandId: "" });
+
+  // Brands (MDR rate cards) available to link terminals to at intake.
+  const [brands, setBrands] = useState<IntakeBrandOption[]>([]);
+  // CSV mode: one brand applied to every uploaded row (CSV has no brandId column).
+  const [csvBrandId, setCsvBrandId] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/brands");
+        const d = await res.json();
+        if (res.ok && active) setBrands(d.brands ?? []);
+      } catch {
+        /* non-fatal — intake still works without brand linking */
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const [trackQuery, setTrackQuery] = useState("");
   const [track, setTrack] = useState<{
@@ -1225,6 +1252,7 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
         status: defaults.status,
         city: defaults.city,
         state: defaults.state,
+        brandId: defaults.brandId,
       })),
     ]);
   };
@@ -1313,6 +1341,7 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
       const k = serial.toLowerCase();
       if (seen.has(k)) { dupInFile++; continue; }
       seen.add(k);
+      if (csvBrandId) row.brandId = csvBrandId;
       clean.push(row);
     }
     if (clean.length === 0) {
@@ -1372,7 +1401,7 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
                 Defaults for new rows (auto-fill when you add rows)
               </p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
                 <div>
                   <label className="mb-0.5 block text-[10px] font-semibold text-ink-400">Brand</label>
                   <input className={thinInput} placeholder="Pax" value={defaults.brand}
@@ -1382,6 +1411,19 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
                   <label className="mb-0.5 block text-[10px] font-semibold text-ink-400">Company</label>
                   <input className={thinInput} placeholder="Bank" value={defaults.company}
                     onChange={(e) => setDefaults((d) => ({ ...d, company: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="mb-0.5 block text-[10px] font-semibold text-ink-400">Brand (MDR)</label>
+                  <select className={thinSelect} value={defaults.brandId}
+                    onChange={(e) => setDefaults((d) => ({ ...d, brandId: e.target.value }))}
+                    title="Link new terminals to a Brand rate card. Leave as None to price off the assignee's scheme.">
+                    <option value="">None</option>
+                    {brands.map((b) => (
+                      <option key={b.id} value={b.id} disabled={!b.active}>
+                        {b.name}{b.rates === 0 ? " (no rates)" : ""}{b.active ? "" : " (inactive)"}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="mb-0.5 block text-[10px] font-semibold text-ink-400">Condition</label>
@@ -1426,6 +1468,7 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
                     <th className="min-w-[80px] px-1 py-2 text-left text-[10px] font-bold text-ink-500">MODEL</th>
                     <th className="min-w-[80px] px-1 py-2 text-left text-[10px] font-bold text-ink-500">BRAND</th>
                     <th className="min-w-[90px] px-1 py-2 text-left text-[10px] font-bold text-ink-500">COMPANY</th>
+                    <th className="min-w-[110px] px-1 py-2 text-left text-[10px] font-bold text-ink-500">BRAND (MDR)</th>
                     <th className="min-w-[80px] px-1 py-2 text-left text-[10px] font-bold text-ink-500">CONDITION</th>
                     <th className="min-w-[80px] px-1 py-2 text-left text-[10px] font-bold text-ink-500">LOCATION</th>
                     <th className="min-w-[70px] px-1 py-2 text-left text-[10px] font-bold text-ink-500">CITY</th>
@@ -1446,6 +1489,16 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
                       <td className="px-1 py-1"><input className={thinInput} placeholder="Model" value={row.model} onChange={(e) => updateRow(idx, "model", e.target.value)} /></td>
                       <td className="px-1 py-1"><input className={thinInput} placeholder="Brand" value={row.brand} onChange={(e) => updateRow(idx, "brand", e.target.value)} /></td>
                       <td className="px-1 py-1"><input className={thinInput} placeholder="Company" value={row.company} onChange={(e) => updateRow(idx, "company", e.target.value)} /></td>
+                      <td className="px-1 py-1">
+                        <select className={thinSelect} value={row.brandId} onChange={(e) => updateRow(idx, "brandId", e.target.value)} title="Brand rate card (MDR). None = priced off the assignee's scheme.">
+                          <option value="">None</option>
+                          {brands.map((b) => (
+                            <option key={b.id} value={b.id} disabled={!b.active}>
+                              {b.name}{b.rates === 0 ? " (no rates)" : ""}{b.active ? "" : " (inactive)"}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
                       <td className="px-1 py-1">
                         <select className={thinSelect} value={row.condition} onChange={(e) => updateRow(idx, "condition", e.target.value)}>
                           <option value="NEW">New</option>
@@ -1509,6 +1562,22 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
                 />
               </label>
               {csvFileName && <span className="text-xs text-ink-500">Loaded: <span className="font-mono text-ink-700">{csvFileName}</span></span>}
+              <label className="ml-auto inline-flex items-center gap-2 text-xs text-ink-500">
+                Brand (MDR) for all rows
+                <select
+                  className={`${thinSelect} w-auto min-w-[160px]`}
+                  value={csvBrandId}
+                  onChange={(e) => setCsvBrandId(e.target.value)}
+                  title="Applies one Brand rate card to every uploaded row. None = priced off each assignee's scheme."
+                >
+                  <option value="">None</option>
+                  {brands.map((b) => (
+                    <option key={b.id} value={b.id} disabled={!b.active}>
+                      {b.name}{b.rates === 0 ? " (no rates)" : ""}{b.active ? "" : " (inactive)"}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <textarea
               className={`${inputCls} h-48 font-mono text-xs`}

@@ -359,6 +359,8 @@ type PosMachineWithAssignee = {
   assignedUserId: string | null;
   assignedAt: Date | null;
   syncedAt: Date;
+  brandId: string | null;
+  brandRef: { id: string; name: string; key: string } | null;
   assignedUser: {
     id: string;
     name: string;
@@ -385,6 +387,10 @@ export const posMachineSelect = {
   assignedUserId: true,
   assignedAt: true,
   syncedAt: true,
+  brandId: true,
+  brandRef: {
+    select: { id: true, name: true, key: true },
+  },
   assignedUser: {
     select: { id: true, name: true, phone: true, role: true },
   },
@@ -473,6 +479,10 @@ export function serializePosMachine(
     state: row.state,
     assignedUserId: row.assignedUserId,
     assignedAt: row.assignedAt ? row.assignedAt.toISOString() : null,
+    brandId: row.brandId,
+    brand: row.brandRef
+      ? { id: row.brandRef.id, name: row.brandRef.name, key: row.brandRef.key }
+      : null,
     assignee: row.assignedUser
       ? {
           id: row.assignedUser.id,

@@ -29,6 +29,7 @@ import {
   Eye,
   XCircle,
   Clock,
+  Tag,
 } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
@@ -248,6 +249,7 @@ function MachinesTab() {
   const [unassigning, setUnassigning] = useState<Set<string>>(new Set());
   const [unassignTarget, setUnassignTarget] = useState<LocalPosMachine | null>(null);
   const [recallOpen, setRecallOpen] = useState(false);
+  const [brandTargets, setBrandTargets] = useState<LocalPosMachine[]>([]);
 
   const params = new URLSearchParams({ page: String(page), pageSize: "50" });
   if (statusFilter) params.set("status", statusFilter);
@@ -447,6 +449,18 @@ function MachinesTab() {
     { key: "serial", header: "Serial No.", render: (r) => <span className="font-mono text-xs">{r.serial ?? "—"}</span> },
     { key: "mid", header: "MID", render: (r) => <span className="font-mono text-xs">{r.mid ?? "—"}</span> },
     { key: "model", header: "Model", render: (r) => r.model ?? "—" },
+    {
+      key: "brand",
+      header: "Brand (MDR)",
+      render: (r) =>
+        r.brand ? (
+          <Badge variant="brand">{r.brand.name}</Badge>
+        ) : (
+          <span className="text-xs text-ink-400" title="No brand rate card — priced off the assignee's scheme">
+            {r.company ? r.company : "—"}
+          </span>
+        ),
+    },
     { key: "location", header: "Location", render: (r) => r.location || "—" },
     { key: "status", header: "Status", render: (r) => machineBadge(r.status) },
     {
@@ -470,6 +484,15 @@ function MachinesTab() {
         const busy = unassigning.has(r.id);
         return (
           <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => setBrandTargets([r])}
+              title={r.brand ? `Brand: ${r.brand.name} — click to change` : "Set brand (MDR rate card)"}
+            >
+              <Tag className="h-3.5 w-3.5" /> Brand
+            </Button>
             <Button variant="outline" size="sm" disabled={busy} onClick={() => setAssignTargets([r])}>
               <UserPlus className="h-3.5 w-3.5" /> {r.assignee ? "Reassign" : "Assign"}
             </Button>
@@ -654,6 +677,21 @@ function MachinesTab() {
           >
             <UserPlus className="h-3.5 w-3.5" /> Bulk assign
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={selected.size === 0 || bulkBusy}
+            onClick={() => {
+              const chosen = machines.filter((m) => selected.has(m.id));
+              const missing = Array.from(selected).filter((id) => !chosen.some((m) => m.id === id));
+              setBrandTargets([
+                ...chosen,
+                ...missing.map((id) => ({ id } as LocalPosMachine)),
+              ]);
+            }}
+          >
+            <Tag className="h-3.5 w-3.5" /> Set brand
+          </Button>
           <Button variant="outline" size="sm" disabled={selected.size === 0 || bulkBusy} onClick={() => setRecallOpen(true)}>
             {bulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />} Bulk recall
           </Button>
@@ -707,6 +745,14 @@ function MachinesTab() {
           machines={assignTargets}
           onClose={() => setAssignTargets([])}
           onAssigned={() => { setAssignTargets([]); setSelected(new Set()); mutate(); }}
+        />
+      )}
+
+      {brandTargets.length > 0 && (
+        <SetBrandModal
+          machines={brandTargets}
+          onClose={() => setBrandTargets([])}
+          onDone={() => { setBrandTargets([]); setSelected(new Set()); mutate(); }}
         />
       )}
 
@@ -880,6 +926,166 @@ function AssignModal({
               </div>
             </>
           )}
+      </div>
+    </ModalShell>
+  );
+}
+
+// ── Set-brand modal: link machine(s) to a Brand (MDR rate card) ──
+// Links via POST /api/admin/pos/machines/brand. A machine's brand decides
+// whether its POS captures are priced off that brand's MDR rate card (vs the
+// assignee's own scheme). Optionally override the acquiring provider too.
+
+type BrandOption = {
+  id: string;
+  key: string;
+  name: string;
+  active: boolean;
+  rates: number;
+};
+
+function SetBrandModal({
+  machines,
+  onClose,
+  onDone,
+}: {
+  machines: LocalPosMachine[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const single = machines.length === 1 ? machines[0] : null;
+  const [brands, setBrands] = useState<BrandOption[]>([]);
+  const [loadingBrands, setLoadingBrands] = useState(true);
+  const [brandId, setBrandId] = useState<string>(single?.brandId ?? "");
+  const [provider, setProvider] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/brands");
+        const d = await res.json();
+        if (!res.ok) throw new Error(d?.error ?? "Failed to load brands");
+        if (active) setBrands(d.brands ?? []);
+      } catch (e) {
+        if (active) setErr(e instanceof Error ? e.message : "Failed to load brands");
+      } finally {
+        if (active) setLoadingBrands(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const chosen = brands.find((b) => b.id === brandId) ?? null;
+
+  const save = useCallback(async () => {
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/admin/pos/machines/brand", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId: brandId || null,
+          machineIds: machines.map((m) => m.id),
+          ...(provider.trim() ? { provider: provider.trim() } : {}),
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        setErr(typeof d.error === "string" ? d.error : "Failed to set brand");
+        setSubmitting(false);
+        return;
+      }
+      toast.success(
+        brandId
+          ? `Linked ${d.updated} terminal${d.updated === 1 ? "" : "s"} to ${chosen?.name ?? "brand"}`
+          : `Cleared brand on ${d.updated} terminal${d.updated === 1 ? "" : "s"}`
+      );
+      onDone();
+    } catch {
+      setErr("Request failed — check your connection and try again.");
+      setSubmitting(false);
+    }
+  }, [brandId, provider, machines, chosen, onDone]);
+
+  return (
+    <ModalShell
+      open
+      onClose={onClose}
+      size="md"
+      eyebrow="POS Transactions"
+      title={single ? "Set brand (MDR)" : `Set brand for ${machines.length} terminals`}
+      subtitle={
+        single
+          ? `${single.tid ? `TID ${single.tid}` : single.externalId ?? "1 terminal"}${single.brand ? ` · currently ${single.brand.name}` : ""}`
+          : "The chosen brand's MDR rate card will price captures for all selected terminals."
+      }
+    >
+      <div className="space-y-4">
+        {err && (
+          <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            <AlertCircle className="h-4 w-4 shrink-0" /> {err}
+          </div>
+        )}
+
+        <label className="block text-xs text-ink-500">
+          Brand
+          <select
+            className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            value={brandId}
+            onChange={(e) => setBrandId(e.target.value)}
+            disabled={loadingBrands}
+          >
+            <option value="">
+              {loadingBrands ? "Loading brands…" : "None (price off assignee's scheme)"}
+            </option>
+            {brands.map((b) => (
+              <option key={b.id} value={b.id} disabled={!b.active}>
+                {b.name}
+                {b.rates === 0 ? " — no rates yet" : ` — ${b.rates} rate${b.rates === 1 ? "" : "s"}`}
+                {b.active ? "" : " (inactive)"}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {chosen && chosen.rates === 0 && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              <span className="font-semibold">{chosen.name}</span> has no MDR rates yet. Captures can&apos;t settle until
+              you add at least one rate in <span className="font-semibold">Brands &amp; MDR → POS</span>.
+            </span>
+          </div>
+        )}
+
+        <label className="block text-xs text-ink-500">
+          Acquiring provider <span className="text-ink-400">(optional override)</span>
+          <input
+            className="mt-1 w-full rounded-lg border border-ink-200 px-3 py-2 text-sm uppercase focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            value={provider}
+            onChange={(e) => setProvider(e.target.value)}
+            placeholder={single?.provider ? `Current: ${single.provider}` : "e.g. PINELAB, RAZORPAY"}
+          />
+          <span className="mt-1 block text-[11px] text-ink-400">
+            Leave blank to keep the terminal&apos;s current provider.
+          </span>
+        </label>
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" onClick={save} disabled={submitting || loadingBrands}>
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            {brandId ? "Save brand" : "Clear brand"}
+          </Button>
+        </div>
       </div>
     </ModalShell>
   );

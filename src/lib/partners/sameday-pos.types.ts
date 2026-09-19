@@ -256,6 +256,9 @@ export interface LocalPosMachine {
   state: string | null;
   assignedUserId: string | null;
   assignedAt: string | null;
+  /** Brand tenancy that owns this terminal's MDR pricing (null = user-scheme priced). */
+  brandId: string | null;
+  brand: { id: string; name: string; key: string } | null;
   assignee: PosAssignee | null;
   syncedAt: string;
 }
