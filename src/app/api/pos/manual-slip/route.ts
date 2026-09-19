@@ -63,23 +63,57 @@ export async function GET() {
     take: 100,
   });
 
+  // Attach the ACTUAL settlement outcome for approved slips so the retailer sees
+  // the real track (an INSTANT request can degrade to T+1 when the instant
+  // button is off or the daily budget is exhausted — showing the requested
+  // preference alone is misleading, e.g. "Instant" while it's queued for T+1).
+  const refs = slips
+    .map((s) => s.transactionRef)
+    .filter((r): r is string => Boolean(r));
+  const entries = refs.length
+    ? await prisma.posSettlementEntry.findMany({
+        where: { transactionRef: { in: refs } },
+        select: {
+          transactionRef: true,
+          mode: true,
+          status: true,
+          netAmount: true,
+          settledAt: true,
+        },
+      })
+    : [];
+  const entryByRef = new Map(entries.map((e) => [e.transactionRef, e]));
+
   return NextResponse.json({
-    slips: slips.map((s) => ({
-      id: s.id,
-      tid: s.tid,
-      grossAmount: toNumber(s.grossAmount),
-      paymentMode: s.paymentMode,
-      settlementPref: s.settlementPref,
-      rrn: s.rrn,
-      authCode: s.authCode,
-      status: s.status,
-      rejectionReason:
-        s.status === "REJECTED" || s.status === "REVERSED" ? s.rejectionReason : null,
-      transactionRef: s.transactionRef,
-      txnTime: s.txnTime?.toISOString() ?? null,
-      reviewedAt: s.reviewedAt?.toISOString() ?? null,
-      createdAt: s.createdAt.toISOString(),
-    })),
+    slips: slips.map((s) => {
+      const entry = s.transactionRef ? entryByRef.get(s.transactionRef) : null;
+      return {
+        id: s.id,
+        tid: s.tid,
+        grossAmount: toNumber(s.grossAmount),
+        paymentMode: s.paymentMode,
+        settlementPref: s.settlementPref,
+        rrn: s.rrn,
+        authCode: s.authCode,
+        status: s.status,
+        rejectionReason:
+          s.status === "REJECTED" || s.status === "REVERSED" ? s.rejectionReason : null,
+        transactionRef: s.transactionRef,
+        // The real settlement leg + state (null until an entry exists). `mode`
+        // is what it's ACTUALLY settling on (INSTANT/T1) after any degrade.
+        settlement: entry
+          ? {
+              mode: entry.mode,
+              status: entry.status,
+              netAmount: toNumber(entry.netAmount),
+              settledAt: entry.settledAt?.toISOString() ?? null,
+            }
+          : null,
+        txnTime: s.txnTime?.toISOString() ?? null,
+        reviewedAt: s.reviewedAt?.toISOString() ?? null,
+        createdAt: s.createdAt.toISOString(),
+      };
+    }),
   });
 }
 

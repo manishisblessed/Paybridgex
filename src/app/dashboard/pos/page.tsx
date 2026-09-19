@@ -1279,6 +1279,14 @@ type ManualSlip = {
   status: "PENDING" | "APPROVED" | "REJECTED" | "REVERSED";
   rejectionReason: string | null;
   transactionRef: string | null;
+  // Actual settlement leg + state once approved (null until an entry exists).
+  // `mode` is what it's really settling on after any INSTANT→T+1 degrade.
+  settlement: {
+    mode: "INSTANT" | "T1";
+    status: "PENDING" | "SETTLED" | "REVERSED" | "FAILED";
+    netAmount: number;
+    settledAt: string | null;
+  } | null;
   txnTime: string | null;
   reviewedAt: string | null;
   createdAt: string;
@@ -1415,11 +1423,25 @@ function ManualSlipTab() {
     { key: "createdAt", header: "Uploaded", render: (r) => <span className="text-xs">{fmtTime(r.createdAt)}</span> },
     { key: "tid", header: "TID", render: (r) => <span className="font-mono text-xs font-semibold">{r.tid}</span> },
     { key: "paymentMode", header: "Mode", render: (r) => <Badge variant="default">{r.paymentMode}</Badge> },
-    { key: "settlementPref", header: "Settlement", render: (r) => (
-      <Badge variant={r.settlementPref === "INSTANT" ? "accent" : "default"}>
-        {r.settlementPref === "INSTANT" ? "Instant" : "Next day"}
-      </Badge>
-    ) },
+    { key: "settlementPref", header: "Settlement", render: (r) => {
+      // Once approved, show the ACTUAL leg (an INSTANT request can degrade to
+      // T+1); before that, show the requested preference.
+      const actual = r.settlement?.mode;
+      const shown = actual ?? r.settlementPref;
+      const degraded = r.settlementPref === "INSTANT" && actual === "T1";
+      return (
+        <div className="flex flex-col gap-0.5">
+          <Badge variant={shown === "INSTANT" ? "accent" : "default"}>
+            {shown === "INSTANT" ? "Instant" : "Next day (T+1)"}
+          </Badge>
+          {degraded && (
+            <span className="text-[10px] text-amber-600" title="Instant wasn't available (disabled or daily limit reached), so this slip settles on T+1.">
+              Instant requested
+            </span>
+          )}
+        </div>
+      );
+    } },
     { key: "grossAmount", header: "Amount", align: "right", render: (r) => <span className="font-semibold">{formatINR(r.grossAmount)}</span> },
     { key: "rrn", header: "RRN", render: (r) => <span className="font-mono text-xs">{r.rrn ?? "—"}</span> },
     {
@@ -1436,9 +1458,32 @@ function ManualSlipTab() {
               Reversed{r.rejectionReason ? `: ${r.rejectionReason}` : ""}
             </span>
           )}
-          {r.status === "APPROVED" && (
-            <span className="text-[11px] text-emerald-600">In settlement — see Instant Settlement tab</span>
-          )}
+          {r.status === "APPROVED" && (() => {
+            const s = r.settlement;
+            // Actually credited already.
+            if (s?.status === "SETTLED")
+              return (
+                <span className="text-[11px] text-emerald-600">
+                  Settled {formatINR(s.netAmount)} to wallet
+                </span>
+              );
+            // Queued on T+1 (either chosen, or an instant request that degraded).
+            if (s?.mode === "T1")
+              return (
+                <span className="text-[11px] text-amber-600">
+                  Queued for next-day (T+1) settlement
+                </span>
+              );
+            // Instant, not yet credited — safety-net cron will settle it shortly.
+            if (s?.mode === "INSTANT")
+              return (
+                <span className="text-[11px] text-emerald-600">
+                  Instant settlement processing — see Instant Settlement tab
+                </span>
+              );
+            // Approved but no entry resolved yet (transient).
+            return <span className="text-[11px] text-ink-500">In settlement…</span>;
+          })()}
         </div>
       ),
     },

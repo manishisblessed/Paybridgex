@@ -345,9 +345,14 @@ export default function BrandsPage() {
           {showCreate && (
             <CreateBrandModal
               onClose={() => setShowCreate(false)}
-              onCreated={(brandId) => {
+              onCreated={(brandId, linked) => {
                 setShowCreate(false);
-                notify("Brand created. Add its MDR rates below.", true);
+                notify(
+                  linked > 0
+                    ? `Brand created and linked to ${linked} machine${linked === 1 ? "" : "s"}. Add its MDR rates below.`
+                    : "Brand created. Add its MDR rates below.",
+                  true
+                );
                 load();
                 loadDetail(brandId);
               }}
@@ -910,7 +915,7 @@ function CreateBrandModal({
   onError,
 }: {
   onClose: () => void;
-  onCreated: (brandId: string) => void;
+  onCreated: (brandId: string, linked: number) => void;
   onError: (text: string) => void;
 }) {
   const [companies, setCompanies] = useState<FleetCompany[]>([]);
@@ -919,6 +924,7 @@ function CreateBrandModal({
   const [description, setDescription] = useState("");
   const [settlementMode, setSettlementMode] = useState("T1");
   const [busy, setBusy] = useState(false);
+  const [linkMachines, setLinkMachines] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -941,6 +947,12 @@ function CreateBrandModal({
 
   const key = slugify(company);
 
+  // Does the typed/selected name match a company already on the fleet? If so we
+  // can offer to link its machines to the new brand in one step.
+  const matchedFleet = companies.find(
+    (c) => c.company.trim().toLowerCase() === company.trim().toLowerCase()
+  );
+
   const submit = async () => {
     setBusy(true);
     try {
@@ -952,6 +964,7 @@ function CreateBrandModal({
           name: company.trim(),
           description: description.trim() || undefined,
           settlementMode,
+          linkCompany: linkMachines && matchedFleet ? company.trim() : undefined,
         }),
       });
       const data = await res.json();
@@ -964,7 +977,7 @@ function CreateBrandModal({
             : "Create failed";
         throw new Error(msg);
       }
-      onCreated(data.brand.id);
+      onCreated(data.brand.id, data.linked ?? 0);
     } catch (e) {
       onError(e instanceof Error ? e.message : "Create failed");
     } finally {
@@ -1032,6 +1045,24 @@ function CreateBrandModal({
             <option value="BOTH">Both (follow per-user / platform default)</option>
           </select>
         </label>
+        {matchedFleet && (
+          <label className="flex items-start gap-2 rounded-xl border border-brand-100 bg-brand-50/50 px-3 py-2.5 text-xs text-ink-700">
+            <input
+              type="checkbox"
+              checked={linkMachines}
+              onChange={(e) => setLinkMachines(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-ink-300 text-brand-600 focus:ring-brand-400"
+            />
+            <span>
+              Link the{" "}
+              <span className="font-semibold text-ink-900">
+                {matchedFleet.machineCount} machine{matchedFleet.machineCount === 1 ? "" : "s"}
+              </span>{" "}
+              under <span className="font-semibold text-ink-900">{matchedFleet.company}</span> to this brand now, so their
+              captures price off its MDR rate card. Terminals already linked to another brand are left unchanged.
+            </span>
+          </label>
+        )}
       </div>
     </ModalShell>
   );

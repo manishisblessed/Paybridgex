@@ -56,6 +56,10 @@ const CreateBody = z.object({
   name: z.string().trim().min(2).max(80),
   description: z.string().trim().max(300).optional(),
   settlementMode: z.enum(["INSTANT", "T1", "BOTH"]).default("T1"),
+  // Optional fleet company label — when supplied, every POS machine carrying
+  // this company (that isn't already linked to a brand) is attached to the new
+  // brand so its captures price off the brand's MDR rate card.
+  linkCompany: z.string().trim().min(1).max(80).optional(),
 });
 
 /** POST — create a brand. */
@@ -93,16 +97,37 @@ export async function POST(req: Request) {
     },
   });
 
+  // Auto-link the fleet machines under this company (only ones not already
+  // attached to a brand) so a new brand created from an existing acquirer is
+  // immediately wired to price its terminals' captures.
+  let linked = 0;
+  if (parsed.data.linkCompany) {
+    const res = await prisma.posMachine.updateMany({
+      where: {
+        company: { equals: parsed.data.linkCompany, mode: "insensitive" },
+        brandId: null,
+      },
+      data: { brandId: created.id },
+    });
+    linked = res.count;
+  }
+
   await prisma.auditLog.create({
     data: {
       userId: admin.id,
       action: "brand.created",
       entity: "Brand",
       entityId: created.id,
-      meta: { key: created.key, name: created.name, settlementMode: created.settlementMode },
+      meta: {
+        key: created.key,
+        name: created.name,
+        settlementMode: created.settlementMode,
+        linkCompany: parsed.data.linkCompany ?? null,
+        linkedMachines: linked,
+      },
       ip: clientIp(req),
     },
   });
 
-  return NextResponse.json({ ok: true, brand: { id: created.id } }, { status: 201 });
+  return NextResponse.json({ ok: true, brand: { id: created.id }, linked }, { status: 201 });
 }
