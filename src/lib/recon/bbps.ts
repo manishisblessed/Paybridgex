@@ -1,11 +1,12 @@
-import { Prisma, type ServiceCode } from "@prisma/client";
+import { type ServiceCode } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { flags } from "@/lib/env";
 import { getPartner } from "@/lib/partners";
-import { creditWallet } from "@/lib/ledger";
-import { round, add } from "@/lib/money";
+import {
+  finalizeServiceTransaction,
+  FINALIZABLE_TXN_SELECT,
+} from "@/lib/services/finalize";
 import { sendOpsAlert } from "@/lib/monitoring/alerts";
-import { emitWebhookEvent } from "@/lib/platform/webhooks";
 import { logger } from "@/lib/logger";
 
 const BBPS_SERVICES: ServiceCode[] = [
@@ -77,24 +78,13 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
     },
     orderBy: { createdAt: "asc" },
     take: 200,
-    select: {
-      id: true,
-      refId: true,
-      userId: true,
-      partnerTxnId: true,
-      amount: true,
-      fee: true,
-      commission: true,
-      service: true,
-      partner: true,
-      createdAt: true,
-    },
+    select: FINALIZABLE_TXN_SELECT,
   });
 
   let drained = 0;
   for (const txn of inflight) {
     try {
-      const r = await bbps.status({ orderId: txn.partnerTxnId! });
+      const r = await bbps.status!({ orderId: txn.partnerTxnId! });
       if (!r.ok) continue;
 
       if (r.data.status === "PENDING") {
@@ -102,73 +92,26 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
         continue;
       }
 
-      if (r.data.status === "SUCCESS") {
-        await prisma.$transaction(async (tx) => {
-          await tx.transaction.update({
-            where: { id: txn.id },
-            data: {
-              status: "SUCCESS",
-              partnerTxnId: txn.partnerTxnId,
-              response: { reconSettled: true, providerStatus: r.data.status, operatorRef: r.data.operatorRef } as Prisma.InputJsonValue,
-            },
-          });
-          // BBPS does not earn commission (only PG/POS/QR do).
-          await tx.auditLog.create({
-            data: {
-              userId: txn.userId,
-              action: "recon.bbps_settled",
-              entity: "Transaction",
-              entityId: txn.id,
-              meta: { refId: txn.refId, providerStatus: r.data.status },
-            },
-          });
-        });
-        void emitWebhookEvent(txn.userId, "txn.success", {
-          refId: txn.refId,
-          service: txn.service,
-          amount: txn.amount.toNumber(),
-        });
-        settled++;
-      } else {
-        // FAILED or REFUNDED — reverse the held funds.
-        const reserveAmount = round(add(txn.amount.toNumber(), txn.fee.toNumber()));
-        await prisma.$transaction(async (tx) => {
-          await tx.transaction.update({
-            where: { id: txn.id },
-            data: {
-              status: r.data.status === "REFUNDED" ? "REFUNDED" : "FAILED",
-              errorCode: "BBPS_PROVIDER_FAILED",
-              errorMessage: `Provider reported ${r.data.status} during reconciliation`,
-              response: { reconSettled: true, providerStatus: r.data.status } as Prisma.InputJsonValue,
-            },
-          });
-          await creditWallet({
-            userId: txn.userId,
-            amount: reserveAmount,
-            reason: "REVERSAL",
-            refType: "Transaction",
-            refId: txn.id,
-            idempotencyKey: `txn:${txn.userId}:${txn.refId}:reversal:recon`,
-          }, tx);
-          await tx.auditLog.create({
-            data: {
-              userId: txn.userId,
-              action: "recon.bbps_refunded",
-              entity: "Transaction",
-              entityId: txn.id,
-              meta: { refId: txn.refId, providerStatus: r.data.status },
-            },
-          });
-        });
-        void emitWebhookEvent(txn.userId, "txn.failed", {
-          refId: txn.refId,
-          service: txn.service,
-          amount: txn.amount.toNumber(),
-          code: "BBPS_PROVIDER_FAILED",
-          message: `Bill payment ${r.data.status.toLowerCase()} by provider`,
-        });
-        refunded++;
-      }
+      // SUCCESS/FAILED/REFUNDED all go through the SINGLE shared finalizer so a
+      // BBPS bill payment settles exactly like the pay path: SUCCESS books the
+      // company margin ((fee − GST) − vendorCharge) into the Revenue Wallet, and
+      // FAILED/REFUNDED reverses the held reserve. Idempotent via the status
+      // claim + keyed ledger, so racing the webhook is a safe no-op. (The old
+      // inline path skipped the margin credit — a silent revenue leak.)
+      const res = await finalizeServiceTransaction({
+        txn,
+        status: r.data.status, // SUCCESS | FAILED | REFUNDED
+        partnerTxnId: txn.partnerTxnId,
+        errorCode: r.data.status === "SUCCESS" ? null : "BBPS_PROVIDER_FAILED",
+        errorMessage:
+          r.data.status === "SUCCESS"
+            ? null
+            : `Bill payment ${r.data.status.toLowerCase()} by provider`,
+        raw: r.raw,
+        source: "recon",
+      });
+      if (res.outcome === "settled") settled++;
+      else if (res.outcome === "refunded") refunded++;
       drained++;
     } catch (err) {
       logger.warn({ action: "recon.bbps_poll_failed", txnId: txn.id, err: String(err) });

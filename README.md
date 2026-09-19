@@ -2,7 +2,7 @@
 
 A production-grade Next.js 14 fintech portal for **K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED** (trade name: `paybridgex`). Built per the agreed proposal, it covers all 7 modules — **Payment Gateway (PG), Point of Sale (POS), QR Code Payments, Master Distributor (MDS), Distributor (DS), Retailer Portal and Sub-Admin Panel** — plus a polished marketing site and 15+ additional service modules (AePS, money transfer, recharges, bill payments, travel bookings, wallet, transactions, and more).
 
-> Registered office: E-340, SAFAL 11, Opp. Namaskar Circle, Shahibag, Ahmedabad City, Ahmedabad, Gujarat - 380004
+> Registered office: E-340, SAFAL 11, Opp. Namaskar Circle, Shahibaug, Ahmedabad City, Ahmedabad, Gujarat - 380004
 > Email: info@paybridgex.in · Domain: [paybridgex.in](https://paybridgex.in/)
 >
 > Note: the phone number and grievance/nodal officer names in `src/lib/data.ts` are placeholders — replace them with the official details before launch. CIN: U82910GJ2026OPC181144.

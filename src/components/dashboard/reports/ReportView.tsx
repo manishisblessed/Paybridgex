@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { toast } from "sonner";
 import {
   Search,
   RefreshCw,
@@ -12,6 +13,7 @@ import {
   ChevronRight,
   Info,
   LifeBuoy,
+  RotateCw,
 } from "lucide-react";
 import { formatIST } from "@/lib/utils";
 import { PageHeader } from "@/components/dashboard/PageHeader";
@@ -93,9 +95,9 @@ function inr2(n: number): string {
 
 function badgeVariant(raw: string): "success" | "warning" | "danger" | "brand" | "accent" | "default" {
   const v = String(raw).toUpperCase().trim();
-  if (["SUCCESS", "APPROVED", "CREDIT", "ACTIVE", "SETTLED", "RECEIVED", "COMMISSION", "TOPUP", "REFUNDED"].includes(v)) return "success";
-  if (["FAILED", "REJECTED", "REVERSED", "DEBIT", "DECOMMISSIONED", "CANCELLED", "PENALTY"].includes(v)) return "danger";
-  if (["PENDING", "PENDING_APPROVAL", "PROCESSING", "INITIATED", "HOLD", "RECONCILING", "MAINTENANCE", "IN BANK", "INACTIVE"].includes(v)) return "warning";
+  if (["SUCCESS", "APPROVED", "CREDIT", "ACTIVE", "LIVE", "SETTLED", "RECEIVED", "COMMISSION", "TOPUP", "REFUNDED"].includes(v)) return "success";
+  if (["FAILED", "REJECTED", "REVERSED", "DEBIT", "DECOMMISSIONED", "DISABLED", "CANCELLED", "PENALTY"].includes(v)) return "danger";
+  if (["PENDING", "PENDING_APPROVAL", "PROCESSING", "INITIATED", "HOLD", "RECONCILING", "MAINTENANCE", "IN BANK", "INACTIVE", "QUEUED", "FULL_TODAY"].includes(v)) return "warning";
   if (["FUND_TRANSFER_IN", "DRAFT", "TRANSACTION"].includes(v)) return "brand";
   if (["WITHDRAW", "FUND_TRANSFER_OUT", "FEE", "ADJUSTMENT", "PAYOUT"].includes(v)) return "accent";
   return "default";
@@ -238,6 +240,19 @@ function isTicketable(row: Row): boolean {
   return TICKETABLE_STATUS.has(String(row["status"] ?? "").toUpperCase().trim());
 }
 
+/**
+ * Statuses for which a "Check status" (provider reconcile) action is offered —
+ * only genuinely in-flight rows. Terminal rows (SUCCESS/FAILED/REFUNDED) have
+ * nothing left to reconcile.
+ */
+const RECONCILABLE_STATUS = new Set(["PROCESSING", "INITIATED", "PENDING", "HOLD"]);
+
+function isReconcilable(row: Row): boolean {
+  const refId = row["refId"];
+  if (!refId || String(refId).trim() === "" || String(refId).trim() === "—") return false;
+  return RECONCILABLE_STATUS.has(String(row["status"] ?? "").toUpperCase().trim());
+}
+
 /** Auto-compile the report row into a readable details block for the ticket. */
 function buildTicketDetails(row: Row, columns: ReportColumnDef[], reportTitle: string): string {
   const lines = columns
@@ -304,6 +319,11 @@ export function ReportView({ type }: { type: ReportType }) {
     [config.columns, config.title]
   );
 
+  // Provider "Check status" (reconcile) for in-flight bill/credit-card rows.
+  const canReconcile = !!config.reconcilable;
+  const [checkingRef, setCheckingRef] = useState<string | null>(null);
+  const hasRowActions = canRaiseTicket || canReconcile;
+
   // Debounce free-text search.
   useEffect(() => {
     const t = setTimeout(() => {
@@ -350,6 +370,49 @@ export function ReportView({ type }: { type: ReportType }) {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Re-poll the provider for one in-flight row and settle/refund it. Safe +
+  // idempotent server-side (never blind-refunds a possibly-charged card).
+  const checkStatus = useCallback(
+    async (row: Row) => {
+      const refId = String(row["refId"] ?? "").trim();
+      if (!refId || refId === "—") return;
+      setCheckingRef(refId);
+      try {
+        const res = await fetch("/api/services/reconcile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refId }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Status check failed");
+
+        switch (d.outcome) {
+          case "settled":
+            toast.success(`${refId} confirmed successful by the provider.`);
+            break;
+          case "refunded":
+            toast.success(`${refId} failed at the provider — amount refunded to your wallet.`);
+            break;
+          case "pending":
+            toast.info(`${refId} is still processing at the provider. Please check again shortly.`);
+            break;
+          default:
+            toast.info(
+              d.alreadyTerminal
+                ? `${refId} is already ${String(d.status ?? "finalized").toLowerCase()}.`
+                : `Couldn't reach the provider for ${refId}. Please try again shortly.`
+            );
+        }
+        await fetchData();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Status check failed");
+      } finally {
+        setCheckingRef(null);
+      }
+    },
+    [fetchData]
+  );
 
   // Full filtered dataset for exports (capped server-side), with a totals row.
   const fetchAllRows = useCallback(async (): Promise<Row[]> => {
@@ -451,6 +514,58 @@ export function ReportView({ type }: { type: ReportType }) {
           </div>
           <div className="mt-3">
             <Sparkline values={data.trend.values} color={data.trend.color || ACCENT_HEX[config.accent]} height={70} />
+          </div>
+        </Panel>
+      )}
+
+      {/* Secondary breakdown (e.g. rate-wise GST summary for GSTR-3B) */}
+      {data?.breakdown && data.breakdown.rows.length > 0 && (
+        <Panel>
+          <p className="text-xs font-bold uppercase tracking-widest text-ink-500">{data.breakdown.title}</p>
+          {data.breakdown.subtitle && (
+            <p className="mt-1 text-xs leading-relaxed text-ink-500">{data.breakdown.subtitle}</p>
+          )}
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-ink-100 text-left text-xs uppercase tracking-wider text-ink-500">
+                  {data.breakdown.columns.map((c) => (
+                    <th key={c.key} className={`px-3 py-2 font-semibold ${c.align === "right" ? "text-right" : ""}`.trim()}>
+                      {c.header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-100 text-ink-800">
+                {data.breakdown.rows.map((row, i) => (
+                  <tr key={i}>
+                    {data.breakdown!.columns.map((c) => (
+                      <td key={c.key} className={`px-3 py-2 ${c.align === "right" ? "text-right" : ""}`.trim()}>
+                        {displayCell(row[c.key], c.format)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+              {data.breakdown.totals && Object.keys(data.breakdown.totals).length > 0 && (
+                <tfoot>
+                  <tr className="border-t-2 border-ink-200 bg-ink-50/60 font-semibold text-ink-900">
+                    {data.breakdown!.columns.map((c) => {
+                      const tv = data.breakdown!.totals![c.key];
+                      return (
+                        <td key={c.key} className={`px-3 py-2 ${c.align === "right" ? "text-right" : ""}`.trim()}>
+                          {tv === undefined
+                            ? ""
+                            : c.format === "money" || c.format === "int" || c.format === "percent"
+                              ? displayCell(tv, c.format)
+                              : <span className="text-ink-700">{String(tv)}</span>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tfoot>
+              )}
+            </table>
           </div>
         </Panel>
       )}
@@ -563,14 +678,14 @@ export function ReportView({ type }: { type: ReportType }) {
                   {c.header}
                 </th>
               ))}
-              {canRaiseTicket && <th className="text-right">Action</th>}
+              {hasRowActions && <th className="text-right">Action</th>}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <TableSkeletonRows rows={6} cols={config.columns.length + (canRaiseTicket ? 1 : 0)} />
+              <TableSkeletonRows rows={6} cols={config.columns.length + (hasRowActions ? 1 : 0)} />
             ) : rows.length === 0 ? (
-              <TableEmptyRow colSpan={config.columns.length + (canRaiseTicket ? 1 : 0)} message="No records match your filters." />
+              <TableEmptyRow colSpan={config.columns.length + (hasRowActions ? 1 : 0)} message="No records match your filters." />
             ) : (
               rows.map((row, i) => (
                 <tr key={i}>
@@ -579,19 +694,40 @@ export function ReportView({ type }: { type: ReportType }) {
                       {displayCell(row[c.key], c.format)}
                     </td>
                   ))}
-                  {canRaiseTicket && (
+                  {hasRowActions && (
                     <td className="text-right">
-                      {isTicketable(row) ? (
-                        <button
-                          type="button"
-                          onClick={() => openTicket(row)}
-                          className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 transition hover:border-brand-300 hover:bg-brand-100"
-                        >
-                          <LifeBuoy className="h-3.5 w-3.5" /> Raise ticket
-                        </button>
-                      ) : (
-                        <span className="text-ink-300">—</span>
-                      )}
+                      {(() => {
+                        const showCheck = canReconcile && isReconcilable(row);
+                        const showTicket = canRaiseTicket && isTicketable(row);
+                        if (!showCheck && !showTicket) return <span className="text-ink-300">—</span>;
+                        const rowRef = String(row["refId"] ?? "").trim();
+                        const busy = checkingRef === rowRef;
+                        return (
+                          <div className="flex items-center justify-end gap-1.5">
+                            {showCheck && (
+                              <button
+                                type="button"
+                                onClick={() => checkStatus(row)}
+                                disabled={busy}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                title="Re-check this payment with the provider and settle or refund it"
+                              >
+                                <RotateCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
+                                {busy ? "Checking…" : "Check status"}
+                              </button>
+                            )}
+                            {showTicket && (
+                              <button
+                                type="button"
+                                onClick={() => openTicket(row)}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 transition hover:border-brand-300 hover:bg-brand-100"
+                              >
+                                <LifeBuoy className="h-3.5 w-3.5" /> Raise ticket
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
                   )}
                 </tr>
@@ -615,7 +751,7 @@ export function ReportView({ type }: { type: ReportType }) {
                     </td>
                   );
                 })}
-                {canRaiseTicket && <td className="px-5 py-3" />}
+                {hasRowActions && <td className="px-5 py-3" />}
               </tr>
             </tfoot>
           )}

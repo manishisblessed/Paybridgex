@@ -72,6 +72,23 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       take: limit,
     });
 
+    // Per-transaction commission THIS member actually earned, from the
+    // CommissionCredit ledger. Transaction.commission is not reliable here — on
+    // POS/QR settlement bridge rows it holds the GROSS upline chain-commission
+    // pool (credited to the upline, not this member), so it would misreport
+    // another party's earnings on the member's own transactions.
+    const txnIds = rows.map((t) => t.id);
+    const creditRows = txnIds.length
+      ? await prisma.commissionCredit.groupBy({
+          by: ["transactionId"],
+          where: { transactionId: { in: txnIds }, userId: params.id },
+          _sum: { amount: true },
+        })
+      : [];
+    const commissionByTxn = new Map(
+      creditRows.map((c) => [c.transactionId, toNumber(c._sum.amount ?? 0)])
+    );
+
     const data = rows.map((t) => ({
       id: t.refId,
       service: formatService(t.service, t.operator),
@@ -79,7 +96,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       status: displayStatus(t.status),
       date: formatISTDateTime(t.createdAt),
       customer: t.customer ?? "—",
-      commission: toNumber(t.commission),
+      commission: commissionByTxn.get(t.id) ?? 0,
     }));
 
     return NextResponse.json({ ok: true, data });

@@ -345,6 +345,8 @@ export async function applyAssignment(
 type PosMachineWithAssignee = {
   id: string;
   externalId: string;
+  source: string;
+  company: string | null;
   mid: string | null;
   tid: string | null;
   serial: string | null;
@@ -369,6 +371,8 @@ type PosMachineWithAssignee = {
 export const posMachineSelect = {
   id: true,
   externalId: true,
+  source: true,
+  company: true,
   mid: true,
   tid: true,
   serial: true,
@@ -456,6 +460,8 @@ export function serializePosMachine(
   return {
     id: row.id,
     externalId: row.externalId,
+    source: row.source,
+    company: row.company,
     mid: row.mid,
     tid: row.tid,
     serial: row.serial,

@@ -51,6 +51,8 @@ export async function GET(req: Request) {
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));
   const pageSize = Math.min(100, Math.max(10, Number(searchParams.get("pageSize") ?? 50)));
   const status = searchParams.get("status") ?? "";
+  // Inventory origin filter: "SYNC" (partner API) | "MANUAL" (External POS).
+  const source = (searchParams.get("source") ?? "").trim().toUpperCase();
   const search = (searchParams.get("search") ?? "").trim();
   // assignee: "all" | "assigned" | "unassigned" | "user:<id>" | plain userId
   const rawAssignee = searchParams.get("assignee") ?? "all";
@@ -60,6 +62,7 @@ export async function GET(req: Request) {
   const where: Prisma.PosMachineWhereInput = {};
 
   if (status) where.status = status;
+  if (source === "SYNC" || source === "MANUAL") where.source = source;
 
   if (assignee === "assigned") {
     where.assignedUserId = { not: null };
@@ -80,6 +83,7 @@ export async function GET(req: Request) {
       { mid: { contains: search, mode: "insensitive" } },
       { serial: { contains: search, mode: "insensitive" } },
       { externalId: { contains: search, mode: "insensitive" } },
+      { company: { contains: search, mode: "insensitive" } },
     ];
   }
 

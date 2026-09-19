@@ -211,8 +211,10 @@ export async function distributeMdrCommission(
   const mdr = await getEffectiveMdr(userId, serviceKind, grossAmount, dims);
   if (mdr.source === "NONE") return [];
 
-  // 1. Credit the company MDR margin to the Revenue Wallet (the payout pool).
-  const accountId = await creditMdrMargin(txnId, service, mdr.margin, tx);
+  // 1. Credit the company's EX-GST MDR margin to the Revenue Wallet (the payout
+  //    pool). GST carved from the margin is a pass-through liability (recorded on
+  //    the settlement Transaction), never revenue — mirrors the BBPS/Payout rails.
+  const accountId = await creditMdrMargin(txnId, service, mdr.marginExGst, tx);
   // No revenue account → we cannot fund payouts from the wallet; nothing to do.
   if (!accountId) return [];
 

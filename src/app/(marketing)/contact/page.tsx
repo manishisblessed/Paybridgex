@@ -21,7 +21,7 @@ import { company, grievanceOfficer } from "@/lib/data";
 export const metadata: Metadata = {
   title: "Contact",
   description:
-    "Reach Paybridgex — 24×7 retailer helpline, WhatsApp support, email and our Ahmedabad HQ at SAFAL 11, Shahibag. Average first reply in 12 minutes."
+    "Reach Paybridgex — 24×7 retailer helpline, WhatsApp support, email and our Ahmedabad HQ at SAFAL 11, Shahibaug. Average first reply in 12 minutes."
 };
 
 const channels = [
@@ -142,7 +142,7 @@ export default function ContactPage() {
                   Visit our HQ
                 </h2>
                 <p className="mt-2 text-sm text-ink-700">
-                  SAFAL 11, opposite Namaskar Circle in Shahibag — one of Ahmedabad&apos;s best-connected business neighbourhoods.
+                  SAFAL 11, opposite Namaskar Circle in Shahibaug — one of Ahmedabad&apos;s best-connected business neighbourhoods.
                 </p>
                 <div className="mt-6 space-y-4 text-sm text-ink-700">
                   <div className="flex items-start gap-3">
@@ -167,8 +167,8 @@ export default function ContactPage() {
                 </div>
                 <div className="mt-6 aspect-video w-full overflow-hidden rounded-2xl border border-white/60 bg-white">
                   <iframe
-                    title="Paybridgex HQ — SAFAL 11, Shahibag, Ahmedabad"
-                    src="https://www.google.com/maps?q=SAFAL+11+Namaskar+Circle+Shahibag+Ahmedabad+Gujarat+380004&output=embed"
+                    title="Paybridgex HQ — SAFAL 11, Shahibaug, Ahmedabad"
+                    src="https://www.google.com/maps?q=SAFAL+11+Namaskar+Circle+Shahibaug+Ahmedabad+Gujarat+380004&output=embed"
                     className="h-full w-full"
                     loading="lazy"
                   />

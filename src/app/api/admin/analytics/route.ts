@@ -28,12 +28,12 @@ export async function GET(req: Request) {
 
     const range = { createdAt: { gte: from, lte: to } };
 
-    const [byService, byStatus, daily, topUsersRaw] = await Promise.all([
+    const [byService, byStatus, daily, topUsersRaw, commissionByServiceRaw] = await Promise.all([
       prisma.transaction.groupBy({
         by: ["service", "status"],
         where: range,
         _count: true,
-        _sum: { amount: true, fee: true, commission: true, gst: true },
+        _sum: { amount: true, fee: true, gst: true },
       }),
       prisma.transaction.groupBy({
         by: ["status"],
@@ -55,11 +55,25 @@ export async function GET(req: Request) {
         by: ["userId"],
         where: { ...range, status: "SUCCESS" },
         _count: true,
-        _sum: { amount: true, commission: true },
+        _sum: { amount: true },
         orderBy: { _sum: { amount: "desc" } },
         take: 10,
       }),
+      // Authoritative per-service commission from the CommissionCredit ledger —
+      // the NET commission actually credited to the network. Transaction.commission
+      // is unreliable per service (it mixes net DIRECT commission with the gross
+      // POS/QR chain pool, and carries recharge/AEPS placeholders on non-SUCCESS
+      // rows), so the "Commission paid" column reads the ledger instead.
+      prisma.commissionCredit.groupBy({
+        by: ["service"],
+        where: { createdAt: { gte: from, lte: to } },
+        _sum: { amount: true },
+      }),
     ]);
+
+    const commissionByService = new Map<string, number>(
+      commissionByServiceRaw.map((c) => [c.service as string, toNumber(dec(c._sum.amount ?? 0))])
+    );
 
     // Fold per-(service,status) rows into a service report.
     const serviceMap = new Map<
@@ -81,7 +95,6 @@ export async function GET(req: Request) {
         s.success += row._count;
         s.volume += toNumber(dec(row._sum.amount ?? 0));
         s.fees += toNumber(dec(row._sum.fee ?? 0));
-        s.commission += toNumber(dec(row._sum.commission ?? 0));
         s.gst += toNumber(dec(row._sum.gst ?? 0));
       } else if (row.status === "FAILED") {
         s.failed += row._count;
@@ -92,6 +105,8 @@ export async function GET(req: Request) {
       .map(([service, v]) => ({
         service,
         ...v,
+        // Net commission credited to the network for this service (ledger-sourced).
+        commission: commissionByService.get(service) ?? 0,
         successRate: v.total > 0 ? Math.round((v.success / v.total) * 1000) / 10 : 0,
       }))
       .sort((a, b) => b.volume - a.volume);
@@ -128,13 +143,30 @@ export async function GET(req: Request) {
     }
 
     const topUserIds = topUsersRaw.map((t) => t.userId);
-    const topUserRows = topUserIds.length
-      ? await prisma.user.findMany({
-          where: { id: { in: topUserIds } },
-          select: { id: true, name: true, email: true, role: true, shopName: true },
-        })
-      : [];
+    // "Commission earned" must come from the authoritative CommissionCredit
+    // ledger (the NET rupees actually credited to each user's wallet), NOT from
+    // Transaction.commission. That column is unreliable for a per-user "earned"
+    // figure: recharge/AEPS write hardcoded placeholder percentages that are
+    // never paid out, and POS/QR store the WHOLE upline chain's gross commission
+    // on the transacting retailer's bridge row. Per the distribution engine, the
+    // transacting retailer earns NO commission — only the upline (DT/MD/SD) does.
+    const [topUserRows, commissionByUser] = topUserIds.length
+      ? await Promise.all([
+          prisma.user.findMany({
+            where: { id: { in: topUserIds } },
+            select: { id: true, name: true, email: true, role: true, shopName: true },
+          }),
+          prisma.commissionCredit.groupBy({
+            by: ["userId"],
+            where: { userId: { in: topUserIds }, createdAt: { gte: from, lte: to } },
+            _sum: { amount: true },
+          }),
+        ])
+      : [[], []];
     const userMap = new Map(topUserRows.map((u) => [u.id, u]));
+    const commissionMap = new Map(
+      commissionByUser.map((c) => [c.userId, toNumber(dec(c._sum.amount ?? 0))])
+    );
 
     const statusOf = (s: string) => byStatus.find((b) => b.status === s);
     const totalCount = byStatus.reduce((acc, b) => acc + b._count, 0);
@@ -157,7 +189,8 @@ export async function GET(req: Request) {
         user: userMap.get(t.userId) ?? { id: t.userId, name: "—", email: "", role: "", shopName: null },
         txns: t._count,
         volume: toNumber(dec(t._sum.amount ?? 0)),
-        commission: toNumber(dec(t._sum.commission ?? 0)),
+        // Net commission actually credited to THIS user (from CommissionCredit).
+        commission: commissionMap.get(t.userId) ?? 0,
       })),
     });
   } catch (e) {

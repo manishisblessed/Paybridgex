@@ -61,6 +61,7 @@ export default function ReversalDeskPage() {
     reason: "",
   });
   const [busy, setBusy] = useState(false);
+  const [reconBusy, setReconBusy] = useState(false);
 
   // Pending approve/reject/cancel decision awaiting confirmation
   const [decision, setDecision] = useState<{ id: string; action: "APPROVE" | "REJECT" | "CANCEL" } | null>(null);
@@ -108,6 +109,48 @@ export default function ReversalDeskPage() {
       notify(`Found ${p.refLabel} — prefilled the refund of ${formatINR(p.amount)}.`, true);
     } catch (e) {
       notify(e instanceof Error ? e.message : "Lookup failed", false);
+    }
+  };
+
+  // Safe-first resolution for a stuck PROCESSING payment: re-poll the provider
+  // and settle/auto-refund via the shared finalizer BEFORE anyone raises a
+  // blind manual reversal (which could double-refund a card that was charged).
+  const reconcile = async () => {
+    const ref = lookupRef.trim();
+    if (!ref) return;
+    setReconBusy(true);
+    try {
+      const res = await fetch("/api/admin/transactions/reconcile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refId: ref }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Reconcile failed");
+      const label = d.refId ?? ref;
+      switch (d.outcome) {
+        case "settled":
+          notify(`${label}: provider confirmed SUCCESS — transaction settled.`, true);
+          break;
+        case "refunded":
+          notify(`${label}: provider reported failure — reserve auto-refunded to the wallet.`, true);
+          break;
+        case "pending":
+          notify(`${label}: provider still shows PENDING — will retry automatically.`, true);
+          break;
+        default:
+          notify(
+            d.alreadyTerminal
+              ? `${label} is already ${String(d.status ?? "finalized").toLowerCase()} — nothing to reconcile.`
+              : `${label}: couldn't reach the provider (${d.rail ?? "unsupported"} rail). Try again shortly.`,
+            d.alreadyTerminal ? true : false
+          );
+      }
+      load();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Reconcile failed", false);
+    } finally {
+      setReconBusy(false);
     }
   };
 
@@ -281,7 +324,15 @@ export default function ReversalDeskPage() {
             />
           </div>
           <Button variant="outline" onClick={lookup}>Look up</Button>
+          <Button variant="outline" onClick={reconcile} isLoading={reconBusy} disabled={reconBusy || !lookupRef.trim()}>
+            Reconcile with provider
+          </Button>
         </div>
+        <p className="mb-4 -mt-2 text-xs text-ink-500">
+          For a payment stuck in <span className="font-medium">Processing</span> (BBPS / credit-card), try{" "}
+          <span className="font-medium">Reconcile with provider</span> first — it re-polls the provider and
+          settles or auto-refunds safely, so you only raise a manual reversal if that can&apos;t resolve it.
+        </p>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <label className="text-xs text-ink-500">

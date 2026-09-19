@@ -318,9 +318,11 @@ describe("runQrT1SettlementSweep — next-day auto settle (T1 scheme MDR)", () =
 describe("rejectQrClaim / clawbackQrClaim", () => {
   it("rejects with a mandatory note and never credits", async () => {
     const claim = await submitQrClaim(validClaim());
+    // Reject requires at least one structured reason OR a free-text note — an
+    // all-whitespace note (and no reasons) is refused.
     await expect(
       rejectQrClaim({ claimId: claim.id as string, adminId: "admin1", note: "  " })
-    ).rejects.toThrow(/note is required/);
+    ).rejects.toThrow(/reason is required/i);
     const r = await rejectQrClaim({ claimId: claim.id as string, adminId: "admin1", note: "UTR not in portal" });
     expect(r.status).toBe("REJECTED");
     expect(holder.db.balanceOf("retailer1")).toBe("1000.00");

@@ -2,11 +2,15 @@
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
-import { RotateCcw, Undo2, AlertTriangle, Ban } from "lucide-react";
+import { toast } from "sonner";
+import { RotateCcw, Undo2, AlertTriangle, Ban, HandCoins, Loader2, ShieldCheck } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useAuth } from "@/lib/useAuth";
 import { formatINR, istToday, istDaysAgo, istDayRangeUtc, formatIST } from "@/lib/utils";
 
 type ReversalRow = {
@@ -27,6 +31,13 @@ type ReversalRow = {
     wasSettled: boolean;
     settledAt: string | null;
     retailer: string | null;
+  } | null;
+  clawback: {
+    lienId: string;
+    amount: number;
+    recovered: number;
+    outstanding: number;
+    status: string;
   } | null;
   needsClawback: boolean;
 };
@@ -61,11 +72,18 @@ const daysAgoIso = (d: number) => istDaysAgo(d);
 const fmtDateTime = (iso: string | null) => formatIST(iso);
 
 export default function PosReversalsPage() {
+  const { session } = useAuth();
+  // Clawback moves money → master-admin / admin only (mirrors the API guard).
+  const canClawback = session?.role === "master-admin" || session?.role === "admin";
+
   const [dateFrom, setDateFrom] = useState(daysAgoIso(30));
   const [dateTo, setDateTo] = useState(todayIso());
   const [status, setStatus] = useState<"" | "VOIDED" | "REFUNDED">("");
   const [clawbackOnly, setClawbackOnly] = useState(false);
   const [page, setPage] = useState(1);
+  const [clawTarget, setClawTarget] = useState<ReversalRow | null>(null);
+  const [clawNote, setClawNote] = useState("");
+  const [actingRef, setActingRef] = useState<string | null>(null);
 
   const qs = useMemo(() => {
     const range = istDayRangeUtc(dateFrom, dateTo);
@@ -80,11 +98,38 @@ export default function PosReversalsPage() {
     return p.toString();
   }, [dateFrom, dateTo, status, clawbackOnly, page]);
 
-  const { data, error, isLoading } = useSWR<ReversalsResponse>(
+  const { data, error, isLoading, mutate } = useSWR<ReversalsResponse>(
     `/api/admin/pos/reversals?${qs}`,
     fetcher,
     { keepPreviousData: true }
   );
+
+  async function clawback(row: ReversalRow, note: string) {
+    setActingRef(row.transactionRef);
+    try {
+      const res = await fetch("/api/admin/pos/reversals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clawback", transactionRef: row.transactionRef, note: note || undefined }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Clawback failed");
+      const recovered = Number(d.lien?.recoveredAmount ?? 0);
+      const outstanding = Number(d.lien?.outstanding ?? 0);
+      toast.success(
+        outstanding > 0
+          ? `Clawback placed — ₹${recovered.toLocaleString("en-IN")} recovered now, ₹${outstanding.toLocaleString("en-IN")} will be swept from future credits.`
+          : `Clawback complete — ₹${recovered.toLocaleString("en-IN")} recovered in full.`
+      );
+      mutate();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Clawback failed");
+    } finally {
+      setActingRef(null);
+      setClawTarget(null);
+      setClawNote("");
+    }
+  }
 
   const columns: Column<ReversalRow>[] = [
     {
@@ -130,6 +175,39 @@ export default function PosReversalsPage() {
     { key: "reversalReason", header: "Reason", render: (r) => <span className="font-mono text-[11px] text-ink-600">{r.reversalReason ?? "—"}</span> },
     { key: "reversedAt", header: "Reversed", render: (r) => <span className="text-xs text-ink-600">{fmtDateTime(r.reversedAt)}</span> },
     { key: "txnTime", header: "Swiped", render: (r) => <span className="text-xs text-ink-500">{fmtDateTime(r.txnTime)}</span> },
+    {
+      key: "clawback",
+      header: "Clawback",
+      render: (r) => {
+        if (r.clawback) {
+          const done = r.clawback.outstanding <= 0;
+          return (
+            <span className="inline-flex flex-col text-[11px]">
+              <span className={`inline-flex items-center gap-1 font-semibold ${done ? "text-emerald-700" : "text-amber-700"}`}>
+                <ShieldCheck className="h-3.5 w-3.5" /> {done ? "Recovered" : "Clawback placed"}
+              </span>
+              <span className="text-ink-500">
+                {formatINR(r.clawback.recovered)} recovered
+                {r.clawback.outstanding > 0 ? ` · ${formatINR(r.clawback.outstanding)} pending` : ""}
+              </span>
+            </span>
+          );
+        }
+        if (!r.needsClawback) return <span className="text-xs text-ink-400">—</span>;
+        if (!canClawback) return <span className="text-[11px] text-ink-400">Admin action</span>;
+        return (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={actingRef === r.transactionRef}
+            onClick={() => { setClawTarget(r); setClawNote(""); }}
+          >
+            {actingRef === r.transactionRef ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <HandCoins className="h-3.5 w-3.5" />}
+            Claw back
+          </Button>
+        );
+      },
+    },
   ];
 
   const s = data?.summary;
@@ -227,6 +305,35 @@ export default function PosReversalsPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={clawTarget !== null}
+        onClose={() => { setClawTarget(null); setClawNote(""); }}
+        busy={clawTarget ? actingRef === clawTarget.transactionRef : false}
+        title="Claw back this settlement?"
+        description={
+          clawTarget && (
+            <div className="space-y-3">
+              <p>
+                Places a chargeback lien of{" "}
+                <span className="font-semibold text-ink-900">{formatINR(clawTarget.settlement?.netAmount ?? clawTarget.amount)}</span>{" "}
+                on <span className="font-semibold text-ink-900">{clawTarget.settlement?.retailer ?? "the retailer"}</span>.
+                Whatever is available is recovered immediately; the rest is auto-swept from future credits until fully
+                recovered. The wallet is never forced negative, and the lien is invisible to the retailer.
+              </p>
+              <textarea
+                value={clawNote}
+                onChange={(e) => setClawNote(e.target.value)}
+                rows={3}
+                placeholder="Optional note (added to the lien remarks)…"
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              />
+            </div>
+          )
+        }
+        confirmLabel="Place clawback lien"
+        onConfirm={() => { if (clawTarget) clawback(clawTarget, clawNote.trim()); }}
+      />
     </div>
   );
 }

@@ -1,0 +1,12 @@
+-- Platform-wide (admin) commission reporting groups CommissionCredit by service
+-- over a createdAt range with NO userId filter (Business Analytics service-wise
+-- report + admin summary report). The existing user-leading indexes
+-- ([userId, createdAt], [userId, service, createdAt]) cannot serve a
+-- createdAt-only range scan, so add a dedicated index to avoid a sequential
+-- scan as the ledger grows.
+--
+-- NOTE: On a large existing table, consider creating this CONCURRENTLY out of
+-- band instead (Prisma runs migrations inside a transaction, which disallows
+-- CREATE INDEX CONCURRENTLY):
+--   CREATE INDEX CONCURRENTLY "CommissionCredit_createdAt_idx" ON "CommissionCredit"("createdAt");
+CREATE INDEX "CommissionCredit_createdAt_idx" ON "CommissionCredit"("createdAt");

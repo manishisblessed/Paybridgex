@@ -21,27 +21,67 @@ const DRAIN_AGE_MS = 2 * 60_000; // don't poll a txn younger than 2 min
 const STUCK_THRESHOLD_MS = 60 * 60_000; // escalate after 1 hour
 
 /**
+ * Recover provider reference ids carried by a stored pay `response` JSON.
+ *
+ * When pay returns PENDING we persist `partnerTxnId = txn_id || request_id`, but
+ * if BOTH were empty in the provider's response the row is left with a blank
+ * `partnerTxnId` and becomes UNPOLLABLE — stuck in PROCESSING forever. The raw
+ * pay response still carries `txn_id` / `request_id`, so we mine it here as a
+ * fallback so those rows can finally be resolved.
+ */
+export function refsFromResponse(response: unknown): string[] {
+  if (!response || typeof response !== "object") return [];
+  const r = response as Record<string, unknown>;
+  const out: string[] = [];
+  for (const k of ["txn_id", "txnId", "request_id", "requestId"]) {
+    const v = r[k];
+    if (typeof v === "string" && v.trim().length > 0) out.push(v.trim());
+  }
+  return out;
+}
+
+/** Column set for RechargeKit finalizers — adds `response` for the ref fallback. */
+const RK_TXN_SELECT = { ...FINALIZABLE_TXN_SELECT, response: true };
+
+/**
  * Poll the RechargeKit status API for one transaction and finalize it.
  *
  * The stored `partnerTxnId` is `txn_id || request_id` from the pay response, so
  * we try it as a txn id first and fall back to a request id — either resolves
- * the same payment at the provider. PENDING leaves the row untouched for the
- * next trigger. Returns whether a terminal state was reached.
+ * the same payment at the provider. We additionally try any `extraRefs` (webhook
+ * ids, or ids recovered from the stored pay response) so a row whose
+ * `partnerTxnId` came back EMPTY is still resolvable. PENDING leaves the row
+ * untouched for the next trigger. Returns whether a terminal state was reached.
  */
 async function pollAndFinalize(
   txn: FinalizableTxn,
-  source: string
+  source: string,
+  extraRefs: string[] = []
 ): Promise<{ outcome: "settled" | "refunded" | "pending" | "noop" }> {
-  const ref = txn.partnerTxnId ?? undefined;
-  if (!ref) {
+  // Candidate provider references, de-duped, in priority order.
+  const refs = Array.from(
+    new Set(
+      [txn.partnerTxnId ?? "", ...extraRefs]
+        .map((s) => (typeof s === "string" ? s.trim() : ""))
+        .filter((s) => s.length > 0)
+    )
+  );
+  if (refs.length === 0) {
     log.warn({ refId: txn.refId }, "RechargeKit txn has no provider ref to poll");
     return { outcome: "noop" };
   }
 
-  let r = await rechargekitStatus({ txnId: ref });
-  if (!r.ok) r = await rechargekitStatus({ requestId: ref });
-  if (!r.ok) {
-    log.warn({ refId: txn.refId, code: r.code }, "RechargeKit status poll failed");
+  let r: Awaited<ReturnType<typeof rechargekitStatus>> | null = null;
+  for (const ref of refs) {
+    r = await rechargekitStatus({ txnId: ref });
+    if (!r.ok) r = await rechargekitStatus({ requestId: ref });
+    if (r.ok) break;
+  }
+  if (!r || !r.ok) {
+    log.warn(
+      { refId: txn.refId, code: r?.ok === false ? r.code : undefined },
+      "RechargeKit status poll failed"
+    );
     return { outcome: "noop" }; // transient — try again next trigger
   }
 
@@ -51,7 +91,7 @@ async function pollAndFinalize(
   const res = await finalizeServiceTransaction({
     txn,
     status: providerStatus, // SUCCESS | FAILED | REFUNDED
-    partnerTxnId: r.data.txnId || ref,
+    partnerTxnId: r.data.txnId || refs[0],
     raw: r.raw,
     source,
   });
@@ -64,7 +104,8 @@ async function pollAndFinalize(
  * RE-FETCHING the provider status (the webhook is only a trigger). Idempotent.
  */
 export async function reconcileRechargekitFromWebhook(
-  refs: string[]
+  refs: string[],
+  source = "webhook"
 ): Promise<{ matched: boolean; outcome?: string; refId?: string }> {
   const cleaned = Array.from(
     new Set(refs.filter((r) => typeof r === "string" && r.length > 0))
@@ -76,7 +117,7 @@ export async function reconcileRechargekitFromWebhook(
       partner: RK_PARTNER,
       OR: [{ partnerTxnId: { in: cleaned } }, { refId: { in: cleaned } }],
     },
-    select: FINALIZABLE_TXN_SELECT,
+    select: RK_TXN_SELECT,
   });
   if (!row) return { matched: false };
 
@@ -85,7 +126,13 @@ export async function reconcileRechargekitFromWebhook(
     return { matched: true, outcome: "noop", refId: row.refId };
   }
 
-  const { outcome } = await pollAndFinalize(row, "webhook");
+  const { response, ...txn } = row;
+  // The webhook's own ids + any ids recovered from the stored pay response are
+  // authoritative poll candidates alongside partnerTxnId.
+  const { outcome } = await pollAndFinalize(txn, source, [
+    ...cleaned,
+    ...refsFromResponse(response),
+  ]);
   return { matched: true, outcome, refId: row.refId };
 }
 
@@ -119,25 +166,30 @@ export async function runRechargekitReconciliation(): Promise<RechargekitReconSu
   }
 
   const now = Date.now();
+  // NOTE: we intentionally do NOT filter on `partnerTxnId: { not: null }` here.
+  // A pay that returned PENDING with an empty txn_id/request_id leaves the row
+  // with a blank partnerTxnId; excluding those made them permanently unpollable
+  // (stuck in PROCESSING forever). pollAndFinalize now recovers a poll ref from
+  // the stored pay `response`, so such rows can finally be settled/refunded.
   const inflight = await prisma.transaction.findMany({
     where: {
       status: "PROCESSING",
       partner: RK_PARTNER,
-      partnerTxnId: { not: null },
       createdAt: { lt: new Date(now - DRAIN_AGE_MS) },
     },
     orderBy: { createdAt: "asc" },
     take: 200,
-    select: FINALIZABLE_TXN_SELECT,
+    select: RK_TXN_SELECT,
   });
 
   let drained = 0;
   let settled = 0;
   let refunded = 0;
   let pending = 0;
-  for (const txn of inflight) {
+  for (const row of inflight) {
     try {
-      const { outcome } = await pollAndFinalize(txn, "recon");
+      const { response, ...txn } = row;
+      const { outcome } = await pollAndFinalize(txn, "recon", refsFromResponse(response));
       if (outcome === "settled") settled++;
       else if (outcome === "refunded") refunded++;
       else if (outcome === "pending") {
@@ -146,7 +198,7 @@ export async function runRechargekitReconciliation(): Promise<RechargekitReconSu
       }
       drained++;
     } catch (err) {
-      log.warn({ action: "recon.rechargekit_poll_failed", txnId: txn.id, err: String(err) });
+      log.warn({ action: "recon.rechargekit_poll_failed", txnId: row.id, err: String(err) });
     }
   }
 

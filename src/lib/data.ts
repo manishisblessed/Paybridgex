@@ -33,14 +33,13 @@ export const company = {
   legalEmail: "legal@paybridgex.in",
   grievanceEmail: "grievance@paybridgex.in",
   nodalEmail: "nodal@paybridgex.in",
-  // TODO(paybridgex): replace placeholder phone with the official contact number.
-  phone: "XXXXXXXXXX",
+  phone: "9316810093",
   cin: "U82910GJ2026OPC181144",
   incorporated: "2026",
   jurisdiction: "Ahmedabad, Gujarat",
   address:
-    "E-340, SAFAL 11, Opp. Namaskar Circle, Shahibag, Ahmedabad City, Ahmedabad, Gujarat - 380004",
-  shortAddress: "SAFAL 11, Shahibag, Ahmedabad"
+    "E-340, SAFAL 11, Opp. Namaskar Circle, Shahibaug, Ahmedabad City, Ahmedabad, Gujarat - 380004",
+  shortAddress: "SAFAL 11, Shahibaug, Ahmedabad"
 };
 
 // Mandatory under IT Rules 2021 (Intermediary Guidelines) & RBI Master Direction
@@ -50,10 +49,10 @@ export const grievanceOfficer = {
   name: "[Grievance Officer — to be notified]",
   designation: "Grievance Redressal Officer",
   email: "grievance@paybridgex.in",
-  phone: "+91 XXXXXXXXXX",
+  phone: "+91 9316810093",
   hours: "Monday to Saturday, 10:00 AM – 6:00 PM IST",
   address:
-    "E-340, SAFAL 11, Opp. Namaskar Circle, Shahibag, Ahmedabad City, Ahmedabad, Gujarat – 380004",
+    "E-340, SAFAL 11, Opp. Namaskar Circle, Shahibaug, Ahmedabad City, Ahmedabad, Gujarat – 380004",
   responseSla: "Acknowledgement within 24 hours · Resolution within 15 working days"
 };
 
@@ -61,7 +60,7 @@ export const nodalOfficer = {
   name: "[Nodal Officer — to be notified]",
   designation: "Principal Nodal Officer",
   email: "nodal@paybridgex.in",
-  phone: "+91 XXXXXXXXXX"
+  phone: "+91 9316810093"
 };
 
 export type ServiceItem = {
@@ -711,7 +710,7 @@ export const legalDocuments: Record<string, LegalDocument> = {
         id: "introduction",
         heading: "1. Introduction",
         body: [
-          "This Privacy Policy (\"Policy\") governs the processing of personal data by K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED (CIN: U82910GJ2026OPC181144), a company incorporated under the Companies Act, 2013 and having its registered office at E-340, SAFAL 11, Opp. Namaskar Circle, Shahibag, Ahmedabad City, Ahmedabad, Gujarat – 380004 (\"Paybridgex\", \"Company\", \"We\", \"Us\"), through its website www.paybridgex.in, mobile applications and APIs (collectively, the \"Platform\").",
+          "This Privacy Policy (\"Policy\") governs the processing of personal data by K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED (CIN: U82910GJ2026OPC181144), a company incorporated under the Companies Act, 2013 and having its registered office at E-340, SAFAL 11, Opp. Namaskar Circle, Shahibaug, Ahmedabad City, Ahmedabad, Gujarat – 380004 (\"Paybridgex\", \"Company\", \"We\", \"Us\"), through its website www.paybridgex.in, mobile applications and APIs (collectively, the \"Platform\").",
           "By accessing or using the Platform, you (the \"Data Principal\") consent to the practices described in this Policy. If you do not agree, please do not use the Platform."
         ]
       },
@@ -1122,8 +1121,8 @@ export const legalDocuments: Record<string, LegalDocument> = {
             list: [
               "In-app — Help → Raise a Ticket",
               "E-mail — support@paybridgex.in",
-              "WhatsApp / Phone — +91 XXXXXXXXXX (10 AM – 6 PM IST, Mon–Sat)",
-              "Letter — Customer Care, K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED, E-340, SAFAL 11, Opp. Namaskar Circle, Shahibag, Ahmedabad – 380004"
+              "WhatsApp / Phone — +91 9316810093 (10 AM – 6 PM IST, Mon–Sat)",
+              "Letter — Customer Care, K.A. PAYBRIDGEX SOLUTION (OPC) PRIVATE LIMITED, E-340, SAFAL 11, Opp. Namaskar Circle, Shahibaug, Ahmedabad – 380004"
             ]
           }
         ]
@@ -1137,8 +1136,8 @@ export const legalDocuments: Record<string, LegalDocument> = {
               headers: ["Level", "Officer", "Channel", "TAT"],
               rows: [
                 ["Level 1", "Customer Care Executive", "support@paybridgex.in", "7 working days"],
-                ["Level 2", "Grievance Officer", "grievance@paybridgex.in · +91 XXXXXXXXXX", "15 working days"],
-                ["Level 3", "Principal Nodal Officer", "nodal@paybridgex.in · +91 XXXXXXXXXX", "30 days"],
+                ["Level 2", "Grievance Officer", "grievance@paybridgex.in · +91 9316810093", "15 working days"],
+                ["Level 3", "Principal Nodal Officer", "nodal@paybridgex.in · +91 9316810093", "30 days"],
                 ["Level 4", "RBI Integrated Ombudsman", "cms.rbi.org.in · 14448 (toll-free)", "As per scheme"]
               ]
             }

@@ -16,7 +16,7 @@
  * match APPROVED claims against the provider's settlement file and claw back
  * anything that never settled.
  */
-import { Prisma, type QrClaimStatus, type ServiceCode } from "@prisma/client";
+import { Prisma, type QrClaimStatus, type ServiceCode, type MdrServiceKind } from "@prisma/client";
 import { createHash } from "crypto";
 import { prisma } from "../db";
 import { creditWallet, debitWallet } from "../ledger";
@@ -24,6 +24,7 @@ import { round, toNumber } from "../money";
 import { getSetting } from "../settings";
 import { priceSchemeSettlement, startOfTodayIst, SETTLED_VIA } from "../settlement/engine";
 import { railScopeKey } from "../mdr/floor";
+import { getEffectiveMdr, splitMdrGst } from "../mdr/resolver";
 import { distributeMdrCommission } from "../commission/distribute";
 import { recordPayin } from "../wallet/payin";
 import { isOverflowCollectQr, resolveLiveQr } from "./rotation";
@@ -523,6 +524,16 @@ async function distributeCommissionForQr(
 ) {
   const refId = `QR${claimId.slice(-10).toUpperCase()}`;
   const marginFee = new Prisma.Decimal(marginAmount.toFixed(2));
+  // Carve the GST liability from the actual settled margin per the resolved
+  // slab's treatment (QR re-prices the vendor cost live, so the settled margin
+  // can differ from the slab margin — carve from `marginFee`, not mdr.margin).
+  const mdr = await getEffectiveMdr(userId, "QR" as MdrServiceKind, grossAmount, {
+    paymentMode: "UPI",
+    brandType: QR_BRAND_TYPE,
+    company: scopeKey,
+    settlementType,
+  });
+  const gstFee = round(splitMdrGst(marginFee, mdr.gstInclusive).gst);
   let txn = await prisma.transaction.findUnique({ where: { refId } });
   if (!txn) {
     txn = await prisma.transaction.create({
@@ -533,7 +544,8 @@ async function distributeCommissionForQr(
         // reports attribute the settlement to QR (mirrors POS).
         service: "QR" as ServiceCode,
         amount: new Prisma.Decimal(grossAmount),
-        fee: marginFee, // company MDR margin (MDR − vendor) for the revenue split
+        fee: marginFee, // company MDR margin (MDR − vendor, GST-inclusive)
+        gst: gstFee, // GST carved from the margin (output-tax for GST filing)
         status: "SUCCESS",
         partner: "STATIC_QR",
         partnerTxnId: claimId,
@@ -548,7 +560,7 @@ async function distributeCommissionForQr(
     // consistent going forward.
     txn = await prisma.transaction.update({
       where: { id: txn.id },
-      data: { service: "QR" as ServiceCode, fee: marginFee, settlementType, isSettlement: true },
+      data: { service: "QR" as ServiceCode, fee: marginFee, gst: gstFee, settlementType, isSettlement: true },
     });
   }
 

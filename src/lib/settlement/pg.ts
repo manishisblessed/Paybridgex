@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { creditWallet } from "@/lib/ledger";
 import { distributeMdrCommission } from "@/lib/commission/distribute";
+import { getEffectiveMdr } from "@/lib/mdr/resolver";
 import { railScopeKey } from "@/lib/mdr/floor";
 import { dec, gte, gt, round, toNumber } from "@/lib/money";
 import { recordPayin } from "@/lib/wallet/payin";
@@ -230,6 +231,15 @@ async function distributeCommissionForPg(
   settlementType: "T0" | "T1" = "T1"
 ) {
   const refId = `PG${transactionRef.slice(-10).toUpperCase()}`;
+  // Resolve the company MDR margin + GST from the retailer's scheme so the
+  // settlement anchor records the GST-inclusive margin as `fee` and the carved
+  // GST as `gst` — the output-tax the GST report files (mirrors POS/QR).
+  const mdr = await getEffectiveMdr(userId, "PG" as MdrServiceKind, grossAmount, {
+    paymentMode,
+    settlementType,
+  });
+  const marginFee = round(mdr.margin);
+  const gstFee = round(mdr.gst);
   let txn = await prisma.transaction.findUnique({ where: { refId } });
   if (!txn) {
     txn = await prisma.transaction.create({
@@ -238,12 +248,21 @@ async function distributeCommissionForPg(
         userId,
         service: "WALLET_TOPUP" as ServiceCode, // PG settlement has no ServiceCode; placeholder (matches POS)
         amount: dec(grossAmount),
+        fee: marginFee, // company MDR margin (MDR − vendor, GST-inclusive)
+        gst: gstFee, // GST carved from the margin (output-tax for GST filing)
         status: "SUCCESS",
         partner: "PG",
         partnerTxnId: transactionRef,
         // Inbound acquirer settlement anchor — excluded from risk/AML (see schema).
         isSettlement: true,
       },
+    });
+  } else if (gt(marginFee, 0) && !gt(dec(txn.fee), 0)) {
+    // Pre-existing anchor from an older build that booked no fee/GST — backfill
+    // so per-service revenue + GST reporting are consistent going forward.
+    txn = await prisma.transaction.update({
+      where: { id: txn.id },
+      data: { fee: marginFee, gst: gstFee },
     });
   }
 

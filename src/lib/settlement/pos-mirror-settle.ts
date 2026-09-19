@@ -117,6 +117,11 @@ export async function runPosMirrorSettleSweep(opts?: {
   const rows = await prisma.posTransactionMirror.findMany({
     where: {
       status: "CAPTURED",
+      // MANUAL rows come from the admin-verified slip flow (no-API acquirers).
+      // Their settlement entry is created explicitly at approval, so this
+      // automatic sweep must never touch them — that would bypass the admin
+      // authorisation gate.
+      source: { not: "MANUAL" },
       terminalId: { in: tids },
       txnTime: { gte: dateFrom, lte: dateTo },
     },

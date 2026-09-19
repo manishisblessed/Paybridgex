@@ -103,6 +103,7 @@ type MdrSlab = {
   commissionDistributorT0: number;
   commissionMasterT0: number;
   commissionSuperDistributorT0: number;
+  mdrGstInclusive: boolean;
   active: boolean;
 };
 
@@ -1338,6 +1339,10 @@ function MdrRateModal({
   const [commSuperT0, setCommSuperT0] = useState(
     String(editing ? (editing.commissionType === "PERCENT" ? editing.commissionSuperDistributorT0 * 100 : editing.commissionSuperDistributorT0) : 0)
   );
+  // GST treatment on the company MDR margin. Default: inclusive @18% (revenue is
+  // booked ex-GST; the carved GST is a pass-through liability filed via the GST
+  // report). Uncheck to record 18% GST on top of the full margin instead.
+  const [gstInclusive, setGstInclusive] = useState(editing?.mdrGstInclusive ?? true);
   const [applyScope, setApplyScope] = useState<"single" | "global">("single");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1479,6 +1484,7 @@ function MdrRateModal({
       commissionDistributorT0: toStored(commissionType, commDistT0),
       commissionMasterT0: toStored(commissionType, commMasterT0),
       commissionSuperDistributorT0: toStored(commissionType, commSuperT0),
+      mdrGstInclusive: gstInclusive,
     };
 
     try {
@@ -1607,6 +1613,22 @@ function MdrRateModal({
               )}
             </div>
           )}
+
+          <label className="flex items-start gap-3 rounded-xl border border-ink-100 bg-ink-50/50 px-3 py-2.5">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-ink-300 text-orange-600 focus:ring-orange-500"
+              checked={gstInclusive}
+              onChange={(e) => setGstInclusive(e.target.checked)}
+            />
+            <span className="text-xs leading-relaxed text-ink-600">
+              <span className="font-semibold text-ink-800">Margin is GST-inclusive (18%)</span>
+              <br />
+              When on, 18% GST is carved out of the company MDR margin — revenue is
+              booked ex-GST and the GST is filed as a pass-through liability (GST
+              report). Turn off to record 18% GST on top of the full margin instead.
+            </span>
+          </label>
 
           <div>
             <Label>Rail</Label>

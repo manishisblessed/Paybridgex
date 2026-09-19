@@ -171,6 +171,10 @@ const SlabBody = z.object({
   commissionDistributorT0: z.number().nonnegative().default(0),
   commissionMasterT0: z.number().nonnegative().default(0),
   commissionSuperDistributorT0: z.number().nonnegative().default(0),
+  // GST treatment on the company MDR margin: true (default) = margin is
+  // GST-inclusive @18% (revenue booked ex-GST, GST is a pass-through liability);
+  // false = 18% GST recorded on top of the full margin.
+  mdrGstInclusive: z.boolean().default(true),
   // When true, the slab is created across ALL active schemes (not just this one).
   global: z.boolean().default(false),
 });
@@ -493,6 +497,7 @@ const UpdateBody = z.object({
   commissionDistributorT0: z.number().nonnegative().optional(),
   commissionMasterT0: z.number().nonnegative().optional(),
   commissionSuperDistributorT0: z.number().nonnegative().optional(),
+  mdrGstInclusive: z.boolean().optional(),
   active: z.boolean().optional(),
 });
 
@@ -685,6 +690,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       ...(b.commissionSuperDistributorT0 !== undefined
         ? { commissionSuperDistributorT0: b.commissionSuperDistributorT0 }
         : {}),
+      ...(b.mdrGstInclusive !== undefined ? { mdrGstInclusive: b.mdrGstInclusive } : {}),
       ...(b.active !== undefined ? { active: b.active } : {}),
     },
   });

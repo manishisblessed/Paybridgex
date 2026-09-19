@@ -3,6 +3,9 @@ import { prisma } from "@/lib/db";
 import { dec, gte, lte, mul, round, type Money } from "@/lib/money";
 import { canonicalCardLevel } from "@/lib/pos/binLookup";
 import { isCardClassificationEnabled } from "@/lib/settings";
+import { splitMdrGst } from "./gst";
+
+export { splitMdrGst } from "./gst";
 
 /**
  * MDR engine — resolves the merchant discount rate + commission share for
@@ -38,8 +41,27 @@ export type EffectiveMdr = {
   mdr: Money;
   /** Absolute vendor/acquirer cost (₹) the company pays upstream. */
   vendor: Money;
-  /** Absolute company revenue margin (₹) = mdr − vendor (never below zero). */
+  /**
+   * Absolute company MDR margin (₹) = mdr − vendor (never below zero). This is
+   * the GST-INCLUSIVE margin when the slab is `mdrGstInclusive` — recorded as the
+   * settlement Transaction `fee` (mirrors BBPS where `fee` is GST-inclusive).
+   */
   margin: Money;
+  /**
+   * GST liability on the margin per the slab's `mdrGstInclusive` flag (fixed
+   * 18%): carved out of the margin when inclusive, or 18% on top when not.
+   * Recorded on the settlement Transaction `gst` — the output-tax the GST report
+   * files.
+   */
+  gst: Money;
+  /**
+   * Ex-GST company revenue margin (₹) credited to the Revenue Wallet and used as
+   * the pool that funds upline commissions. Equals `margin − gst` when inclusive,
+   * or the full `margin` when GST is added on top (GST is never revenue).
+   */
+  marginExGst: Money;
+  /** The resolved slab's GST treatment (`MdrSlab.mdrGstInclusive`). */
+  gstInclusive: boolean;
   mdrType: RateType | null;
   commission: {
     retailer: Money;
@@ -63,6 +85,9 @@ function emptyMdr(): EffectiveMdr {
     mdr: dec(0),
     vendor: dec(0),
     margin: dec(0),
+    gst: dec(0),
+    marginExGst: dec(0),
+    gstInclusive: false,
     mdrType: null,
     commission: {
       retailer: dec(0),
@@ -205,6 +230,7 @@ export async function getEffectiveMdr(
     const allowT0Fallback = serviceKind !== "POS" && serviceKind !== "QR";
     const rawMargin = round(dec(mdr).sub(dec(vendor)));
     const margin = rawMargin.gt(0) ? rawMargin : dec(0);
+    const { gst, marginExGst } = splitMdrGst(margin, slab.mdrGstInclusive);
     return {
     source,
     schemeId,
@@ -213,6 +239,9 @@ export async function getEffectiveMdr(
     mdr,
     vendor,
     margin,
+    gst,
+    marginExGst,
+    gstInclusive: slab.mdrGstInclusive,
     mdrType: slab.mdrType,
     commission: {
       retailer: applyRate(amt, slab.commissionType, slab.commissionRetailer),

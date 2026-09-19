@@ -20,6 +20,7 @@ export const REPORT_TYPES = [
   "pos",
   "wallet-settlement",
   "commission",
+  "gst",
   "tds",
   "account",
 ] as const;
@@ -71,6 +72,27 @@ export type ReportTrend = {
   values: number[];
 };
 
+/** One column of a secondary breakdown table (e.g. rate-wise GST summary). */
+export type ReportBreakdownColumn = {
+  key: string;
+  header: string;
+  format?: ReportFieldFormat;
+  align?: "left" | "right" | "center";
+};
+
+/**
+ * An optional secondary summary table rendered above the main report table.
+ * Used by the GST report for the rate-wise (GSTR-3B) breakdown; other reports
+ * simply leave it null.
+ */
+export type ReportBreakdown = {
+  title: string;
+  subtitle?: string;
+  columns: ReportBreakdownColumn[];
+  rows: Record<string, unknown>[];
+  totals?: Record<string, number | string | null>;
+};
+
 /** The shape returned by every report query and the API route. */
 export type ReportResult = {
   rows: Record<string, unknown>[];
@@ -85,6 +107,8 @@ export type ReportResult = {
   totals: Record<string, number | string | null>;
   summary: ReportSummaryStat[];
   trend: ReportTrend | null;
+  /** Optional secondary summary table (e.g. rate-wise GST for GSTR-3B). */
+  breakdown?: ReportBreakdown | null;
   /** Non-null when a report's source model is not yet implemented. */
   note: string | null;
 };

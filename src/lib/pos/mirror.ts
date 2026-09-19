@@ -263,6 +263,13 @@ export async function upsertMirrorFromWebhook(input: {
   externalId?: number | null;
   txnTime?: Date | null;
   raw?: unknown;
+  /**
+   * Provenance label for the created row. Defaults to WEBHOOK (the real-time
+   * capture webhook). The admin-verified manual-slip flow passes "MANUAL" so the
+   * automatic settlement sweep can skip these rows (their settlement entry is
+   * created explicitly at approval, not by the sweep).
+   */
+  source?: string;
 }): Promise<void> {
   const terminalId = clean(input.terminalId);
   if (!input.transactionRef || !terminalId) return;
@@ -308,7 +315,7 @@ export async function upsertMirrorFromWebhook(input: {
     create: {
       transactionRef: input.transactionRef,
       currency: "INR",
-      source: "WEBHOOK",
+      source: input.source ?? "WEBHOOK",
       raw: (input.raw ?? undefined) as Prisma.InputJsonValue | undefined,
       ...shared,
     },
@@ -397,11 +404,31 @@ function buildWhere(filters: MirrorQueryFilters): Prisma.PosTransactionMirrorWhe
 
   if (filters.terminals === null) return base; // tenant-wide (admin)
 
-  // Per-terminal windows: each terminal clamps its lower bound to max(dateFrom,
-  // assignedAt) so pre-assignment rows stay hidden from the current holder.
+  // Per-terminal windows. For INTEGRATED (SYNC/WEBHOOK/SWEEP) rows we clamp the
+  // swipe time (txnTime) to max(dateFrom, assignedAt) so a holder never sees a
+  // prior holder's live transactions.
+  //
+  // EXTERNAL POS (source = "MANUAL") slips are different: the retailer files them
+  // after the fact, so their txnTime (the real swipe time) can legitimately
+  // PREDATE the in-system assignment. Clamping those by txnTime would hide the
+  // holder's OWN approved slip (e.g. swipe 12:27pm, machine assigned 5pm). We
+  // instead gate MANUAL rows on createdAt >= assignedAt — the ingest/approval
+  // moment, which is always AFTER assignment — so the current holder sees their
+  // slips while a previous holder's manual rows (ingested before this
+  // assignment) stay hidden. The outer base.txnTime still bounds MANUAL rows to
+  // the selected [dateFrom, dateTo] window.
   base.OR = filters.terminals.map((t) => {
     const from = t.from && t.from > filters.dateFrom ? t.from : filters.dateFrom;
-    return { terminalId: t.tid, txnTime: { gte: from, lte: filters.dateTo } };
+    return {
+      terminalId: t.tid,
+      OR: [
+        { source: { not: "MANUAL" }, txnTime: { gte: from } },
+        {
+          source: "MANUAL",
+          ...(t.from ? { createdAt: { gte: t.from } } : {}),
+        },
+      ],
+    };
   });
   return base;
 }

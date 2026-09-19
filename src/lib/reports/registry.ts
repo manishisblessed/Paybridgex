@@ -20,6 +20,7 @@ import {
   CalendarClock,
   ShieldCheck,
   ArrowLeftRight,
+  Percent,
   type LucideIcon,
 } from "lucide-react";
 import type { ReportType, ReportFieldFormat } from "./types";
@@ -61,6 +62,14 @@ export type ReportConfig = {
    * in createDispute). Aggregate/ledger reports must leave this off.
    */
   raiseTicket?: boolean;
+  /**
+   * When true, rows in a non-terminal state (PROCESSING/INITIATED) expose a
+   * "Check status" action that re-polls the provider and settles/refunds the
+   * transaction. Only enable on rails that can sit awaiting an out-of-band
+   * terminal state (BBPS bill payments, RechargeKit credit-card) and whose
+   * `refId` column is the user's own `Transaction.refId` (enforced server-side).
+   */
+  reconcilable?: boolean;
 };
 
 /* ------- option helpers --------------------------------------------- */
@@ -292,6 +301,7 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       service: { label: "Bill type", options: opts(BILL_SERVICE_CODES) },
     },
     raiseTicket: true,
+    reconcilable: true,
   },
 
   "credit-card": {
@@ -323,13 +333,14 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       status: { label: "Status", options: opts(TXN_STATUS) },
     },
     raiseTicket: true,
+    reconcilable: true,
   },
 
   qr: {
     type: "qr",
     title: "QR Codes Report",
     short: "QR Codes",
-    description: "Static & dynamic UPI QR collections per outlet (source pending a later phase).",
+    description: "Static UPI QR inventory with the collections filed against each code.",
     icon: QrCode,
     accent: "violet",
     columns: [
@@ -405,6 +416,35 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       { key: "note", header: "Note" },
     ],
     filters: { dateRange: true, search: "Search note / reference…" },
+  },
+
+  gst: {
+    type: "gst",
+    title: "GST Report",
+    short: "GST (Tax Collected)",
+    description:
+      "Per-transaction GST charged on every successful supply — service fees (BBPS, credit-card, recharge, AEPS, DMT…) and payout service charges — with taxable value, GST rate and tax amount. Set the date range to a month and export for your monthly GSTR filing.",
+    icon: Percent,
+    accent: "accent",
+    columns: [
+      { key: "sno", header: "S.No" },
+      { key: "date", header: "Date", format: "datetime" },
+      { key: "retailerId", header: "Retailer ID", format: "mono" },
+      { key: "refId", header: "Reference No", format: "mono" },
+      { key: "service", header: "Service" },
+      { key: "customer", header: "Customer / Beneficiary" },
+      { key: "taxable", header: "Taxable Value", format: "money", align: "right" },
+      { key: "rate", header: "GST %", format: "percent", align: "right" },
+      { key: "gst", header: "GST", format: "money", align: "right", color: "yellow" },
+      { key: "total", header: "Total Charge", format: "money", align: "right" },
+      { key: "status", header: "Status", format: "badge" },
+    ],
+    filters: {
+      dateRange: true,
+      search: "Search ref / retailer / customer…",
+      service: { label: "Service", options: opts(SERVICE_CODES) },
+      mode: { label: "Source", options: opts(["TRANSACTION", "PAYOUT"]) },
+    },
   },
 
   tds: {

@@ -10,7 +10,6 @@ import { clientIp } from "@/lib/security/audit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
-import { percentOf, round, toNumber } from "@/lib/money";
 
 const Body = z.object({
   type: z.enum(["MOBILE", "DTH", "BROADBAND"]),
@@ -50,9 +49,11 @@ export async function POST(req: Request) {
       userId: user.id,
       service: SERVICE[parsed.data.type],
       amount: parsed.data.amount,
-      // Commission is computed server-side with Decimal money math (never floats,
-      // never from the request body): 3% of the order amount.
-      commission: toNumber(round(percentOf(parsed.data.amount, 3))),
+      // No commission is set here. Recharge is not a commission-eligible service
+      // in the distribution engine (only PG/POS/QR earn), so the runner already
+      // resolves + persists the real credited commission (₹0) on success. The
+      // previous hardcoded "3% of amount" was a placeholder that was never
+      // actually paid out and corrupted the analytics/earnings reports.
       idempotencyKey: parsed.data.idempotencyKey,
       customer: parsed.data.number,
       operator: parsed.data.operatorCode,

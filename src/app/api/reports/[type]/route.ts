@@ -24,14 +24,25 @@ const QuerySchema = z.object({
   export: z.enum(["1", "true"]).optional(),
 });
 
-/** Parse a YYYY-MM-DD or ISO string into a Date (null if absent/invalid). */
+/** IST is UTC+5:30; report date bounds are anchored to the Indian calendar day. */
+const IST_OFFSET = "+05:30";
+
+/**
+ * Parse a report date bound. A date-only value (YYYY-MM-DD) is interpreted as an
+ * IST day boundary so monthly/daily ranges line up with the Indian calendar day
+ * regardless of the server's timezone — critical for GST/TDS filing, where a
+ * transaction just after IST midnight must fall in the correct month. A full ISO
+ * timestamp is honoured as-is.
+ */
 function parseDate(value: string | undefined, endOfDay = false): Date | null {
   if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const time = endOfDay ? "23:59:59.999" : "00:00:00.000";
+    const d = new Date(`${value}T${time}${IST_OFFSET}`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  // Date-only strings should cover the whole day on the upper bound.
-  if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(value)) d.setHours(23, 59, 59, 999);
-  return d;
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 export async function GET(req: Request, { params }: { params: { type: string } }) {

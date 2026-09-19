@@ -88,6 +88,7 @@ export function serializeMdrSlab(s: MdrSlab) {
     commissionDistributorT0: Number(s.commissionDistributorT0),
     commissionMasterT0: Number(s.commissionMasterT0),
     commissionSuperDistributorT0: Number(s.commissionSuperDistributorT0),
+    mdrGstInclusive: s.mdrGstInclusive,
     parentSlabId: s.parentSlabId,
     active: s.active,
   };

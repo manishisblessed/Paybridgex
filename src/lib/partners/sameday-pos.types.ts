@@ -241,6 +241,10 @@ export interface PosAssignee {
 export interface LocalPosMachine {
   id: string;
   externalId: string;
+  /** Inventory origin: "SYNC" (partner API) or "MANUAL" (External POS). */
+  source: string;
+  /** Acquiring-company label (e.g. "Yes Bank"), used for the fleet badge. */
+  company: string | null;
   mid: string | null;
   tid: string | null;
   serial: string | null;

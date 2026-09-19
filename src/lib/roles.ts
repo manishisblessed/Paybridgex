@@ -153,6 +153,7 @@ export const ASSIGNABLE_ADMIN_TABS = [
   { href: "brands", label: "Brands & MDR" },
   { href: "settlement-ops", label: "Settlement Desk" },
   { href: "pos-settlement", label: "POS Settlements" },
+  { href: "pos-slips", label: "External POS Slips" },
   { href: "pos-reversals", label: "POS Reversals" },
   { href: "reversals", label: "Reversal Desk" },
   { href: "aeps", label: "AePS Centre" },
@@ -214,6 +215,7 @@ const adminMoneyDesk: NavItem[] = [
   { href: "/dashboard/admin/ledger", label: "Ledger Explorer", icon: BookOpenCheck },
   { href: "/dashboard/admin/settlement-ops", label: "Settlement Desk", icon: Timer },
   { href: "/dashboard/admin/pos-settlement", label: "POS Settlements", icon: CreditCard },
+  { href: "/dashboard/admin/pos-slips", label: "External POS Slips", icon: ListChecks },
   { href: "/dashboard/admin/pos-reversals", label: "POS Reversals", icon: RotateCcw },
   { href: "/dashboard/admin/reversals", label: "Reversal Desk", icon: Undo2 },
   { href: "/dashboard/payout-approvals", label: "Payout Approvals", icon: ListChecks }
@@ -385,6 +387,7 @@ export const navByRole: Record<Role, NavGroup[]> = {
         { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
         { href: "/dashboard/admin/wallet-ops", label: "Wallet Balances", icon: Wallet },
         { href: "/dashboard/admin/ledger", label: "Ledger Explorer", icon: BookOpenCheck },
+        { href: "/dashboard/admin/pos-slips", label: "External POS Slips", icon: ListChecks },
         // "Company Earnings" (Revenue Wallet) is owner-only; finance uses the
         // Commission Payouts + Per-Txn Earnings reports instead.
         { href: "/dashboard/admin/commission-report", label: "Commission Payouts", icon: HandCoins },

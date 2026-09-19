@@ -64,7 +64,11 @@ export async function POST(req: Request) {
       service: "AEPS_WITHDRAW",
       amount: parsed.data.amount,
       fee: 0,
-      commission: Math.min(12, parsed.data.amount * 0.005),
+      // No commission is set here. AePS withdrawal is not a commission-eligible
+      // service in the distribution engine (only PG/POS/QR earn), so the runner
+      // already resolves + persists the real credited commission (₹0) on success.
+      // The previous hardcoded "min(₹12, 0.5%)" was a placeholder that was never
+      // actually paid out and corrupted the analytics/earnings reports.
       idempotencyKey: parsed.data.idempotencyKey,
       customer: parsed.data.aadhaar.slice(-4),
       operator: parsed.data.bankIin,

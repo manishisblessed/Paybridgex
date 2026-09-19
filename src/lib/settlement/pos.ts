@@ -6,7 +6,7 @@ import { distributeMdrCommission } from "@/lib/commission/distribute";
 import { isAboveMdrFloor } from "@/lib/mdr/floor";
 import { dec, sub, gte, toNumber, round, gt, eq } from "@/lib/money";
 import { getSetting } from "@/lib/settings";
-import { SETTLED_VIA, type SettledVia } from "@/lib/settlement/engine";
+import { SETTLED_VIA, type SettledVia, isInstantButtonEnabled } from "@/lib/settlement/engine";
 import type { MdrServiceKind, ServiceCode } from "@prisma/client";
 
 /**
@@ -46,6 +46,12 @@ export type PosCaptureInput = {
   // webhook path). Pull-ingestion passes the partner's txn time so T+1 settles
   // on the correct capture day even when we learn of the capture a day late.
   capturedAt?: Date | string;
+  // Explicit settlement-timing choice (External POS manual slips — the retailer
+  // picks Instant vs Next Day at upload). Overrides the user/brand/global default
+  // resolution below. An INSTANT override is still gated on the platform instant
+  // kill-switch and the daily instant budget, falling back to T+1 when either
+  // blocks it. Omit for automatic (webhook/sweep) captures.
+  settlementModeOverride?: "INSTANT" | "T1";
 };
 
 export type PosCaptureResult = {
@@ -234,7 +240,18 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   // fall back to legacy user-scheme pricing by dropping the brand.
   if (brandId && !brand) brandId = null;
 
-  const mode = await resolveSettlementMode(user.instantSettlement, brand?.settlementMode ?? null);
+  // An explicit per-capture override (manual slip: retailer's Instant/Next Day
+  // choice) wins over the user/brand/global resolution. An INSTANT override only
+  // holds if the platform instant button is enabled for POS — otherwise it
+  // degrades to T+1 (the daily-budget gate below degrades it further if needed).
+  let mode: "INSTANT" | "T1";
+  if (input.settlementModeOverride === "INSTANT") {
+    mode = (await isInstantButtonEnabled("POS")) ? "INSTANT" : "T1";
+  } else if (input.settlementModeOverride === "T1") {
+    mode = "T1";
+  } else {
+    mode = await resolveSettlementMode(user.instantSettlement, brand?.settlementMode ?? null);
+  }
   const settlementType = mode === "INSTANT" ? "T0" : "T1";
 
   const dims: Omit<MdrDimensions, "paymentMode" | "settlementType"> = {
@@ -417,8 +434,9 @@ export type PosReversalInput = {
   status: "VOIDED" | "REFUNDED";
   reason?: string | null;
   reversedAt?: Date | string | null;
-  /** Where the reversal was learned — audit only. */
-  source: "WEBHOOK" | "SWEEP";
+  /** Where the reversal was learned — audit only. MANUAL = an admin-initiated
+   *  reversal of an External POS slip (no partner API to signal void/refund). */
+  source: "WEBHOOK" | "SWEEP" | "MANUAL";
 };
 
 export type PosReversalResult = {
@@ -553,7 +571,10 @@ async function distributeCommissionForPos(
   // attribute POS correctly (platform revenue = fee − commission = margin −
   // commission), matching the Revenue Wallet.
   const mdr = await getEffectiveMdr(userId, "POS" as MdrServiceKind, grossAmount, mdrDims);
+  // `fee` is the GST-INCLUSIVE margin (mirrors BBPS); `gstFee` is the GST carved
+  // from it — the output-tax the GST report files. Revenue is booked ex-GST.
   const marginFee = round(mdr.margin);
+  const gstFee = round(mdr.gst);
 
   // We need a Transaction row for the CommissionCredit FK. Create a synthetic
   // settlement entry keyed 1:1 with the canonical capture ref (NO truncation —
@@ -568,7 +589,7 @@ async function distributeCommissionForPos(
     // per-service earnings / revenue reports attribute the settlement to POS.
     txn = await prisma.transaction.update({
       where: { id: txn.id },
-      data: { service: "POS" as ServiceCode, fee: marginFee, settlementType, isSettlement: true },
+      data: { service: "POS" as ServiceCode, fee: marginFee, gst: gstFee, settlementType, isSettlement: true },
     });
   }
   if (!txn) {
@@ -580,6 +601,7 @@ async function distributeCommissionForPos(
           service: "POS" as ServiceCode,
           amount: dec(grossAmount),
           fee: marginFee,
+          gst: gstFee,
           status: "SUCCESS",
           partner: "SAMEDAY_POS",
           partnerTxnId: transactionRef,

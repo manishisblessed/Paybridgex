@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { formatINR, formatNumber, formatIST, formatISTDate } from "@/lib/utils";
 import {
-  RefreshCw, ReceiptText, Plus, Upload, Search, IndianRupee,
+  RefreshCw, ReceiptText, Plus, Upload, Download, Search, IndianRupee,
   CreditCard, AlertCircle, CheckCircle2, XCircle, Loader2, Percent, Pencil, Clock, Gift,
   type LucideIcon,
 } from "lucide-react";
@@ -1152,6 +1152,13 @@ function InvoicesTab({
 
 const CSV_COLUMNS = ["serial", "tid", "mid", "model", "brand", "company", "condition", "status", "location", "city", "state"];
 
+/** Downloadable sample so bulk uploads always follow the exact column order. */
+const CSV_TEMPLATE =
+  CSV_COLUMNS.join(",") +
+  "\n" +
+  "SN001,TID001,MID001,S900,Pax,Yes Bank,NEW,active,Eros Mall,New Delhi,Delhi\n" +
+  "SN002,TID002,MID002,D210,Verifone,Yes Bank,NEW,active,Main Road,Mumbai,Maharashtra\n";
+
 type MachineRow = {
   serial: string; tid: string; mid: string; model: string; brand: string;
   company: string; condition: string; status: string; location: string;
@@ -1169,6 +1176,7 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
   const [mode, setMode] = useState<IntakeMode>("table");
   const [rows, setRows] = useState<MachineRow[]>([emptyRow()]);
   const [csvText, setCsvText] = useState("");
+  const [csvFileName, setCsvFileName] = useState("");
   const [busy, setBusy] = useState(false);
 
   // Shared defaults applied to every new row
@@ -1260,6 +1268,65 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
       if (row.status) row.status = row.status.toLowerCase();
       return row;
     });
+  };
+
+  // Download the sample template so bulk files always match the column order.
+  const downloadTemplate = () => {
+    const blob = new Blob([CSV_TEMPLATE], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "pos-machines-template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Read a chosen .csv file into the editable preview (no upload yet).
+  const readCsvFile = async (file: File | null | undefined) => {
+    if (!file) return;
+    if (!/\.csv$/i.test(file.name) && file.type !== "text/csv") {
+      onNotice("Please choose a .csv file.", false);
+      return;
+    }
+    try {
+      const text = await file.text();
+      setCsvText(text);
+      setCsvFileName(file.name);
+    } catch {
+      onNotice("Couldn't read that file. Try re-saving it as CSV.", false);
+    }
+  };
+
+  const submitCsv = async () => {
+    const parsed = parseCsv();
+    if (!parsed) return;
+    // Within-file dedup by serial (case-insensitive) + drop invalid serials so
+    // the SAME machine can never be uploaded twice from one file. The API also
+    // rejects any serial that already exists in inventory (second layer).
+    const seen = new Set<string>();
+    let dupInFile = 0;
+    let invalid = 0;
+    const clean: Array<Record<string, string>> = [];
+    for (const row of parsed) {
+      const serial = (row.serial ?? "").trim();
+      if (serial.length < 3) { invalid++; continue; }
+      const k = serial.toLowerCase();
+      if (seen.has(k)) { dupInFile++; continue; }
+      seen.add(k);
+      clean.push(row);
+    }
+    if (clean.length === 0) {
+      onNotice("No valid rows to upload (all rows were blank, invalid, or duplicate serials).", false);
+      return;
+    }
+    const ok = await post(clean);
+    if (ok) {
+      setCsvText("");
+      setCsvFileName("");
+      const skipped = dupInFile + invalid;
+      if (skipped > 0)
+        onNotice(`${skipped} row(s) skipped in the file (${dupInFile} duplicate, ${invalid} invalid).`, true);
+    }
   };
 
   const lookup = async () => {
@@ -1421,31 +1488,41 @@ function IntakeTab({ onNotice }: { onNotice: (text: string, ok: boolean) => void
             </div>
           </>
         ) : (
-          /* CSV paste mode */
+          /* CSV upload / paste mode */
           <>
             <div className="mb-2 text-xs text-ink-400">
-              Paste CSV with a header row. Required: <code className="rounded bg-ink-100 px-1 font-mono text-[11px]">serial</code>.
-              Optional: {CSV_COLUMNS.filter((c) => c !== "serial").join(", ")}. Max 500 rows.
+              Upload a <span className="font-semibold text-ink-600">.csv file</span> (or paste below). Use the template so
+              columns line up. Required: <code className="rounded bg-ink-100 px-1 font-mono text-[11px]">serial</code>.
+              Optional: {CSV_COLUMNS.filter((c) => c !== "serial").join(", ")}. Max 500 rows. Duplicate serials are skipped automatically.
+            </div>
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <Button type="button" variant="outline" size="sm" onClick={downloadTemplate}>
+                <Download className="h-4 w-4" /> Download template
+              </Button>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-50">
+                <Upload className="h-4 w-4" /> Choose .csv file
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={(e) => { readCsvFile(e.target.files?.[0]); e.target.value = ""; }}
+                />
+              </label>
+              {csvFileName && <span className="text-xs text-ink-500">Loaded: <span className="font-mono text-ink-700">{csvFileName}</span></span>}
             </div>
             <textarea
               className={`${inputCls} h-48 font-mono text-xs`}
-              placeholder={"serial,tid,mid,model,brand,company,condition,location,city,state\nSN001,TID001,,S900,Pax,ICICI,NEW,Eros Mall,New Delhi,Delhi\nSN002,TID002,,D210,Verifone,HDFC,NEW,Main Road,Mumbai,Maharashtra"}
+              placeholder={"serial,tid,mid,model,brand,company,condition,status,location,city,state\nSN001,TID001,,S900,Pax,Yes Bank,NEW,active,Eros Mall,New Delhi,Delhi\nSN002,TID002,,D210,Verifone,Yes Bank,NEW,active,Main Road,Mumbai,Maharashtra"}
               value={csvText}
-              onChange={(e) => setCsvText(e.target.value)}
+              onChange={(e) => { setCsvText(e.target.value); if (csvFileName) setCsvFileName(""); }}
             />
             <div className="mt-3 flex items-center gap-3">
-              <Button size="sm" disabled={busy || !csvText.trim()}
-                onClick={async () => {
-                  const parsed = parseCsv();
-                  if (!parsed) return;
-                  const ok = await post(parsed);
-                  if (ok) setCsvText("");
-                }}>
+              <Button size="sm" disabled={busy || !csvText.trim()} onClick={submitCsv}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 Upload {csvText.trim() ? csvText.trim().split(/\r?\n/).length - 1 : 0} rows
               </Button>
               <span className="text-xs text-ink-400">
-                {csvText.trim() ? `${csvText.trim().split(/\r?\n/).length - 1} data row(s) detected` : "Paste CSV above"}
+                {csvText.trim() ? `${csvText.trim().split(/\r?\n/).length - 1} data row(s) detected` : "Choose a file or paste CSV above"}
               </span>
             </div>
           </>

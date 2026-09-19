@@ -218,6 +218,8 @@ model User {
   commissionCredits     CommissionCredit[]    @relation("CommissionCredits")
   tdsEntries            TdsLedgerEntry[]      @relation("TdsPayee")
   posSettlements        PosSettlementEntry[]  @relation("PosSettlements")
+  posManualSlips        PosManualSlip[]       @relation("PosManualSlipUploader")
+  posManualSlipsReviewed PosManualSlip[]      @relation("PosManualSlipReviewer")
   pgSettlements         PgSettlementEntry[]   @relation("PgSettlements")
   networkTransfersOut   NetworkWalletTransfer[] @relation("NetworkTransfersOut")
   networkTransfersIn    NetworkWalletTransfer[] @relation("NetworkTransfersIn")
@@ -1572,7 +1574,7 @@ model PosTransactionMirror {
 
   // Full partner payload for audit / future fields, and row provenance.
   raw    Json?
-  source String @default("SWEEP") // WEBHOOK | SWEEP
+  source String @default("SWEEP") // WEBHOOK | SWEEP | MANUAL (admin-verified External POS slip)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1900,6 +1902,14 @@ model MdrSlab {
   // settlement and falls back to vendorCharge when zero/unset.
   vendorCharge   Decimal @default(0) @db.Decimal(14, 4)
   vendorChargeT0 Decimal @default(0) @db.Decimal(14, 4)
+
+  // GST treatment on the company's MDR margin (margin = mdr − vendor). When true
+  // (default) the margin is GST-INCLUSIVE @18%: the ex-GST margin (margin ÷ 1.18)
+  // is booked as revenue and the balance is the GST pass-through liability
+  // recorded on the settlement Transaction. When false, the full margin is
+  // revenue and 18% GST is recorded ON TOP as an additional liability. Mirrors
+  // SchemeSlab.chargeGstInclusive for the acquiring rails (POS/PG/QR).
+  mdrGstInclusive Boolean @default(true)
 
   // Commission share distributed up the chain (same RateType semantics).
   // The base columns are the T+1 (standard settlement) commission. The *T0
@@ -2506,6 +2516,11 @@ model CommissionCredit {
   @@index([transactionId])
   @@index([userId, createdAt])
   @@index([userId, service, createdAt])
+  // Platform-wide (admin) reporting groups commission by service over a date
+  // range with NO user filter (Business Analytics, admin summary report). The
+  // user-leading indexes above cannot serve that, so a createdAt range scan
+  // needs its own index to avoid a sequential scan at scale.
+  @@index([createdAt])
 }
 
 // ---------- TDS liability ledger ----------
@@ -2598,6 +2613,67 @@ model PosSettlementEntry {
   @@index([status, createdAt])
   @@index([status, capturedAt])
   @@index([brandId])
+}
+
+// Manual POS slip submissions (Yes Bank & other no-API "External POS"
+// acquirers). Retailers upload a physical slip for a terminal assigned to them;
+// an admin approves/rejects. On approval the slip is spliced into the SHARED
+// settlement engine so payin, MDR pricing, instant/T+1 settlement, commission
+// and 2% TDS behave exactly like an API-sourced capture.
+model PosManualSlip {
+  id             String @id @default(cuid())
+  uploaderUserId String
+  uploader       User   @relation("PosManualSlipUploader", fields: [uploaderUserId], references: [id])
+
+  // Terminal the slip belongs to. machineId is a plain reference (matching
+  // PosSettlementEntry.machineId) — the assignment is validated at upload time.
+  machineId String
+  tid       String
+
+  grossAmount Decimal   @db.Decimal(14, 2)
+  paymentMode String    @default("CARD") // CARD | UPI | NFC | BHARATQR
+  // Retailer-chosen settlement timing for THIS slip. "T1" = next-day sweep,
+  // "INSTANT" = credit the wallet at admin approval. Honored at approval time
+  // (see approveManualSlip → handlePosCapture); INSTANT still respects the
+  // platform instant kill-switch + daily instant budget cap, falling back to T1.
+  settlementPref String @default("T1") // INSTANT | T1
+  rrn         String? // acquirer RRN / reference number from the slip
+  authCode    String? // approval / auth code from the slip
+  cardType    String? // CREDIT | DEBIT | PREPAID (optional pricing dimension)
+  brandType   String? // VISA | MASTERCARD | RUPAY | ... (optional)
+  txnTime     DateTime? // when the swipe happened (drives the T+1 settlement day)
+
+  // Slip evidence — private Cloudinary asset (jpg/jpeg/png/pdf).
+  slipPublicId     String
+  slipFormat       String?
+  slipResourceType String  @default("image") // image | raw (pdf)
+
+  status          String    @default("PENDING") // PENDING | APPROVED | REJECTED | REVERSED
+  // Free-text reviewer note: the rejection reason (REJECTED) or the reversal
+  // reason (REVERSED). Null while PENDING/APPROVED.
+  rejectionReason String?
+  reviewedById    String?
+  reviewedBy      User?     @relation("PosManualSlipReviewer", fields: [reviewedById], references: [id])
+  reviewedAt      DateTime?
+
+  // Set on approval — links the slip to what it became downstream.
+  transactionRef    String? @unique // canonical mirror/settlement key (MPOS:<tid>:<id>)
+  settlementEntryId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([uploaderUserId, status])
+  @@index([status, createdAt])
+  @@index([settlementPref, status])
+  @@index([machineId])
+  @@index([tid])
+  // NOTE: a PARTIAL UNIQUE index on (tid, rrn) WHERE rrn IS NOT NULL AND status
+  // IN ('PENDING','APPROVED') is enforced in the DB via the
+  // 20260918120000_pos_manual_slip migration. Prisma can't express partial
+  // indexes, so it lives in SQL only — do not "fix" the drift by dropping it. It
+  // stops concurrent duplicate slips for the same RRN/TID while still allowing
+  // re-upload after a REJECT.
 }
 
 // PG (payment gateway) acquirer settlement entry — the PG analogue of

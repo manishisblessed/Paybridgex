@@ -21,9 +21,11 @@ import {
   type FundRequestStatus,
   type WalletDirection,
   type WalletReason,
+  type QrClaimStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { dec, add, sub, toNumber } from "@/lib/money";
+import { dec, add, sub, round, toNumber } from "@/lib/money";
+import { startOfTodayIst } from "@/lib/settlement/engine";
 import { isAdminRole, getDescendantIds } from "@/lib/security/ownership";
 import { flags } from "@/lib/env";
 import type { SessionUser } from "@/lib/auth-server";
@@ -36,6 +38,7 @@ import type {
 } from "./types";
 import { EXPORT_ROW_CAP } from "./types";
 import { getDailyUserReport } from "./daily";
+import { gstRate, splitCgstSgst } from "./gstMath";
 
 /* --------------------------------------------------------------------- */
 /*  Shared helpers                                                        */
@@ -165,9 +168,28 @@ async function reportSummary(user: SessionUser, params: ReportParams): Promise<R
   const grouped = await prisma.transaction.groupBy({
     by: ["service", "status"],
     where,
-    _sum: { amount: true, fee: true, commission: true, gst: true },
+    _sum: { amount: true, fee: true, gst: true },
     _count: { _all: true },
   });
+
+  // Authoritative per-service commission from the CommissionCredit ledger (the
+  // NET commission actually credited to the network). Transaction.commission is
+  // unreliable per service — it mixes net DIRECT commission with the gross
+  // POS/QR chain pool and carries recharge/AEPS placeholder values — so the
+  // commission column/total reads the ledger with the same ownership + date +
+  // service scoping as the turnover figures.
+  const commissionGrouped = await prisma.commissionCredit.groupBy({
+    by: ["service"],
+    where: {
+      ...(ids ? { userId: { in: ids } } : {}),
+      ...(createdAt ? { createdAt } : {}),
+      ...(params.service ? { service: params.service as ServiceCode } : {}),
+    },
+    _sum: { amount: true },
+  });
+  const commissionByService = new Map<string, Prisma.Decimal>(
+    commissionGrouped.map((c) => [c.service as string, dec(c._sum.amount ?? 0)])
+  );
 
   type Agg = {
     service: string;
@@ -188,10 +210,10 @@ async function reportSummary(user: SessionUser, params: ReportParams): Promise<R
       r.success += g._count._all;
       r.gross = add(r.gross, g._sum.amount ?? 0);
       r.fee = add(r.fee, g._sum.fee ?? 0);
-      r.commission = add(r.commission, g._sum.commission ?? 0);
     } else if (g.status === "FAILED") {
       r.failed += g._count._all;
     }
+    r.commission = commissionByService.get(g.service) ?? dec(0);
     map.set(g.service, r);
   }
 
@@ -1036,25 +1058,150 @@ async function reportCreditCard(user: SessionUser, params: ReportParams): Promis
 }
 
 /* --------------------------------------------------------------------- */
-/*  6 · QR Codes (no dedicated source model yet — graceful empty)         */
+/*  6 · QR Codes (static QR inventory + per-QR claim collections)          */
 /* --------------------------------------------------------------------- */
 
-async function reportQr(_user: SessionUser, params: ReportParams): Promise<ReportResult> {
+/**
+ * Static UPI QR inventory with the collections filed against each code.
+ *
+ * Collections live in `QrClaim` (retailer-filed, admin-verified) keyed to a
+ * `StaticQr` in the rotation pool. Admins see the whole QR inventory; a
+ * non-admin sees only the QRs their own downline has collected against, with
+ * every aggregate scoped to that downline. "Collected"/"Payments" count every
+ * non-rejected claim; "Settled" is the net value actually paid out.
+ */
+async function reportQr(user: SessionUser, params: ReportParams): Promise<ReportResult> {
+  const ids = await allowedUserIds(user);
+  const claimDate = dateFilter(params);
+
+  // Business status groups — mirror src/lib/qr/settlementReport.ts so this
+  // report agrees with the QR settlement report to the rupee:
+  //   • REJECTED + CLAWED_BACK      → never a real collection (refused/reversed);
+  //   • APPROVED (legacy) + SETTLED → money actually paid out to the wallet.
+  const NON_COLLECTION: QrClaimStatus[] = ["REJECTED", "CLAWED_BACK"];
+  const SETTLED_STATUSES: QrClaimStatus[] = ["APPROVED", "SETTLED"];
+
+  // Ownership + date window shared by every claim query below.
+  const claimScope: Prisma.QrClaimWhereInput = {
+    ...(ids ? { userId: { in: ids } } : {}),
+    ...(claimDate ? { createdAt: claimDate } : {}),
+  };
+  // A genuine collection: in scope AND not refused/reversed.
+  const collectedWhere: Prisma.QrClaimWhereInput = {
+    ...claimScope,
+    status: { notIn: NON_COLLECTION },
+  };
+
+  // Which QR codes to list:
+  //   admin     → the full inventory (optionally search-filtered);
+  //   non-admin → only codes their downline has genuinely collected against.
+  const qrWhere: Prisma.StaticQrWhereInput = {
+    ...(params.q
+      ? {
+          OR: [
+            { label: { contains: params.q, mode: "insensitive" } },
+            { upiVpa: { contains: params.q, mode: "insensitive" } },
+            { id: { contains: params.q, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+    ...(ids ? { claims: { some: collectedWhere } } : {}),
+  };
+
+  const [list, total, collectedAgg, settledAgg] = await Promise.all([
+    prisma.staticQr.findMany({
+      where: qrWhere,
+      orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
+      ...paginate(params),
+    }),
+    prisma.staticQr.count({ where: qrWhere }),
+    // Headline collected/payments across the whole filtered scope (not just page).
+    prisma.qrClaim.aggregate({
+      where: collectedWhere,
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+    // Net actually settled to wallets in range (legacy APPROVED + SETTLED).
+    prisma.qrClaim.aggregate({
+      where: { ...claimScope, status: { in: SETTLED_STATUSES } },
+      _sum: { netAmount: true },
+    }),
+  ]);
+
+  // Per-QR collection aggregates, limited to the codes on this page.
+  const pageIds = list.map((q) => q.id);
+  const perQr = pageIds.length
+    ? await prisma.qrClaim.groupBy({
+        by: ["qrId"],
+        where: { ...collectedWhere, qrId: { in: pageIds } },
+        _sum: { amount: true },
+        _count: { _all: true },
+      })
+    : [];
+  const aggMap = new Map(perQr.map((g) => [g.qrId, g]));
+
+  const startOfToday = startOfTodayIst();
+  const rows = list.map((q) => {
+    const a = aggMap.get(q.id);
+    const status = !q.enabled
+      ? "DISABLED"
+      : q.active
+        ? "LIVE"
+        : q.autoPausedOn != null && q.autoPausedOn.getTime() >= startOfToday.getTime()
+          ? "FULL_TODAY"
+          : "QUEUED";
+    return {
+      id: q.id,
+      label: q.label,
+      type: "Static",
+      vpa: q.upiVpa ?? "—",
+      payments: a?._count._all ?? 0,
+      collected: toNumber(a?._sum.amount ?? 0),
+      status,
+    };
+  });
+
+  const collected = collectedAgg._sum.amount ?? dec(0);
+  const payments = collectedAgg._count._all;
+  const settled = settledAgg._sum.netAmount ?? dec(0);
+
+  const { from, to } = effectiveRange(params);
+  const trend = trendToSeries(
+    await dailyTrend({
+      table: "QrClaim",
+      dateCol: "createdAt",
+      valueExpr: `"amount"`,
+      userCol: "userId",
+      ids,
+      from,
+      to,
+      extra: Prisma.sql`AND "status" NOT IN ('REJECTED', 'CLAWED_BACK')`,
+    }),
+    "Daily QR collections",
+    "#7c3aed"
+  );
+
   return {
-    rows: [],
-    total: 0,
+    rows,
+    total,
     page: params.page,
     pageSize: params.pageSize,
-    totals: {},
+    totals: {
+      id: "Total",
+      payments,
+      collected: toNumber(collected),
+    },
     summary: [
-      count("QR codes", 0, "violet"),
-      money("Collected", 0, "brand"),
-      count("Payments", 0, "accent"),
-      money("Settled", 0, "emerald"),
+      count("QR codes", total, "violet"),
+      money("Collected", collected, "brand"),
+      count("Payments", payments, "accent"),
+      money("Settled", settled, "emerald"),
     ],
-    trend: null,
+    trend,
     note:
-      "QR Codes are part of a later phase and don't have a dedicated data source yet. Once QR collections are persisted, this report will populate automatically.",
+      total === 0
+        ? "No QR collections were found for this range."
+        : null,
   };
 }
 
@@ -1290,6 +1437,60 @@ async function reportCommission(user: SessionUser, params: ReportParams): Promis
 /*  9b · TDS (Section 194H withholding — filing / Form 26Q prep)           */
 /* --------------------------------------------------------------------- */
 /**
+ * PAN fallback for deductees whose `Kyc.panNumber` was never backfilled.
+ *
+ * A user's PAN is verified during onboarding and stored in the `PAN_360`
+ * `VerificationResult` payload, but the value is not always written back onto
+ * `Kyc.panNumber`. The KYC review screen (`buildKycDetail`) already falls back
+ * to the verification payload so reviewers see the real PAN; this mirrors that
+ * behaviour for the TDS report so Form 26Q rows show the verified PAN instead
+ * of "—". Onboarding verifications are created against the invite and only get
+ * their `userId` backfilled at registration, so resolve by `userId` OR the
+ * user's invite id. Only the given (PAN-missing) users are queried. Returns a
+ * map of userId → PAN (uppercased).
+ */
+async function resolvePanFallback(userIds: string[]): Promise<Map<string, string>> {
+  if (userIds.length === 0) return new Map();
+
+  const invites = await prisma.invite.findMany({
+    where: { userId: { in: userIds } },
+    select: { id: true, userId: true },
+  });
+  const inviteToUser = new Map<string, string>();
+  const inviteIds: string[] = [];
+  for (const inv of invites) {
+    inviteIds.push(inv.id);
+    if (inv.userId) inviteToUser.set(inv.id, inv.userId);
+  }
+
+  const rows = await prisma.verificationResult.findMany({
+    where: {
+      type: "PAN_360",
+      status: "Success",
+      OR: [
+        { userId: { in: userIds } },
+        ...(inviteIds.length ? [{ inviteId: { in: inviteIds } }] : []),
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+    select: { userId: true, inviteId: true, requestPayload: true, responsePayload: true },
+  });
+
+  const byUser = new Map<string, string>();
+  for (const v of rows) {
+    const owner = v.userId ?? (v.inviteId ? inviteToUser.get(v.inviteId) ?? null : null);
+    if (!owner || byUser.has(owner)) continue; // rows are newest-first: keep the latest
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const req = (v.requestPayload ?? {}) as any;
+    const res = (v.responsePayload ?? {}) as any;
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+    const pan = String(req.pan ?? res.pan ?? "").trim().toUpperCase();
+    if (pan) byUser.set(owner, pan);
+  }
+  return byUser;
+}
+
+/**
  * Per-deductee TDS withheld over the selected range (set it to a quarter for
  * Form 26Q). One row per payee (DT/MD/SD) with their PAN, number of deductions,
  * gross commission and TDS withheld — the line items a 26Q return needs. Admins
@@ -1328,6 +1529,11 @@ async function reportTds(user: SessionUser, params: ReportParams): Promise<Repor
     : [];
   const userById = new Map(users.map((u) => [u.id, u]));
 
+  // Fill in PAN for deductees whose Kyc.panNumber was never backfilled, using
+  // their verified PAN_360 onboarding record (mirrors the KYC review screen).
+  const missingPanIds = users.filter((u) => !u.kyc?.panNumber).map((u) => u.id);
+  const panFallback = await resolvePanFallback(missingPanIds);
+
   const q = params.q?.trim().toLowerCase() ?? null;
   const allRows = grouped
     .map((g) => {
@@ -1335,7 +1541,7 @@ async function reportTds(user: SessionUser, params: ReportParams): Promise<Repor
       return {
         deductee: u?.name ?? "—",
         code: u?.userCode ?? g.userId.slice(0, 8).toUpperCase(),
-        pan: u?.kyc?.panNumber ?? "—",
+        pan: u?.kyc?.panNumber ?? panFallback.get(g.userId) ?? "—",
         role: u?.role ?? "—",
         section: "194H",
         deductions: g._count._all,
@@ -1557,6 +1763,354 @@ async function reportDailyUser(user: SessionUser, params: ReportParams): Promise
 }
 
 /* --------------------------------------------------------------------- */
+/* 10b · GST (per-transaction tax charged — monthly GSTR filing)          */
+/* --------------------------------------------------------------------- */
+/**
+ * A per-transaction GST register for monthly GST filing. One row per SUCCESSFUL
+ * taxable supply, unioning the two places GST is actually charged and recorded
+ * (no overlap — a payout never creates a Transaction row):
+ *
+ *   1. Transaction.gst  — service fees (BBPS, credit-card, recharge, AEPS,
+ *                         DMT…). `fee` is GST-INCLUSIVE, so taxable = fee − gst.
+ *   2. PayoutRequest.gst — payout service charges. `serviceCharge` is EX-GST,
+ *                         so taxable = serviceCharge and total = charge + gst.
+ *
+ * Only SUCCESS rows with gst > 0 are counted — that is exactly the output-tax
+ * liability you file (failed/reversed supplies had their charge + GST refunded,
+ * so they carry no collected tax). Both `gst` values are the authoritative
+ * amounts persisted at charge time (never re-derived), so the report ties out
+ * to the revenue ledger.
+ *
+ * Filters:
+ *   - Source (mode): TRANSACTION | PAYOUT | (all)
+ *   - Service: narrows to one service code (implies transactions only)
+ *   - Date range + free-text search
+ *
+ * Totals are exact DB aggregates over the full filtered set; the merged list is
+ * paginated in memory (bounded by EXPORT_ROW_CAP per source), mirroring the
+ * push/pull report.
+ */
+type GstRow = {
+  date: string;
+  retailerId: string;
+  refId: string;
+  service: string;
+  customer: string;
+  taxable: number;
+  rate: number;
+  gst: number;
+  total: number;
+  status: string;
+};
+
+/**
+ * Hard cap on line items pulled for a single GST view/export. Summary totals and
+ * the rate-wise breakdown are exact DB aggregates (never capped); only the line
+ * item list is bounded, and any truncation is surfaced in `note` — never silent.
+ */
+const GST_EXPORT_CAP = 25_000;
+
+async function reportGst(user: SessionUser, params: ReportParams): Promise<ReportResult> {
+  const ids = await allowedUserIds(user);
+  const createdAt = dateFilter(params);
+  const q = params.q?.trim() || null;
+  const source = params.mode?.toUpperCase() ?? null;
+
+  // A specific service filter only makes sense for Transactions, so it implies
+  // transactions-only. Otherwise honour the explicit Source (mode) filter.
+  const wantTxn = source !== "PAYOUT";
+  const wantPayout = source !== "TRANSACTION" && !params.service;
+
+  // Raw-SQL condition fragments shared by the exact aggregates (trend +
+  // rate-wise breakdown). They mirror the Prisma `where` used for the list —
+  // including a retailer userCode match — so every surface agrees. Table /
+  // column names are compile-time constants (never user input); only values are
+  // parameterised, so this is injection-safe.
+  const idCond =
+    ids === null || ids.length === 0
+      ? Prisma.empty
+      : Prisma.sql`AND "userId" IN (${Prisma.join(ids)})`;
+  const fromCond = params.from ? Prisma.sql`AND "createdAt" >= ${params.from}` : Prisma.empty;
+  const toCond = params.to ? Prisma.sql`AND "createdAt" <= ${params.to}` : Prisma.empty;
+  const svcCond = params.service ? Prisma.sql`AND "service"::text = ${params.service}` : Prisma.empty;
+  const qLike = q ? `%${q}%` : null;
+  const qTxnCond = qLike
+    ? Prisma.sql`AND ("refId" ILIKE ${qLike} OR "customer" ILIKE ${qLike} OR "operator" ILIKE ${qLike} OR "userId" IN (SELECT "id" FROM "User" WHERE "userCode" ILIKE ${qLike}))`
+    : Prisma.empty;
+  const qPoCond = qLike
+    ? Prisma.sql`AND ("beneficiaryName" ILIKE ${qLike} OR "utr" ILIKE ${qLike} OR "userId" IN (SELECT "id" FROM "User" WHERE "userCode" ILIKE ${qLike}))`
+    : Prisma.empty;
+
+  // Enough newest rows from each source to satisfy the requested page after the
+  // in-memory merge (the top N of the union is a subset of the top N of each),
+  // bounded so a deep page or export can't OOM the box.
+  const fetchN = params.forExport
+    ? GST_EXPORT_CAP
+    : Math.min(params.page * params.pageSize, GST_EXPORT_CAP);
+
+  const txnWhere: Prisma.TransactionWhereInput = {
+    status: "SUCCESS",
+    gst: { gt: 0 },
+    ...(ids ? { userId: { in: ids } } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(params.service ? { service: params.service as ServiceCode } : {}),
+    ...(q
+      ? {
+          OR: [
+            { refId: { contains: q, mode: "insensitive" } },
+            { customer: { contains: q, mode: "insensitive" } },
+            { operator: { contains: q, mode: "insensitive" } },
+            { user: { userCode: { contains: q, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
+  };
+
+  const payoutWhere: Prisma.PayoutRequestWhereInput = {
+    status: "SUCCESS",
+    gst: { gt: 0 },
+    ...(ids ? { userId: { in: ids } } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    ...(q
+      ? {
+          OR: [
+            { beneficiaryName: { contains: q, mode: "insensitive" } },
+            { utr: { contains: q, mode: "insensitive" } },
+            { user: { userCode: { contains: q, mode: "insensitive" } } },
+          ],
+        }
+      : {}),
+  };
+
+  const [txnList, txnCount, txnAgg, poList, poCount, poAgg] = await Promise.all([
+    wantTxn
+      ? prisma.transaction.findMany({
+          where: txnWhere,
+          orderBy: { createdAt: "desc" },
+          include: { user: { select: { userCode: true } } },
+          take: fetchN,
+        })
+      : Promise.resolve([]),
+    wantTxn ? prisma.transaction.count({ where: txnWhere }) : Promise.resolve(0),
+    wantTxn
+      ? prisma.transaction.aggregate({ where: txnWhere, _sum: { fee: true, gst: true } })
+      : Promise.resolve(null),
+    wantPayout
+      ? prisma.payoutRequest.findMany({
+          where: payoutWhere,
+          orderBy: { createdAt: "desc" },
+          include: { user: { select: { userCode: true } } },
+          take: fetchN,
+        })
+      : Promise.resolve([]),
+    wantPayout ? prisma.payoutRequest.count({ where: payoutWhere }) : Promise.resolve(0),
+    wantPayout
+      ? prisma.payoutRequest.aggregate({ where: payoutWhere, _sum: { serviceCharge: true, gst: true } })
+      : Promise.resolve(null),
+  ]);
+
+  const txnRows: GstRow[] = txnList.map((r) => {
+    const gst = dec(r.gst);
+    const fee = dec(r.fee);
+    const taxable = sub(fee, gst);
+    return {
+      date: r.createdAt.toISOString(),
+      retailerId: r.user?.userCode ?? r.userId.slice(0, 8).toUpperCase(),
+      refId: r.refId,
+      // PG settlement anchors reuse the WALLET_TOPUP placeholder ServiceCode
+      // (there is no PG ServiceCode) — label them "PG" so GST filing reads right.
+      service: r.isSettlement && r.service === "WALLET_TOPUP" ? "PG" : humanize(r.service),
+      customer: r.customer ?? "—",
+      taxable: toNumber(taxable),
+      rate: gstRate(gst, taxable),
+      gst: toNumber(gst),
+      total: toNumber(fee),
+      status: r.status,
+    };
+  });
+
+  const poRows: GstRow[] = poList.map((r) => {
+    const gst = dec(r.gst);
+    const taxable = dec(r.serviceCharge);
+    return {
+      date: r.createdAt.toISOString(),
+      retailerId: r.user?.userCode ?? r.userId.slice(0, 8).toUpperCase(),
+      refId: r.utr || r.providerReferenceId,
+      service: `Payout · ${r.mode}`,
+      customer: r.beneficiaryName,
+      taxable: toNumber(taxable),
+      rate: gstRate(gst, taxable),
+      gst: toNumber(gst),
+      total: toNumber(add(taxable, gst)),
+      status: r.status,
+    };
+  });
+
+  const allRows = [...txnRows, ...poRows].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  // Page over the merged set: exports take the whole (capped) set, views take
+  // exactly one page. `fetchN` guarantees the needed window is present.
+  const skip = params.forExport ? 0 : (params.page - 1) * params.pageSize;
+  const take = params.forExport ? GST_EXPORT_CAP : params.pageSize;
+  const rows = allRows.slice(skip, skip + take).map((r, i) => ({ sno: skip + i + 1, ...r }));
+
+  // Exact totals over the full filtered set (independent of the row cap).
+  const txnFee = dec(txnAgg?._sum.fee ?? 0);
+  const txnGst = dec(txnAgg?._sum.gst ?? 0);
+  const txnTaxable = sub(txnFee, txnGst);
+  const poCharge = dec(poAgg?._sum.serviceCharge ?? 0);
+  const poGst = dec(poAgg?._sum.gst ?? 0);
+
+  const totalTaxable = add(txnTaxable, poCharge);
+  const totalGst = add(txnGst, poGst);
+  const grandTotal = add(totalTaxable, totalGst);
+  const combinedTotal = txnCount + poCount;
+
+  // Daily GST sparkline — full-range SQL sums per source (independent of the
+  // paginated rows), merged by day, so the trend reflects the whole window.
+  const { from, to } = effectiveRange(params);
+  const [txnTrendPts, poTrendPts] = await Promise.all([
+    wantTxn
+      ? dailyTrend({
+          table: "Transaction", dateCol: "createdAt", valueExpr: `"gst"`, userCol: "userId",
+          ids, from, to,
+          extra: Prisma.sql`AND "status" = 'SUCCESS' AND "gst" > 0 ${svcCond} ${qTxnCond}`,
+        })
+      : Promise.resolve([] as { label: string; value: number }[]),
+    wantPayout
+      ? dailyTrend({
+          table: "PayoutRequest", dateCol: "createdAt", valueExpr: `"gst"`, userCol: "userId",
+          ids, from, to,
+          extra: Prisma.sql`AND "status" = 'SUCCESS' AND "gst" > 0 ${qPoCond}`,
+        })
+      : Promise.resolve([] as { label: string; value: number }[]),
+  ]);
+  const trendByDay = new Map<string, number>();
+  for (const p of [...txnTrendPts, ...poTrendPts]) {
+    trendByDay.set(p.label, (trendByDay.get(p.label) ?? 0) + p.value);
+  }
+  const trend = trendToSeries(
+    [...trendByDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([, v]) => ({ value: v })),
+    "Daily GST collected",
+    "#f59e0b"
+  );
+
+  /* ── Rate-wise GST summary (GSTR-3B boxes) ────────────────────────────
+   * Exact SQL aggregates grouped by the derived GST rate, over the SAME
+   * filtered set as the totals row (date / owner / service / source, plus the
+   * free-text search incl. retailer userCode), so the summary always ties out to
+   * the register. CGST/SGST are shown as the intra-state 50/50 split of the tax.
+   */
+  type RateAgg = { rate: number; taxable: Prisma.Decimal; gst: Prisma.Decimal; cnt: bigint };
+
+  const [txnRate, poRate] = await Promise.all([
+    wantTxn
+      ? prisma.$queryRaw<RateAgg[]>(Prisma.sql`
+          SELECT COALESCE(round("gst" / NULLIF("fee" - "gst", 0) * 100)::int, 0) AS rate,
+                 COALESCE(SUM("fee" - "gst"), 0) AS taxable,
+                 COALESCE(SUM("gst"), 0) AS gst,
+                 COUNT(*)::bigint AS cnt
+          FROM "Transaction"
+          WHERE "status" = 'SUCCESS' AND "gst" > 0
+            ${idCond} ${fromCond} ${toCond} ${svcCond} ${qTxnCond}
+          GROUP BY 1
+        `)
+      : Promise.resolve([] as RateAgg[]),
+    wantPayout
+      ? prisma.$queryRaw<RateAgg[]>(Prisma.sql`
+          SELECT COALESCE(round("gst" / NULLIF("serviceCharge", 0) * 100)::int, 0) AS rate,
+                 COALESCE(SUM("serviceCharge"), 0) AS taxable,
+                 COALESCE(SUM("gst"), 0) AS gst,
+                 COUNT(*)::bigint AS cnt
+          FROM "PayoutRequest"
+          WHERE "status" = 'SUCCESS' AND "gst" > 0
+            ${idCond} ${fromCond} ${toCond} ${qPoCond}
+          GROUP BY 1
+        `)
+      : Promise.resolve([] as RateAgg[]),
+  ]);
+
+  const rateMap = new Map<number, { taxable: Prisma.Decimal; gst: Prisma.Decimal; cnt: number }>();
+  for (const r of [...txnRate, ...poRate]) {
+    const key = Number(r.rate) || 0;
+    const cur = rateMap.get(key) ?? { taxable: dec(0), gst: dec(0), cnt: 0 };
+    cur.taxable = add(cur.taxable, r.taxable);
+    cur.gst = add(cur.gst, r.gst);
+    cur.cnt += Number(r.cnt);
+    rateMap.set(key, cur);
+  }
+
+  const breakdownRows = [...rateMap.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([rate, v]) => {
+      const { cgst, sgst } = splitCgstSgst(v.gst);
+      return {
+        rate,
+        taxable: toNumber(v.taxable),
+        cgst: toNumber(cgst),
+        sgst: toNumber(sgst),
+        gst: toNumber(v.gst),
+        txns: v.cnt,
+      };
+    });
+
+  const { cgst: bdCgst, sgst: bdSgst } = splitCgstSgst(totalGst);
+  const breakdown = {
+    title: "Rate-wise GST summary (GSTR-3B)",
+    subtitle:
+      "Taxable value and tax grouped by GST rate for the selected range. CGST/SGST shown as the intra-state 50/50 split; use IGST = total GST for inter-state supplies.",
+    columns: [
+      { key: "rate", header: "GST Rate", format: "percent" as const, align: "right" as const },
+      { key: "taxable", header: "Taxable Value", format: "money" as const, align: "right" as const },
+      { key: "cgst", header: "CGST", format: "money" as const, align: "right" as const },
+      { key: "sgst", header: "SGST", format: "money" as const, align: "right" as const },
+      { key: "gst", header: "Total GST", format: "money" as const, align: "right" as const },
+      { key: "txns", header: "Txns", format: "int" as const, align: "right" as const },
+    ],
+    rows: breakdownRows,
+    totals: {
+      rate: "Total",
+      taxable: toNumber(totalTaxable),
+      cgst: toNumber(bdCgst),
+      sgst: toNumber(bdSgst),
+      gst: toNumber(totalGst),
+      txns: combinedTotal,
+    },
+  };
+
+  const exportTruncated = params.forExport && combinedTotal > GST_EXPORT_CAP;
+
+  return {
+    rows,
+    total: combinedTotal,
+    page: params.page,
+    pageSize: params.pageSize,
+    totals: {
+      sno: "Total",
+      taxable: toNumber(totalTaxable),
+      gst: toNumber(totalGst),
+      total: toNumber(grandTotal),
+    },
+    summary: [
+      money("Taxable value", totalTaxable, "brand"),
+      money("Total GST", totalGst, "accent"),
+      count("Taxable txns", combinedTotal, "violet"),
+      money("Total charged", grandTotal, "emerald"),
+    ],
+    trend,
+    breakdown: breakdownRows.length > 0 ? breakdown : null,
+    note:
+      combinedTotal === 0
+        ? "No GST was charged on successful supplies in this range. Pick a month's date range to prepare a GSTR filing."
+        : exportTruncated
+          ? `Showing the most recent ${GST_EXPORT_CAP.toLocaleString("en-IN")} of ${combinedTotal.toLocaleString("en-IN")} line items — narrow the date range to export the rest. The summary totals and rate-wise GST above cover ALL ${combinedTotal.toLocaleString("en-IN")} transactions.`
+          : "GST charged on successful supplies only (services + payout charges) — the output-tax basis for your monthly GSTR. Amounts are the exact per-transaction GST recorded at charge time.",
+  };
+}
+
+/* --------------------------------------------------------------------- */
 /*  Dispatcher                                                            */
 /* --------------------------------------------------------------------- */
 
@@ -1573,6 +2127,7 @@ const RUNNERS: Record<ReportType, (u: SessionUser, p: ReportParams) => Promise<R
   pos: reportPos,
   "wallet-settlement": reportWalletSettlement,
   commission: reportCommission,
+  gst: reportGst,
   tds: reportTds,
   account: reportAccount,
 };

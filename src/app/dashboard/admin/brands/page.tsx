@@ -978,7 +978,7 @@ function CreateBrandModal({
       onClose={onClose}
       eyebrow="Brands"
       title="New brand"
-      subtitle="Create an acquiring brand from a POS fleet company."
+      subtitle="Type an acquirer/company name (e.g. Yes Bank) or pick one already on your POS fleet."
       size="md"
       footer={
         <>
@@ -993,26 +993,27 @@ function CreateBrandModal({
     >
       <div className="space-y-3">
         <label className="block text-xs text-ink-500">
-          Company (from POS fleet)
-          <select
+          Company / acquirer name
+          <input
             className={`${inputCls} mt-1 w-full`}
             value={company}
             onChange={(e) => setCompany(e.target.value)}
-            disabled={loadingCompanies}
-          >
-            <option value="">
-              {loadingCompanies
-                ? "Loading companies…"
-                : companies.length === 0
-                ? "No companies found on POS machines"
-                : "Select a company…"}
-            </option>
+            list="brand-company-options"
+            placeholder={loadingCompanies ? "Loading companies…" : "e.g. Yes Bank"}
+            autoComplete="off"
+          />
+          <datalist id="brand-company-options">
             {companies.map((c) => (
               <option key={c.company} value={c.company}>
-                {c.company} ({c.machineCount})
+                {c.company} ({c.machineCount} machine{c.machineCount === 1 ? "" : "s"})
               </option>
             ))}
-          </select>
+          </datalist>
+          <span className="mt-1 block text-[11px] text-ink-400">
+            {companies.length === 0
+              ? "No companies on your POS fleet yet — just type the acquirer name (e.g. an External POS bank)."
+              : "Pick an existing fleet company or type a new acquirer name."}
+          </span>
         </label>
         {company && (
           <p className="text-[11px] text-ink-400">

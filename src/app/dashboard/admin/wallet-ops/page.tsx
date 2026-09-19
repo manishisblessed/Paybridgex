@@ -1438,7 +1438,20 @@ function LiensTab({
         </div>
       ),
     },
-    { key: "reasonCode", header: "Reason", render: (r) => r.reasonCode.replace(/_/g, " ") },
+    {
+      key: "reasonCode",
+      header: "Reason",
+      render: (r) => (
+        <div className="flex flex-col">
+          <span>{r.reasonCode.replace(/_/g, " ")}</span>
+          {r.refType === "PosSettlementEntry" && (
+            <span className="mt-0.5 inline-flex w-fit items-center rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">
+              POS reversal clawback
+            </span>
+          )}
+        </div>
+      ),
+    },
     { key: "amount", header: "Amount", align: "right", render: (r) => money(r.amount) },
     {
       key: "recoveredAmount",
@@ -1460,15 +1473,23 @@ function LiensTab({
     {
       key: "ref",
       header: "Ref",
-      render: (r) =>
-        r.refId ? (
-          <span className="text-[11px] text-ink-500">
-            {r.refType === "Transaction" ? "Txn " : ""}
+      render: (r) => {
+        if (!r.refId) return <span className="text-ink-300">—</span>;
+        const label =
+          r.refType === "Transaction"
+            ? "Txn "
+            : r.refType === "PosSettlementEntry"
+            ? "POS "
+            : "";
+        // `title` surfaces the full remarks (for POS clawbacks this includes the
+        // originating transactionRef + reversal reason) on hover.
+        return (
+          <span className="text-[11px] text-ink-500" title={r.remarks || undefined}>
+            {label}
             {r.refId.slice(0, 10)}…
           </span>
-        ) : (
-          <span className="text-ink-300">—</span>
-        ),
+        );
+      },
     },
     {
       key: "status",

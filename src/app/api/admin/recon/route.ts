@@ -7,6 +7,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { runLedgerIntegrityAudit } from "@/lib/recon/integrity";
 import { runDailyPayoutReconciliation } from "@/lib/recon/payouts";
+import { enqueue, QUEUES } from "@/lib/queue";
 
 /**
  * Admin reconciliation console.
@@ -66,7 +67,9 @@ export async function GET() {
   }
 }
 
-const PostBody = z.object({ job: z.enum(["ledger", "payout"]) }).strict();
+const PostBody = z
+  .object({ job: z.enum(["ledger", "payout", "bbps", "rechargekit"]) })
+  .strict();
 
 export async function POST(req: Request) {
   try {
@@ -93,6 +96,29 @@ export async function POST(req: Request) {
     if (parsed.data.job === "ledger") {
       const report = await runLedgerIntegrityAudit();
       return NextResponse.json({ job: "ledger", report });
+    }
+
+    // BBPS bill payments and RechargeKit CC-2 payments can sit in PROCESSING
+    // awaiting an out-of-band terminal state. Their sweeps poll the provider for
+    // up to 200 rows serially, so we ENQUEUE them onto the worker (the same */5
+    // scheduled queue) instead of running inline — a large backlog would
+    // otherwise risk an HTTP/serverless timeout. The singletonKey dedupes rapid
+    // double-clicks so at most one manual run is pending at a time. For a single
+    // stuck payment, use POST /api/admin/transactions/reconcile (runs inline,
+    // one provider call).
+    if (parsed.data.job === "bbps" || parsed.data.job === "rechargekit") {
+      const queue =
+        parsed.data.job === "bbps" ? QUEUES.BBPS_RECONCILE : QUEUES.RECHARGEKIT_RECONCILE;
+      const jobId = await enqueue(queue, {}, { singletonKey: `${parsed.data.job}-reconcile:manual` });
+      return NextResponse.json({
+        job: parsed.data.job,
+        queued: jobId !== null,
+        jobId,
+        note:
+          jobId === null
+            ? "A reconciliation run is already queued — it will process shortly."
+            : "Reconciliation queued; the worker will drain PROCESSING rows within moments.",
+      });
     }
 
     const summary = await runDailyPayoutReconciliation();

@@ -173,7 +173,7 @@ export default function AboutPage() {
                     India&apos;s digital payments story is extraordinary — but at millions of counters it still arrives second-hand: slow settlements, opaque commissions and support lines that never pick up. Paybridgex exists to close that gap.
                   </p>
                   <p>
-                    From our home in Shahibag, Ahmedabad, we build one platform where a retailer can run AePS banking, money transfer, UPI collections, bill payments, recharges and travel — with instant settlement to one wallet and a human on the phone 24×7.
+                    From our home in Shahibaug, Ahmedabad, we build one platform where a retailer can run AePS banking, money transfer, UPI collections, bill payments, recharges and travel — with instant settlement to one wallet and a human on the phone 24×7.
                   </p>
                   <p>
                     We&apos;re young by design. Being incorporated in {company.incorporated} means no legacy systems, no legacy thinking — just modern rails built for the way Bharat actually transacts.

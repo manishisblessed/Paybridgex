@@ -113,8 +113,7 @@ function foldRailIntoMembers(
   amountField: string,
   classify: (s: string) => Bucket,
   members: Map<string, MemberAgg>,
-  rootOf: Map<string, string>,
-  commissionField?: string
+  rootOf: Map<string, string>
 ): void {
   for (const r of rows) {
     const root = rootOf.get(r.userId);
@@ -127,11 +126,6 @@ function foldRailIntoMembers(
     m[bucket] += cnt;
     if (bucket === "success") {
       m.volume = round2(m.volume + toNumber(dec((r._sum?.[amountField] as never) ?? 0)));
-      if (commissionField) {
-        m.commission = round2(
-          m.commission + toNumber(dec((r._sum?.[commissionField] as never) ?? 0))
-        );
-      }
     }
   }
 }
@@ -249,7 +243,7 @@ export async function GET(req: Request) {
 
     const scopeFilter = { userId: { in: scopedIds } };
 
-    const [txnByUser, txnByService, posByUser, pgByUser, qrByUser, payoutRows] =
+    const [txnByUser, txnByService, posByUser, pgByUser, qrByUser, payoutRows, commByUser] =
       await Promise.all([
         prisma.transaction.groupBy({
           by: ["userId", "status"],
@@ -260,7 +254,7 @@ export async function GET(req: Request) {
             createdAt: range,
           },
           _count: true,
-          _sum: { amount: true, commission: true },
+          _sum: { amount: true },
         }),
         prisma.transaction.groupBy({
           by: ["service", "status"],
@@ -297,16 +291,36 @@ export async function GET(req: Request) {
           _count: true,
           _sum: { amount: true },
         }),
+        // Commission is distributed per user per their assigned scheme slab and
+        // recorded in the CommissionCredit ledger (net credited). Source the
+        // per-member figure from there — NOT Transaction.commission, which mixes
+        // the gross upline chain-pool onto the transacting user's settlement rows.
+        prisma.commissionCredit.groupBy({
+          by: ["userId"],
+          where: { ...scopeFilter, createdAt: range },
+          _sum: { amount: true },
+        }),
       ]);
 
     // ── Per-member rollup (subtree attributed to each direct child) ──
     const members = new Map<string, MemberAgg>();
     for (const c of directChildren) members.set(c.id, emptyMember());
 
-    foldRailIntoMembers(txnByUser as never, "amount", classifyTxn, members, rootOf, "commission");
+    foldRailIntoMembers(txnByUser as never, "amount", classifyTxn, members, rootOf);
     foldRailIntoMembers(posByUser as never, "grossAmount", classifyPos, members, rootOf);
     foldRailIntoMembers(pgByUser as never, "grossAmount", classifyPg, members, rootOf);
     foldRailIntoMembers(qrByUser as never, "amount", classifyQr, members, rootOf);
+
+    // Roll ledger commission up to the direct child each recipient sits under
+    // (same subtree attribution as volume). Covers commission a member earned
+    // at any tier (DIRECT/DT/MD/SD) per their scheme slab.
+    for (const c of commByUser) {
+      const root = rootOf.get(c.userId);
+      if (!root) continue;
+      const m = members.get(root);
+      if (!m) continue;
+      m.commission = round2(m.commission + toNumber(dec(c._sum.amount ?? 0)));
+    }
 
     const memberRows = directChildren
       .map((c) => {

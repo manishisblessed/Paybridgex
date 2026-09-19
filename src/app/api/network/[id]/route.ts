@@ -76,10 +76,16 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    const [mtd, today, lifetime, txnCount] = await Promise.all([
+    // Commission earned by THIS user must come from the CommissionCredit ledger
+    // (net rupees actually credited to their wallet), NOT Transaction.commission.
+    // That column carries the gross upline chain-commission pool on the user's
+    // POS/QR settlement bridge rows, so summing it would wrongly credit a
+    // retailer with their upline's earnings (and under-report an upline whose
+    // commission was never written onto their own transactions).
+    const [mtd, today, lifetime, txnCount, commMtd, commLifetime] = await Promise.all([
       prisma.transaction.aggregate({
         where: { userId: target.id, status: "SUCCESS", createdAt: { gte: monthStart } },
-        _sum: { amount: true, commission: true },
+        _sum: { amount: true },
       }),
       prisma.transaction.aggregate({
         where: { userId: target.id, status: "SUCCESS", createdAt: { gte: todayStart } },
@@ -87,9 +93,17 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       }),
       prisma.transaction.aggregate({
         where: { userId: target.id, status: "SUCCESS" },
-        _sum: { amount: true, commission: true },
+        _sum: { amount: true },
       }),
       prisma.transaction.count({ where: { userId: target.id } }),
+      prisma.commissionCredit.aggregate({
+        where: { userId: target.id, createdAt: { gte: monthStart } },
+        _sum: { amount: true },
+      }),
+      prisma.commissionCredit.aggregate({
+        where: { userId: target.id },
+        _sum: { amount: true },
+      }),
     ]);
 
     return NextResponse.json({
@@ -117,8 +131,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         turnoverToday: toNumber(dec(today._sum.amount ?? 0)),
         turnoverMtd: toNumber(dec(mtd._sum.amount ?? 0)),
         turnoverLifetime: toNumber(dec(lifetime._sum.amount ?? 0)),
-        commissionMtd: toNumber(dec(mtd._sum.commission ?? 0)),
-        commissionLifetime: toNumber(dec(lifetime._sum.commission ?? 0)),
+        commissionMtd: toNumber(dec(commMtd._sum.amount ?? 0)),
+        commissionLifetime: toNumber(dec(commLifetime._sum.amount ?? 0)),
         txnCount,
       },
     });

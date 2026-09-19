@@ -24,6 +24,9 @@ import {
   PartyPopper,
   Receipt,
   XCircle,
+  Upload,
+  FileText,
+  CheckCircle2,
 } from "lucide-react";
 import { SettlementReportTab } from "./SettlementReportTab";
 import { PageHeader } from "@/components/dashboard/PageHeader";
@@ -122,9 +125,9 @@ function fmtTime(iso: string) {
   });
 }
 
-type Tab = "machines" | "transactions" | "pending" | "failed" | "reversals" | "settlements" | "report" | "free-rent";
+type Tab = "machines" | "transactions" | "pending" | "failed" | "reversals" | "settlements" | "report" | "free-rent" | "upload-slip";
 
-const VALID_TABS: Tab[] = ["machines", "transactions", "pending", "failed", "reversals", "settlements", "report", "free-rent"];
+const VALID_TABS: Tab[] = ["machines", "transactions", "pending", "failed", "reversals", "settlements", "report", "free-rent", "upload-slip"];
 
 type TxnView = {
   key: string;
@@ -168,6 +171,7 @@ export default function PosPage() {
       { id: "failed", label: "Failed Transactions", icon: XCircle },
       { id: "reversals", label: "Reversals & Voids", icon: RotateCcw },
       { id: "settlements", label: "Instant Settlement", icon: Banknote },
+      { id: "upload-slip", label: "Upload Slip", icon: Upload },
       { id: "report", label: "Settlement Report", icon: Receipt },
       { id: "machines", label: "POS Machines", icon: Monitor },
     ];
@@ -207,6 +211,8 @@ export default function PosPage() {
         <TransactionsTab view={TXN_VIEWS.reversals} />
       ) : activeTab === "settlements" ? (
         <SettlementsTab />
+      ) : activeTab === "upload-slip" ? (
+        <ManualSlipTab />
       ) : activeTab === "report" ? (
         <SettlementReportTab initialFrom={deepLink.from} initialTo={deepLink.to} />
       ) : activeTab === "free-rent" ? (
@@ -1253,5 +1259,351 @@ function ErrorBanner({ message }: { message: string }) {
       <AlertCircle className="h-4 w-4 shrink-0" />
       {message} Check your connection and POS credentials.
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// UPLOAD SLIP TAB — External POS (no-API acquirers, e.g. Yes Bank). The
+// retailer files a physical slip for a terminal ASSIGNED to them; an admin
+// verifies it, then it enters the shared settlement engine.
+// ═══════════════════════════════════════════════════════════════════════
+
+type ManualSlip = {
+  id: string;
+  tid: string;
+  grossAmount: number;
+  paymentMode: string;
+  settlementPref: "INSTANT" | "T1";
+  rrn: string | null;
+  authCode: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "REVERSED";
+  rejectionReason: string | null;
+  transactionRef: string | null;
+  txnTime: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+};
+
+function slipStatusBadge(status: ManualSlip["status"]) {
+  if (status === "APPROVED") return <Badge variant="success">Approved</Badge>;
+  if (status === "REJECTED") return <Badge variant="danger">Rejected</Badge>;
+  if (status === "REVERSED") return <Badge variant="default">Reversed</Badge>;
+  return <Badge variant="warning">Pending review</Badge>;
+}
+
+const MAX_SLIP_BYTES = 10 * 1024 * 1024; // 10 MB
+const ACCEPTED_SLIP_TYPES = ["image/jpeg", "image/png", "application/pdf"];
+
+function ManualSlipTab() {
+  const { data: machinesData } = useSWR<MyPosMachinesResponse>(
+    "/api/pos/my-machines?page=1&pageSize=100",
+    fetcher,
+    { revalidateOnFocus: false }
+  );
+  const { data, error, isLoading, mutate } = useSWR<{ slips: ManualSlip[] }>(
+    "/api/pos/manual-slip",
+    fetcher,
+    { revalidateOnFocus: false, refreshInterval: 20000 }
+  );
+
+  // Only External POS (non-Same Day, no live API), active terminals accept slips.
+  const machines = useMemo(
+    () =>
+      (machinesData?.data ?? []).filter(
+        (m) => m.tid && m.status === "active" && (m.provider ?? "").toUpperCase() !== "SAMEDAY"
+      ),
+    [machinesData]
+  );
+
+  const slips = data?.slips ?? [];
+  const [machineId, setMachineId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [paymentMode, setPaymentMode] = useState("CARD");
+  const [settlePref, setSettlePref] = useState<"INSTANT" | "T1">("T1");
+  const [rrn, setRrn] = useState("");
+  const [authCode, setAuthCode] = useState("");
+  const [cardType, setCardType] = useState("");
+  const [txnTime, setTxnTime] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const resetForm = useCallback(() => {
+    setMachineId("");
+    setAmount("");
+    setPaymentMode("CARD");
+    setSettlePref("T1");
+    setRrn("");
+    setAuthCode("");
+    setCardType("");
+    setTxnTime("");
+    setFile(null);
+  }, []);
+
+  const submit = useCallback(async () => {
+    const amt = parseFloat(amount);
+    if (!machineId) return toast.error("Select a terminal (TID)");
+    if (!Number.isFinite(amt) || amt <= 0) return toast.error("Enter a valid slip amount");
+    if (!rrn.trim()) return toast.error("Enter the RR Number (RRN) printed on the slip");
+    if (txnTime && new Date(txnTime).getTime() > Date.now() + 5 * 60 * 1000)
+      return toast.error("Transaction time can't be in the future");
+    if (!file) return toast.error("Attach the slip (JPG, PNG or PDF)");
+    if (!ACCEPTED_SLIP_TYPES.includes(file.type))
+      return toast.error("Slip must be a JPG, PNG or PDF file");
+    if (file.size > MAX_SLIP_BYTES) return toast.error("Slip file must be under 10 MB");
+
+    setBusy(true);
+    try {
+      // 1. Signed params for a direct browser → Cloudinary upload (private).
+      const signRes = await fetch("/api/uploads/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "pos-slip", isSensitive: true }),
+      });
+      if (!signRes.ok) throw new Error("Could not start the upload");
+      const params = await signRes.json();
+
+      // 2. Upload the file straight to Cloudinary.
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("api_key", params.apiKey);
+      fd.append("timestamp", String(params.timestamp));
+      fd.append("signature", params.signature);
+      fd.append("folder", params.folder);
+      fd.append("type", params.type);
+      const upRes = await fetch(`https://api.cloudinary.com/v1_1/${params.cloudName}/auto/upload`, {
+        method: "POST",
+        body: fd,
+      });
+      if (!upRes.ok) throw new Error("Slip upload failed");
+      const cloud = await upRes.json();
+
+      // 3. Record the slip for admin verification.
+      const res = await fetch("/api/pos/manual-slip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          machineId,
+          grossAmount: amt,
+          paymentMode,
+          settlementPref: settlePref,
+          rrn: rrn.trim(),
+          authCode: authCode.trim() || undefined,
+          cardType: cardType || undefined,
+          txnTime: txnTime ? new Date(txnTime).toISOString() : undefined,
+          slipPublicId: cloud.public_id,
+          slipFormat: cloud.format,
+          slipResourceType: cloud.resource_type === "raw" ? "raw" : "image",
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof d.error === "string" ? d.error : "Could not submit the slip");
+      toast.success("Slip submitted — an admin will review it shortly.");
+      resetForm();
+      mutate();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
+  }, [amount, machineId, file, paymentMode, settlePref, rrn, authCode, cardType, txnTime, resetForm, mutate]);
+
+  const pending = slips.filter((s) => s.status === "PENDING").length;
+  const approved = slips.filter((s) => s.status === "APPROVED").length;
+  const rejected = slips.filter((s) => s.status === "REJECTED").length;
+
+  const cols: Column<ManualSlip>[] = [
+    { key: "createdAt", header: "Uploaded", render: (r) => <span className="text-xs">{fmtTime(r.createdAt)}</span> },
+    { key: "tid", header: "TID", render: (r) => <span className="font-mono text-xs font-semibold">{r.tid}</span> },
+    { key: "paymentMode", header: "Mode", render: (r) => <Badge variant="default">{r.paymentMode}</Badge> },
+    { key: "settlementPref", header: "Settlement", render: (r) => (
+      <Badge variant={r.settlementPref === "INSTANT" ? "accent" : "default"}>
+        {r.settlementPref === "INSTANT" ? "Instant" : "Next day"}
+      </Badge>
+    ) },
+    { key: "grossAmount", header: "Amount", align: "right", render: (r) => <span className="font-semibold">{formatINR(r.grossAmount)}</span> },
+    { key: "rrn", header: "RRN", render: (r) => <span className="font-mono text-xs">{r.rrn ?? "—"}</span> },
+    {
+      key: "status",
+      header: "Status",
+      render: (r) => (
+        <div className="flex flex-col gap-1">
+          {slipStatusBadge(r.status)}
+          {r.status === "REJECTED" && r.rejectionReason && (
+            <span className="text-[11px] text-rose-600">Reason: {r.rejectionReason}</span>
+          )}
+          {r.status === "REVERSED" && (
+            <span className="text-[11px] text-rose-600">
+              Reversed{r.rejectionReason ? `: ${r.rejectionReason}` : ""}
+            </span>
+          )}
+          {r.status === "APPROVED" && (
+            <span className="text-[11px] text-emerald-600">In settlement — see Instant Settlement tab</span>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile label="Total slips" value={String(slips.length)} icon={FileText} tone="brand" loading={isLoading && !data} />
+        <StatTile label="Awaiting review" value={String(pending)} icon={Clock} tone="amber" loading={isLoading && !data} />
+        <StatTile label="Approved" value={String(approved)} icon={CheckCircle2} tone="emerald" loading={isLoading && !data} />
+        <StatTile label="Rejected" value={String(rejected)} icon={XCircle} tone="rose" loading={isLoading && !data} />
+      </div>
+
+      <div className="rounded-2xl border border-ink-100 bg-white p-5">
+        <div className="mb-4 flex items-center gap-2">
+          <Upload className="h-4 w-4 text-brand-600" />
+          <h3 className="text-sm font-semibold text-ink-900">Upload a transaction slip</h3>
+        </div>
+
+        {machines.length === 0 ? (
+          <div className="flex items-center gap-2 rounded-xl border border-ink-200 bg-ink-50 p-4 text-sm text-ink-600">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            You have no External POS (no-API) terminals assigned. Slips can only be uploaded for such terminals.
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-ink-500">Terminal (TID)</label>
+              <select
+                value={machineId}
+                onChange={(e) => setMachineId(e.target.value)}
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              >
+                <option value="">Select terminal…</option>
+                {machines.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.tid}{m.model ? ` — ${m.model}` : ""}{m.location ? ` (${m.location})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-ink-500">Amount (₹)</label>
+              <input
+                type="number"
+                min="1"
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="e.g. 2500"
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-ink-500">Payment mode</label>
+              <select
+                value={paymentMode}
+                onChange={(e) => setPaymentMode(e.target.value)}
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              >
+                <option value="CARD">Card</option>
+                <option value="UPI">UPI</option>
+                <option value="NFC">NFC</option>
+                <option value="BHARATQR">BharatQR</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-ink-500">Settlement</label>
+              <select
+                value={settlePref}
+                onChange={(e) => setSettlePref(e.target.value as "INSTANT" | "T1")}
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              >
+                <option value="T1">Next day (T+1)</option>
+                <option value="INSTANT">Instant (on approval)</option>
+              </select>
+              <p className="mt-1 text-[11px] text-ink-400">
+                Instant credits your wallet the moment an admin approves (subject to daily limit); Next day settles in the T+1 sweep.
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-ink-500">Card type (optional)</label>
+              <select
+                value={cardType}
+                onChange={(e) => setCardType(e.target.value)}
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              >
+                <option value="">—</option>
+                <option value="CREDIT">Credit</option>
+                <option value="DEBIT">Debit</option>
+                <option value="PREPAID">Prepaid</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-ink-500">
+                RR Number <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={rrn}
+                onChange={(e) => setRrn(e.target.value)}
+                placeholder="Retrieval Reference Number (from the slip)"
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-ink-500">Auth Code</label>
+              <input
+                type="text"
+                value={authCode}
+                onChange={(e) => setAuthCode(e.target.value)}
+                placeholder="Approval / auth code"
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-ink-500">Transaction time (optional)</label>
+              <input
+                type="datetime-local"
+                value={txnTime}
+                onChange={(e) => setTxnTime(e.target.value)}
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-ink-500">Slip file (JPG, PNG, PDF)</label>
+              <input
+                type="file"
+                accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                className="w-full rounded-lg border border-ink-200 px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-brand-50 file:px-3 file:py-1 file:text-brand-700"
+              />
+            </div>
+
+            <div className="md:col-span-2 flex justify-end">
+              <Button size="sm" disabled={busy} onClick={submit}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                Submit slip for approval
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {error ? (
+        <ErrorBanner message={error instanceof Error ? error.message : "Failed to load your slips."} />
+      ) : (
+        <DataTable
+          title="My uploaded slips"
+          description="Track the status of slips you've uploaded. Rejected slips show the reason so you can re-upload."
+          columns={cols}
+          data={slips}
+          loading={isLoading}
+          empty="You haven't uploaded any slips yet."
+        />
+      )}
+    </>
   );
 }
