@@ -34,7 +34,13 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { OtpInput } from "@/components/ui/OtpInput";
 import { PanInput } from "@/components/ui/PanInput";
-import { namesMatch, compareNames, formatIST, formatISTDate } from "@/lib/utils";
+import {
+  namesMatch,
+  compareNames,
+  type NameMatchLevel,
+  formatIST,
+  formatISTDate,
+} from "@/lib/utils";
 import { extractGpsFromFile } from "@/lib/gps";
 import { LivenessVideoCapture } from "@/components/kyc/LivenessVideoCapture";
 import { SelfieCapture } from "@/components/kyc/SelfieCapture";
@@ -214,39 +220,51 @@ function OnboardContent() {
   const panNameMatchesAadhaar = panAadhaarNameLevel === "match";
   const panAadhaarSimilar = panAadhaarNameLevel === "similar";
 
-  // Bank step: the account-holder name must match at least one of the
-  // Aadhaar name, PAN name, or Business name. When none match, Continue is
-  // hard-disabled (no self-declaration override).
+  // Bank step: compare the account-holder name against the Aadhaar name, PAN
+  // name, and Business name, taking the BEST level across them:
+  //  - "match":    one of them matches exactly → proceed freely.
+  //  - "similar":  none match exactly, but one looks like the same person
+  //                (prefix / reorder / minor typo) → allow AFTER a self-
+  //                declaration, then route to manual admin review.
+  //  - "mismatch": unrelated to every accepted name → hard block.
   const bankMatchCandidates = [
     aadhaarResult?.name,
     panResult?.registered_name,
     businessNameForMatch,
   ].filter((n): n is string => !!n && n.trim().length > 0);
-  const bankNameMatchesAny =
-    !!bankResult?.nameAtBank &&
-    bankMatchCandidates.some((n) => namesMatch(n, bankResult.nameAtBank));
+  const nameLevelRank: Record<NameMatchLevel, number> = {
+    match: 2,
+    similar: 1,
+    mismatch: 0,
+  };
+  const bankNameLevel: NameMatchLevel = !bankResult?.nameAtBank
+    ? "match"
+    : bankMatchCandidates.reduce<NameMatchLevel>((best, n) => {
+        const lvl = compareNames(n, bankResult.nameAtBank);
+        return nameLevelRank[lvl] > nameLevelRank[best] ? lvl : best;
+      }, "mismatch");
+  const bankNameMatchesAny = bankNameLevel === "match";
+  const bankNameSimilar = bankNameLevel === "similar";
 
-  // A "mismatch" for the final self-declaration only exists if a bank result
-  // is present yet matches none of the accepted names. The Continue gates
-  // above hard-block this state before submit, so the declaration modal is a
-  // safety net; a bank name that matches the Business name (not the personal
-  // Aadhaar/PAN name) is a valid match and does NOT count as a mismatch.
+  // A bank result that isn't an exact match to any accepted name counts as a
+  // "mismatch" for review purposes. "similar" names may proceed via the inline
+  // self-declaration below; true "mismatch" names are hard-blocked at the gate.
   const nameMismatch = !!bankResult?.nameAtBank && !bankNameMatchesAny;
 
-  // Name-mismatch self-declaration popup (bank holder name at final submit)
-  const [showNameDeclaration, setShowNameDeclaration] = useState(false);
-  const [nameDeclarationChecked, setNameDeclarationChecked] = useState(false);
-  // Inline self-declaration on the PAN step for a "similar" (not identical)
-  // PAN vs Aadhaar name.
+  // Inline self-declarations for "similar" (not identical) names:
+  //  - PAN step:  PAN vs Aadhaar name.
+  //  - Bank step: bank holder name vs Aadhaar / PAN / Business name.
   const [panNameDeclarationChecked, setPanNameDeclarationChecked] =
     useState(false);
+  const [bankNameDeclarationChecked, setBankNameDeclarationChecked] =
+    useState(false);
 
-  // Combine the bank-name mismatch with the PAN↔Aadhaar "similar name" case so
-  // either one routes the submission through the self-declaration + manual admin
-  // review path (nameMismatch → PENDING_REVIEW).
-  const anyNameMismatch = nameMismatch || panAadhaarSimilar;
+  // Either "similar" case routes the submission through the self-declaration +
+  // manual admin review path (nameMismatch → PENDING_REVIEW). A true "mismatch"
+  // is hard-blocked at its step gate and can never reach submit.
+  const anyNameMismatch = bankNameSimilar || panAadhaarSimilar;
   const anyNameDeclarationAccepted =
-    (!nameMismatch || nameDeclarationChecked) &&
+    (!bankNameSimilar || bankNameDeclarationChecked) &&
     (!panAadhaarSimilar || panNameDeclarationChecked);
 
   // OTP state
@@ -911,6 +929,8 @@ function OnboardContent() {
 
   function editBank() {
     setBankResult(null);
+    // Re-verifying the bank invalidates any prior "similar name" self-declaration.
+    setBankNameDeclarationChecked(false);
     setForm((f) => ({ ...f, bankName: "", bankAccountStatus: "" }));
     setError("");
   }
@@ -1101,19 +1121,13 @@ function OnboardContent() {
       return;
     }
 
-    // If the document names don't match, the applicant must first acknowledge
-    // (via the popup) that all names belong to them before we submit.
-    if (nameMismatch && !nameDeclarationChecked) {
-      setError("");
-      setShowNameDeclaration(true);
-      return;
-    }
-
+    // "Similar" Aadhaar/PAN and bank names are acknowledged inline on their
+    // respective steps (the step gates block progression until the applicant
+    // ticks the declaration), so no extra confirmation is needed at submit.
     await submitRegistration();
   }
 
   async function submitRegistration() {
-    setShowNameDeclaration(false);
     setVerifying(true);
     setError("");
     try {
@@ -1190,9 +1204,14 @@ function OnboardContent() {
         // it and the self-declaration / registration have a firm name.
         return form.shopName.trim().length >= 2;
       case 6:
-        // Bank verified AND holder name must match Aadhaar / PAN / Business
-        // name. Hard block otherwise (no self-declaration override).
-        return !!bankResult && bankNameMatchesAny;
+        // Bank verified AND either the holder name matches Aadhaar / PAN /
+        // Business, or (when it only looks similar) the applicant has self-
+        // declared it's theirs. A true mismatch (unrelated) stays hard-blocked.
+        return (
+          !!bankResult &&
+          (bankNameMatchesAny ||
+            (bankNameSimilar && bankNameDeclarationChecked))
+        );
       case 7:
         return selfieUploaded && videoCompleted;
       case 8: {
@@ -1920,9 +1939,9 @@ function OnboardContent() {
                       </p>
                     </div>
                   </div>
-                  {/* Name match: bank holder name must match Aadhaar, PAN,
-                      or Business name. Any single match is enough. */}
-                  {bankNameMatchesAny ? (
+                  {/* Name match: bank holder name vs Aadhaar / PAN / Business.
+                      match → OK; similar → self-declaration; mismatch → block. */}
+                  {bankNameMatchesAny && (
                     <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
                       <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                       <span>
@@ -1931,7 +1950,53 @@ function OnboardContent() {
                         verified Aadhaar / PAN / Business name.
                       </span>
                     </div>
-                  ) : (
+                  )}
+
+                  {/* Bank name looks similar (not identical) → let the applicant
+                      self-declare it belongs to them, then proceed to review. */}
+                  {bankNameSimilar && (
+                    <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>
+                          Account holder name{" "}
+                          <strong>{bankResult.nameAtBank}</strong> looks similar
+                          to — but not exactly the same as — your verified
+                          name(s). If this account belongs to you, please confirm
+                          below. Your account will then be submitted for manual
+                          verification and approval by our team.
+                        </span>
+                      </div>
+                      <ul className="ml-6 list-disc space-y-0.5">
+                        {aadhaarResult?.name && (
+                          <li>Aadhaar: <strong>{aadhaarResult.name}</strong></li>
+                        )}
+                        {panResult?.registered_name && (
+                          <li>PAN: <strong>{panResult.registered_name}</strong></li>
+                        )}
+                        {businessNameForMatch && (
+                          <li>Business: <strong>{businessNameForMatch}</strong></li>
+                        )}
+                      </ul>
+                      <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-amber-300 bg-white px-3 py-2.5">
+                        <input
+                          type="checkbox"
+                          checked={bankNameDeclarationChecked}
+                          onChange={(e) =>
+                            setBankNameDeclarationChecked(e.target.checked)
+                          }
+                          className="mt-0.5 h-4 w-4 shrink-0 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
+                        />
+                        <span className="text-ink-700">
+                          I declare that the bank account holder name{" "}
+                          <strong>{bankResult.nameAtBank}</strong> belongs to me
+                          and is a variation of my own legal name.
+                        </span>
+                      </label>
+                    </div>
+                  )}
+
+                  {!bankNameMatchesAny && !bankNameSimilar && (
                     <div className="space-y-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
                       <div className="flex items-start gap-2">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -2833,122 +2898,6 @@ function OnboardContent() {
         </div>
       </div>
 
-      {showNameDeclaration && (
-        <NameDeclarationModal
-          aadhaarName={aadhaarResult?.name || form.aadhaarName || null}
-          panName={panResult?.registered_name || null}
-          bankName={bankResult?.nameAtBank || form.bankName || null}
-          checked={nameDeclarationChecked}
-          onCheckedChange={setNameDeclarationChecked}
-          submitting={verifying}
-          onCancel={() => setShowNameDeclaration(false)}
-          onConfirm={submitRegistration}
-        />
-      )}
-    </div>
-  );
-}
-
-function NameDeclarationModal({
-  aadhaarName,
-  panName,
-  bankName,
-  checked,
-  onCheckedChange,
-  submitting,
-  onCancel,
-  onConfirm,
-}: {
-  aadhaarName: string | null;
-  panName: string | null;
-  bankName: string | null;
-  checked: boolean;
-  onCheckedChange: (v: boolean) => void;
-  submitting: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const rows: { label: string; value: string | null }[] = [
-    { label: "As per Aadhaar", value: aadhaarName },
-    { label: "As per PAN", value: panName },
-    { label: "As per Bank Account", value: bankName },
-  ].filter((r) => !!r.value);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-ink-900/50 px-4 py-6"
-      onClick={submitting ? undefined : onCancel}
-    >
-      <div
-        className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start gap-3 border-b border-amber-100 bg-amber-50 px-6 py-5">
-          <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-amber-600" />
-          <div>
-            <h3 className="text-lg font-bold text-amber-900">
-              Name Difference Detected
-            </h3>
-            <p className="mt-1 text-sm text-amber-800">
-              The name on your documents does not match exactly. Please review
-              the names below and confirm they all belong to you.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex-1 space-y-3 overflow-auto px-6 py-5">
-          {rows.map((r) => (
-            <div
-              key={r.label}
-              className="rounded-xl border border-ink-100 bg-ink-50/60 px-4 py-3"
-            >
-              <p className="text-[10px] font-bold uppercase tracking-widest text-ink-400">
-                {r.label}
-              </p>
-              <p className="mt-0.5 text-sm font-semibold text-ink-900 break-words">
-                {r.value}
-              </p>
-            </div>
-          ))}
-
-          <label className="mt-2 flex cursor-pointer items-start gap-3 rounded-xl border border-ink-200 bg-white px-4 py-3 hover:border-brand-300">
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={(e) => onCheckedChange(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
-            />
-            <span className="text-sm text-ink-700">
-              I declare that all the names shown above belong to me and are
-              variations of my own legal name. I understand my account will be
-              submitted for manual verification and approval by the admin team.
-            </span>
-          </label>
-        </div>
-
-        <div className="flex items-center justify-end gap-3 border-t border-ink-100 bg-ink-50/40 px-6 py-4">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCancel}
-            disabled={submitting}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={onConfirm}
-            disabled={!checked || submitting}
-          >
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4" />
-            )}
-            Accept &amp; Submit
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }

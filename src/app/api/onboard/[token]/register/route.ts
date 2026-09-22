@@ -9,7 +9,7 @@ import { needsSuccessorApproval } from "@/lib/declaration/types";
 import { getRequiredDocTypes, docTypeLabel } from "@/lib/onboarding/requiredDocuments";
 import { generateNextUserCode } from "@/lib/userCode";
 import { defaultServicesForRole } from "@/lib/settings";
-import { compareNames } from "@/lib/utils";
+import { compareNames, type NameMatchLevel } from "@/lib/utils";
 import {
   isIdentityTaken,
   identityTakenMessage,
@@ -249,10 +249,35 @@ export async function POST(
   // manual review), "mismatch" → unrelated names (hard block). If either name is
   // missing there's nothing to compare, so treat as "match" and let other gates
   // (hasPan/hasAadhaar) handle completeness.
-  const panAadhaarLevel =
+  const panAadhaarLevel: NameMatchLevel =
     serverAadhaarName && serverPanName
       ? compareNames(serverAadhaarName, serverPanName)
       : "match";
+
+  // Server-side bank holder name check (parity with the wizard's bank step). The
+  // bank name must match — or at least look "similar" to — the Aadhaar, PAN, GST
+  // or shop (business) name. Re-derived from stored verified names, never the
+  // client's flag.
+  const serverBankName =
+    latestVerifiedName("BANK_PENNY_DROP") ?? latestVerifiedName("BANK_ADVANCE");
+  const serverBusinessName = latestVerifiedName("GST");
+  const bankNameCandidates = [
+    serverAadhaarName,
+    serverPanName,
+    serverBusinessName,
+    data.shopName,
+  ].filter((n): n is string => !!n && n.trim().length > 0);
+  const nameLevelRank: Record<NameMatchLevel, number> = {
+    match: 2,
+    similar: 1,
+    mismatch: 0,
+  };
+  const bankNameLevel: NameMatchLevel = serverBankName
+    ? bankNameCandidates.reduce<NameMatchLevel>((best, n) => {
+        const lvl = compareNames(n, serverBankName);
+        return nameLevelRank[lvl] > nameLevelRank[best] ? lvl : best;
+      }, "mismatch")
+    : "match";
 
   const uploadedDocsList = Array.from(uploadedDocTypes);
   const hasSelfie = uploadedDocTypes.has("SELFIE");
@@ -314,12 +339,21 @@ export async function POST(
     );
   }
 
+  // Likewise, a bank holder name unrelated to every accepted name is a hard block.
+  if (serverBankName && bankNameLevel === "mismatch") {
+    gateErrors.push(
+      "Your bank account holder name does not match your Aadhaar, PAN, or business name. Please use a bank account held in one of those names."
+    );
+  }
+
   // Server-authoritative name-mismatch flag: the account must go through the
-  // self-declaration + manual review path when EITHER the client reports a
-  // mismatch (e.g. bank holder name) OR the server detects a "similar" (not
-  // identical) PAN ↔ Aadhaar name. We never trust the client's flag alone.
+  // self-declaration + manual review path when the client reports a mismatch OR
+  // the server detects a "similar" (not identical) PAN↔Aadhaar or bank name. We
+  // never trust the client's flag alone.
   const effectiveNameMismatch =
-    data.nameMismatch || panAadhaarLevel === "similar";
+    data.nameMismatch ||
+    panAadhaarLevel === "similar" ||
+    bankNameLevel === "similar";
 
   // When names don't match exactly, the applicant must explicitly self-declare
   // (via the onboarding popup / inline checkbox) that all names belong to them.
