@@ -86,23 +86,104 @@ export async function GET(req: Request) {
 
   const allIds = [user.id, ...children.map((c) => c.id)];
 
-  // Fetch all terminals assigned to the caller or their direct children.
-  const terminals = await prisma.posMachine.findMany({
-    where: { assignedUserId: { in: allIds }, tid: { not: null } },
-    select: {
-      tid: true,
-      mid: true,
-      model: true,
-      location: true,
-      city: true,
-      assignedUserId: true,
-      assignedAt: true,
-    },
-  });
+  // A terminal a holder USED to own must keep appearing here even after it is
+  // unassigned/reassigned — otherwise the dashboard hides the whole feed
+  // ("No POS terminals yet") and never queries the transactions that still
+  // belong to that holder. So we surface BOTH:
+  //   • CURRENT holdings — the live `assignedUserId` column.
+  //   • PAST holdings — closed `PosAssignmentLog` windows (returnedDate set).
+  // This mirrors `scopePosTerminals`, so the UI shows exactly the terminals the
+  // transactions feed will actually return rows for.
+  const [current, pastLogs] = await Promise.all([
+    prisma.posMachine.findMany({
+      where: { assignedUserId: { in: allIds }, tid: { not: null } },
+      select: {
+        tid: true,
+        mid: true,
+        model: true,
+        location: true,
+        city: true,
+        assignedUserId: true,
+        assignedAt: true,
+      },
+    }),
+    prisma.posAssignmentLog.findMany({
+      where: {
+        action: "assign",
+        toUserId: { in: allIds },
+        returnedDate: { not: null },
+        machine: { tid: { not: null } },
+      },
+      select: {
+        toUserId: true,
+        assignedDate: true,
+        createdAt: true,
+        machine: {
+          select: { tid: true, mid: true, model: true, location: true, city: true },
+        },
+      },
+    }),
+  ]);
 
-  // Members for the filter dropdown = direct children who actually hold a
+  type TerminalEntry = {
+    tid: string;
+    mid: string | null;
+    model: string | null;
+    location: string | null;
+    city: string | null;
+    ownerId: string | null;
+    assignedAt: Date | null;
+  };
+
+  // Dedupe by tid. When the caller held a terminal across several windows we
+  // keep the EARLIEST assignment date so the dashboard's `dateFrom` clamp never
+  // hides an older holding period; the backend still bounds each window exactly.
+  const byTid = new Map<string, TerminalEntry>();
+  const upsert = (e: TerminalEntry) => {
+    const prev = byTid.get(e.tid);
+    if (!prev) {
+      byTid.set(e.tid, e);
+      return;
+    }
+    const earliest =
+      prev.assignedAt && (!e.assignedAt || prev.assignedAt <= e.assignedAt)
+        ? prev.assignedAt
+        : e.assignedAt;
+    // Prefer a current owner (open holding) for the ownerId label.
+    byTid.set(e.tid, { ...prev, assignedAt: earliest });
+  };
+
+  for (const t of current) {
+    if (!t.tid) continue;
+    upsert({
+      tid: t.tid,
+      mid: t.mid,
+      model: t.model,
+      location: t.location,
+      city: t.city,
+      ownerId: t.assignedUserId,
+      assignedAt: t.assignedAt,
+    });
+  }
+  for (const p of pastLogs) {
+    const m = p.machine;
+    if (!m?.tid) continue;
+    upsert({
+      tid: m.tid,
+      mid: m.mid,
+      model: m.model,
+      location: m.location,
+      city: m.city,
+      ownerId: p.toUserId,
+      assignedAt: p.assignedDate ?? p.createdAt,
+    });
+  }
+
+  const terminals = [...byTid.values()];
+
+  // Members for the filter dropdown = direct children who hold (or held) a
   // terminal (no deeper path to walk in the one-level model).
-  const owners = new Set(terminals.map((t) => t.assignedUserId).filter(Boolean));
+  const owners = new Set(terminals.map((t) => t.ownerId).filter(Boolean));
   const members = children
     .filter((c) => owners.has(c.id))
     .map((c) => ({
@@ -121,7 +202,7 @@ export async function GET(req: Request) {
       model: t.model,
       location: t.location,
       city: t.city,
-      ownerId: t.assignedUserId,
+      ownerId: t.ownerId,
       assignedAt: t.assignedAt?.toISOString() ?? null,
     })),
   });
