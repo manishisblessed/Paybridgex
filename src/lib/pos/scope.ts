@@ -9,13 +9,15 @@ import { isAdminRole } from "@/lib/security/ownership";
  *
  * Resolves the caller + optional company/terminal filter into a terminal scope
  * for the mirror query:
- *   • `null`           → tenant-wide (admin only, no company/terminal filter)
- *   • `[]`             → nothing in scope (caller gets an empty feed)
- *   • `[{tid, from?}]` → these terminals, each clamped to its assignment date so
- *     a holder never sees a previous holder's transactions.
+ *   • `null`               → tenant-wide (admin only, no company/terminal filter)
+ *   • `[]`                 → nothing in scope (caller gets an empty feed)
+ *   • `[{tid, from?, to?}]`→ these terminal windows, each clamped to the holding
+ *     period so a holder sees ONLY the transactions captured while they owned
+ *     the terminal (and keeps seeing them after it is unassigned). A terminal
+ *     the caller held more than once appears as one entry per window.
  */
 export type PosScopeResult =
-  | { ok: true; terminals: { tid: string; from?: Date | null }[] | null }
+  | { ok: true; terminals: { tid: string; from?: Date | null; to?: Date | null }[] | null }
   | { ok: false; status: number; error: string };
 
 export async function resolvePosScope(
@@ -30,7 +32,7 @@ export async function resolvePosScope(
     if (!isAdminRole(user.role))
       return { ok: false, status: 403, error: "Company filtering is available to admins only" };
     const list = await resolveCompanyTerminals(companyFilter);
-    let terminals = list.map((t) => ({ tid: t.tid, from: t.assignedAt }));
+    let terminals = list.map((t) => ({ tid: t.tid, from: t.from, to: t.to }));
     if (terminalId) terminals = terminals.filter((t) => t.tid === terminalId);
     return { ok: true, terminals };
   }
@@ -38,18 +40,20 @@ export async function resolvePosScope(
   const scope = await scopePosTerminals(user);
   if (scope.all) {
     // Admin: tenant-wide, or a single terminal when one is requested.
-    return { ok: true, terminals: terminalId ? [{ tid: terminalId, from: null }] : null };
+    return { ok: true, terminals: terminalId ? [{ tid: terminalId, from: null, to: null }] : null };
   }
 
   if (scope.tids.length === 0)
     return { ok: false, status: 403, error: "No POS terminals are assigned to your account" };
 
   if (terminalId) {
-    if (!scope.tids.includes(terminalId))
+    // Keep EVERY window the caller held this terminal for (it may have been
+    // assigned to them more than once), not just the first match.
+    const matches = scope.terminals.filter((t) => t.tid === terminalId);
+    if (matches.length === 0)
       return { ok: false, status: 403, error: "You do not have access to that terminal" };
-    const match = scope.terminals.find((t) => t.tid === terminalId);
-    return { ok: true, terminals: [{ tid: terminalId, from: match?.assignedAt ?? null }] };
+    return { ok: true, terminals: matches.map((t) => ({ tid: t.tid, from: t.from, to: t.to })) };
   }
 
-  return { ok: true, terminals: scope.terminals.map((t) => ({ tid: t.tid, from: t.assignedAt })) };
+  return { ok: true, terminals: scope.terminals.map((t) => ({ tid: t.tid, from: t.from, to: t.to })) };
 }

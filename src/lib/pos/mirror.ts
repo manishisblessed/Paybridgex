@@ -382,10 +382,13 @@ export type MirrorQueryFilters = {
   paymentMode?: string | null;
   /**
    * Terminal scope. `null` = tenant-wide (admin only, no terminal filter).
-   * Otherwise an OR of terminal windows: each terminal may carry a `from`
-   * clamp (the assignment date) so a holder never sees a prior holder's rows.
+   * Otherwise an OR of terminal windows: each terminal may carry a `from` (the
+   * assignment date) and `to` (the un-assignment date, `null` = still held)
+   * clamp, so a holder sees ONLY the rows captured during their holding period
+   * — never a prior/next holder's, and never losing their own once the machine
+   * is unassigned.
    */
-  terminals: { tid: string; from?: Date | null }[] | null;
+  terminals: { tid: string; from?: Date | null; to?: Date | null }[] | null;
 };
 
 /** True when the scope resolved to zero terminals → the caller returns empty. */
@@ -404,28 +407,44 @@ function buildWhere(filters: MirrorQueryFilters): Prisma.PosTransactionMirrorWhe
 
   if (filters.terminals === null) return base; // tenant-wide (admin)
 
-  // Per-terminal windows. For INTEGRATED (SYNC/WEBHOOK/SWEEP) rows we clamp the
-  // swipe time (txnTime) to max(dateFrom, assignedAt) so a holder never sees a
-  // prior holder's live transactions.
+  // Per-terminal HOLDING windows. Each window carries `from` (assignment date)
+  // and optional `to` (un-assignment date; absent/`null` = still held). A row
+  // belongs to whoever held the terminal when it was captured, so we bound both
+  // ends of the window — this is what keeps a past holder's transactions visible
+  // after the machine is unassigned WITHOUT leaking them to the next holder.
+  //
+  // For INTEGRATED (SYNC/WEBHOOK/SWEEP) rows we clamp the swipe time (txnTime)
+  // to [max(dateFrom, assignedAt), returnedAt]. `returnedAt` may fall inside the
+  // selected [dateFrom, dateTo] range, so it is a real upper bound; when the
+  // terminal is still held (`to == null`) only the outer base.txnTime caps it.
   //
   // EXTERNAL POS (source = "MANUAL") slips are different: the retailer files them
   // after the fact, so their txnTime (the real swipe time) can legitimately
   // PREDATE the in-system assignment. Clamping those by txnTime would hide the
   // holder's OWN approved slip (e.g. swipe 12:27pm, machine assigned 5pm). We
-  // instead gate MANUAL rows on createdAt >= assignedAt — the ingest/approval
-  // moment, which is always AFTER assignment — so the current holder sees their
-  // slips while a previous holder's manual rows (ingested before this
-  // assignment) stay hidden. The outer base.txnTime still bounds MANUAL rows to
-  // the selected [dateFrom, dateTo] window.
+  // instead gate MANUAL rows on createdAt within [assignedAt, returnedAt] — the
+  // ingest/approval moment, which is always AFTER assignment and BEFORE the
+  // machine moves on — so the holder keeps every slip approved on their watch
+  // while a previous/next holder's manual rows stay hidden. The outer
+  // base.txnTime still bounds MANUAL rows to the selected [dateFrom, dateTo].
   base.OR = filters.terminals.map((t) => {
     const from = t.from && t.from > filters.dateFrom ? t.from : filters.dateFrom;
+    const to = t.to ?? null;
+
+    const integratedTime: Prisma.DateTimeFilter = { gte: from };
+    if (to) integratedTime.lte = to;
+
+    const manualCreated: Prisma.DateTimeFilter = {};
+    if (t.from) manualCreated.gte = t.from;
+    if (to) manualCreated.lte = to;
+
     return {
       terminalId: t.tid,
       OR: [
-        { source: { not: "MANUAL" }, txnTime: { gte: from } },
+        { source: { not: "MANUAL" }, txnTime: integratedTime },
         {
           source: "MANUAL",
-          ...(t.from ? { createdAt: { gte: t.from } } : {}),
+          ...(t.from || to ? { createdAt: manualCreated } : {}),
         },
       ],
     };

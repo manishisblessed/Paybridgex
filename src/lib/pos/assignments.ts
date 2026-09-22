@@ -397,15 +397,29 @@ export const posMachineSelect = {
 } as const;
 
 /**
- * Resolve which POS terminal IDs (`tid`) a user may query at the partner.
+ * Resolve which POS terminal IDs (`tid`) a user may query at the partner, each
+ * with the holding WINDOW `[from, to]` during which the user owned it.
  *
  * The partner account is tenant-wide, so the partner-proxy routes
  * (transactions/export) would otherwise expose every terminal to any logged-in
- * user. Assignment is owned locally in `PosMachine.assignedUserId`, so we scope
- * non-admins to the terminals assigned to them and their DIRECT children only
- * (SD→MDs, MD→DTs, DT→RTs) — never the full subtree. Admins are unrestricted.
+ * user. Assignment is owned locally, so we scope non-admins to the terminals
+ * assigned to them and their DIRECT children only (SD→MDs, MD→DTs, DT→RTs) —
+ * never the full subtree. Admins are unrestricted.
+ *
+ * A transaction belongs to whoever held the terminal WHEN it was captured, so
+ * visibility must survive the machine being unassigned/reassigned later. We
+ * therefore resolve TWO kinds of windows and union them:
+ *   • CURRENT holdings — the live `PosMachine.assignedUserId` column, as an
+ *     OPEN-ENDED window (`to = null`). This is the source of truth for a
+ *     freshly-assigned terminal, in scope even before any log row is stamped.
+ *   • PAST holdings — CLOSED windows `[assignedDate, returnedDate]` recovered
+ *     from the `PosAssignmentLog` ledger, so a previous holder keeps seeing the
+ *     transactions captured on their watch after the machine moves on.
+ *
+ * These windows mirror the holder-attribution periods in `enrich.ts`, so scope
+ * (who may query a row) and attribution (whose name a row shows) always agree.
  */
-export type ScopedTerminal = { tid: string; assignedAt: Date | null };
+export type ScopedTerminal = { tid: string; from: Date | null; to: Date | null };
 
 export async function scopePosTerminals(
   user: SessionUser
@@ -414,21 +428,43 @@ export async function scopePosTerminals(
     return { all: true, tids: [], terminals: [] };
 
   const scope = await scopeDirectUserIdFilter(user);
-  const rows = await prisma.posMachine.findMany({
-    where: { assignedUserId: scope.userId, tid: { not: null } },
-    select: { tid: true, assignedAt: true },
-  });
 
-  const seen = new Set<string>();
+  const [current, past] = await Promise.all([
+    // CURRENT holdings — open-ended (`to = null`).
+    prisma.posMachine.findMany({
+      where: { assignedUserId: scope.userId, tid: { not: null } },
+      select: { tid: true, assignedAt: true },
+    }),
+    // PAST holdings — closed windows from the ledger. Only RETURNED "assign"
+    // rows (returnedDate set) are past; the still-ACTIVE one is a current
+    // holding already covered above.
+    prisma.posAssignmentLog.findMany({
+      where: {
+        action: "assign",
+        toUserId: scope.userId,
+        returnedDate: { not: null },
+        machine: { tid: { not: null } },
+      },
+      select: {
+        assignedDate: true,
+        createdAt: true,
+        returnedDate: true,
+        machine: { select: { tid: true } },
+      },
+    }),
+  ]);
+
   const terminals: ScopedTerminal[] = [];
-  for (const r of rows) {
-    if (r.tid && !seen.has(r.tid)) {
-      seen.add(r.tid);
-      terminals.push({ tid: r.tid, assignedAt: r.assignedAt });
-    }
+  for (const r of current) {
+    if (r.tid) terminals.push({ tid: r.tid, from: r.assignedAt, to: null });
+  }
+  for (const p of past) {
+    const tid = p.machine?.tid;
+    if (tid) terminals.push({ tid, from: p.assignedDate ?? p.createdAt, to: p.returnedDate });
   }
 
-  return { all: false, tids: terminals.map((t) => t.tid), terminals };
+  const tids = Array.from(new Set(terminals.map((t) => t.tid)));
+  return { all: false, tids, terminals };
 }
 
 /**
@@ -437,8 +473,8 @@ export async function scopePosTerminals(
  *
  * Admin-only convenience: the partner transactions feed filters by a single
  * `terminal_id`, so a per-company view needs the full TID list to aggregate
- * over. `assignedAt` is intentionally null — an admin sees ALL activity on a
- * company's terminals, so the per-terminal assignment clamp is not applied.
+ * over. The window bounds are intentionally null — an admin sees ALL activity
+ * on a company's terminals, so no per-holder time clamp is applied.
  */
 export async function resolveCompanyTerminals(
   company: string
@@ -453,7 +489,7 @@ export async function resolveCompanyTerminals(
   for (const r of rows) {
     if (r.tid && !seen.has(r.tid)) {
       seen.add(r.tid);
-      terminals.push({ tid: r.tid, assignedAt: null });
+      terminals.push({ tid: r.tid, from: null, to: null });
     }
   }
   return terminals;
