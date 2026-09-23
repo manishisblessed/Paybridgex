@@ -7,6 +7,7 @@ import { isAboveMdrFloor } from "@/lib/mdr/floor";
 import { dec, sub, gte, toNumber, round, gt, eq } from "@/lib/money";
 import { getSetting } from "@/lib/settings";
 import { SETTLED_VIA, type SettledVia, isInstantButtonEnabled } from "@/lib/settlement/engine";
+import { resolvePosHolderAt, resolvePosHolderForMachine } from "@/lib/pos/holder";
 import type { MdrServiceKind, ServiceCode } from "@prisma/client";
 
 /**
@@ -185,40 +186,48 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   });
   if (existing) return { status: "DUPLICATE" };
 
-  // Resolve the machine, its assigned user, brand, provider, and acquiring
-  // company. The company label (PosMachine.company, e.g. "Sameday-AXIS") is a
-  // PRICING dimension — MDR slabs can be pinned per acquirer, so a capture that
-  // doesn't carry it can never match a company-pinned slab.
-  let userId: string | null = null;
-  let machineDbId: string | null = input.machineId ?? null;
+  // When the swipe actually happened at the terminal — the ANCHOR for holder
+  // attribution below. Defaults to now (the real-time webhook path, where the
+  // capture is learned the instant it happens).
+  const capturedAt = input.capturedAt ? new Date(input.capturedAt) : new Date();
+  const capturedAtValid = !Number.isNaN(capturedAt.getTime());
+
+  // Resolve the machine, its RIGHTFUL assignee at capture time, brand, provider
+  // and acquiring company. The company label (PosMachine.company, e.g.
+  // "Sameday-AXIS") is a PRICING dimension — MDR slabs can be pinned per
+  // acquirer, so a capture that doesn't carry it can never match a
+  // company-pinned slab.
+  //
+  // ATTRIBUTION RULE (money-critical, UNCONDITIONAL): a capture belongs to
+  // whoever HELD the terminal at `capturedAt` — never merely whoever holds it
+  // now, and there is NO bypass on any path (webhook, sweep, or admin-approved
+  // manual slip). A machine freshly assigned today must NOT retroactively settle
+  // swipes taken before its assignment; those resolve to the previous holder, or
+  // to NOBODY when the terminal was still in stock (→ SKIPPED, never credited).
+  // We resolve the holder from the assignment-history windows (PosAssignmentLog)
+  // — the SAME source used by display/scope attribution (see src/lib/pos/holder.ts,
+  // enrich.ts, scopePosTerminals) — so money and dashboards can never disagree.
+  //
+  // A missing/invalid capture time means we cannot prove ownership — never
+  // guess; park it. Callers that know the exact machine (e.g. manual slips) pass
+  // `machineId` so attribution binds to that machine, not a shared TID.
+  if (!capturedAtValid) return { status: "SKIPPED" };
   let brandId: string | null = input.brandId ?? null;
   let provider: string | null = input.provider ?? null;
   let company: string | null = input.company ?? null;
 
-  if (!machineDbId && input.terminalId) {
-    const machine = await prisma.posMachine.findFirst({
-      where: { tid: input.terminalId, assignedUserId: { not: null } },
-      select: { id: true, assignedUserId: true, brandId: true, provider: true, company: true },
-    });
-    if (machine) {
-      machineDbId = machine.id;
-      userId = machine.assignedUserId;
-      brandId = brandId ?? machine.brandId;
-      provider = provider ?? machine.provider;
-      company = company ?? machine.company;
-    }
-  } else if (machineDbId) {
-    const machine = await prisma.posMachine.findUnique({
-      where: { id: machineDbId },
-      select: { assignedUserId: true, brandId: true, provider: true, company: true },
-    });
-    userId = machine?.assignedUserId ?? null;
-    brandId = brandId ?? machine?.brandId ?? null;
-    provider = provider ?? machine?.provider ?? null;
-    company = company ?? machine?.company ?? null;
-  }
+  const resolved = input.machineId
+    ? await resolvePosHolderForMachine(input.machineId, capturedAt)
+    : input.terminalId
+      ? await resolvePosHolderAt(input.terminalId, capturedAt)
+      : null;
+  if (!resolved) return { status: "SKIPPED" };
 
-  if (!userId) return { status: "SKIPPED" };
+  const userId: string = resolved.userId;
+  const machineDbId: string = resolved.machineId;
+  brandId = brandId ?? resolved.brandId;
+  provider = provider ?? resolved.provider;
+  company = company ?? resolved.company;
 
   const paymentMode = input.paymentMode ?? "CARD";
 
@@ -304,9 +313,6 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   // it tracks the RAW POS Fleet volume (every terminal) rather than only the
   // settleable subset. Do NOT record payin here — that would under-count and
   // double the concern.
-
-  const capturedAt = input.capturedAt ? new Date(input.capturedAt) : new Date();
-  const capturedAtValid = !Number.isNaN(capturedAt.getTime());
 
   if (effectiveMode === "INSTANT") {
     // Instant settlement — credit the wallet now. If the credit fails mid-flight
@@ -727,6 +733,8 @@ type PendingEntry = {
   id: string;
   transactionRef: string;
   userId: string;
+  machineId: string | null;
+  capturedAt: Date | null;
   grossAmount: unknown;
   mdrAmount: unknown;
   netAmount: unknown;
@@ -756,6 +764,21 @@ async function settleEntry(
   settlementType: "T0" | "T1",
   via: SettledVia
 ): Promise<number | null> {
+  // Money-critical re-verification (defense-in-depth, UNCONDITIONAL): the entry
+  // must STILL belong to the retailer who HELD the terminal at capture time —
+  // for EVERY source, including admin-approved manual slips. This closes the
+  // window between queueing (PENDING) and settling (T+1 cron / instant sweep),
+  // e.g. if an assignment was corrected in between. Legacy entries with no
+  // capturedAt/machineId anchor skip this (their attribution was fixed at swipe
+  // time and cannot be re-derived).
+  if (entry.capturedAt && entry.machineId) {
+    const holder = await resolvePosHolderForMachine(entry.machineId, entry.capturedAt);
+    if (!holder || holder.userId !== entry.userId) {
+      // Attribution no longer holds — refuse to credit; leave PENDING for admin.
+      return null;
+    }
+  }
+
   const gross = dec(entry.grossAmount as never);
   let netAmount = round(dec(entry.netAmount as never));
   let freshMdr: PricedMdr | null = null;

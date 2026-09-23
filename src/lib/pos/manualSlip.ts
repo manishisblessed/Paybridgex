@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { handlePosCapture, handlePosReversal } from "@/lib/settlement/pos";
 import { upsertMirrorFromWebhook } from "@/lib/pos/mirror";
+import { resolvePosHolderForMachine } from "@/lib/pos/holder";
 import { toNumber } from "@/lib/money";
 
 /**
@@ -72,9 +73,23 @@ export async function approveManualSlip(slipId: string, adminId: string) {
   const paymentMode = slip.paymentMode ?? "CARD";
   const capturedAt = slip.txnTime ?? new Date();
 
-  // 1) Price + create the settlement entry via the SHARED engine. Pass the
-  // EXACT machineId (not just the TID) — PosMachine.tid is not unique, so a
-  // TID-only lookup could bind the capture to a different machine/retailer.
+  // ATTRIBUTION GATE (same rule as the automatic pipeline — NO bypass): a slip
+  // may only settle a swipe captured WHILE the terminal was held by the
+  // uploader. A slip whose transaction time predates the assignment (or falls in
+  // a previous holder's window) must NEVER settle to this retailer — reject it
+  // so a pre-assignment swipe can't be credited through the manual path. We bind
+  // to the EXACT machineId (PosMachine.tid is not unique) at capture time.
+  const holderAtCapture = await resolvePosHolderForMachine(slip.machineId, capturedAt);
+  if (holderAtCapture?.userId !== slip.uploaderUserId) {
+    throw new ManualSlipError(
+      "This slip's transaction date is before the terminal was assigned to the retailer (or falls in a previous holder's period), so it can't be settled to them. Correct the transaction date or handle it manually.",
+      422
+    );
+  }
+
+  // 1) Price + create the settlement entry via the SHARED engine. It re-resolves
+  // the SAME holder-at-capture attribution (bound to the exact machineId), so the
+  // manual path is governed by the identical gate as webhook/sweep captures.
   const capture = await handlePosCapture({
     transactionRef,
     machineId: slip.machineId,

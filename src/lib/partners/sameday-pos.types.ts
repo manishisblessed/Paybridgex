@@ -320,6 +320,8 @@ export interface PosSyncResult {
    * because they still hold a rental subscription or an active assignee.
    */
   retired: number;
+  /** Machines newly attached to their acquiring-company Brand this sync. */
+  linked: number;
   /** Distinct machines collected across all crawl passes (the union). */
   distinct: number;
   /** Machine count the partner claims exists (max `pagination.total` seen). */

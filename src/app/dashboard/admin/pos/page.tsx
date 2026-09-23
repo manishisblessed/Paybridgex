@@ -285,7 +285,7 @@ function MachinesTab() {
     try {
       const res = await fetch("/api/admin/pos/machines/sync", { method: "POST" });
       const text = await res.text();
-      let d: { error?: string; retryAfterSec?: number; scanned?: number; created?: number; updated?: number } = {};
+      let d: { error?: string; retryAfterSec?: number; scanned?: number; created?: number; updated?: number; linked?: number } = {};
       try {
         d = text ? JSON.parse(text) : {};
       } catch {
@@ -300,7 +300,7 @@ function MachinesTab() {
       } else {
         await mutate();
         const msg = d.scanned != null
-          ? `Synced: ${d.scanned} scanned, ${d.created} new, ${d.updated} updated`
+          ? `Synced: ${d.scanned} scanned, ${d.created} new, ${d.updated} updated${d.linked ? `, ${d.linked} linked to brand` : ""}`
           : "Machine inventory synced";
         toast.success(msg);
       }

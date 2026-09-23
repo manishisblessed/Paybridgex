@@ -146,6 +146,32 @@ async function crawlOnePass(
 }
 
 /**
+ * Attach POS machines to the Brand that owns their acquiring company, by
+ * matching `PosMachine.company` (e.g. "Sameday-Avika POS ( HDFC)") to
+ * `Brand.name` (case-insensitive). Only fills rows whose `brandId` is still
+ * null, so a machine already linked (manually or to another brand) is never
+ * re-homed. This is the same "adopt the company's fleet" semantics as creating
+ * a brand with `linkCompany`, applied continuously so the Brands page machine
+ * count and per-brand MDR pricing stay correct as new terminals sync in.
+ *
+ * Returns the number of machines newly linked.
+ */
+export async function linkMachinesToBrands(): Promise<number> {
+  const brands = await prisma.brand.findMany({ select: { id: true, name: true } });
+  let linked = 0;
+  for (const b of brands) {
+    const name = b.name.trim();
+    if (!name) continue;
+    const res = await prisma.posMachine.updateMany({
+      where: { brandId: null, company: { equals: name, mode: "insensitive" } },
+      data: { brandId: b.id },
+    });
+    linked += res.count;
+  }
+  return linked;
+}
+
+/**
  * Pull the full external machine inventory and upsert it into `PosMachine`.
  * Assignment fields are preserved for machines that remain in the feed.
  * Manual inventory rows (`source = MANUAL`) are never touched by sync.
@@ -272,6 +298,11 @@ export async function syncPosMachines(): Promise<PosSyncResult> {
       : 0;
   }
 
+  // Adopt any freshly-synced (or previously-unlinked) terminals into the Brand
+  // that owns their acquiring company, so the Brands page machine count and
+  // per-brand MDR pricing reflect the fleet without a manual re-link step.
+  const linked = await linkMachinesToBrands();
+
   return {
     ok: true,
     scanned: counters.scanned,
@@ -279,6 +310,7 @@ export async function syncPosMachines(): Promise<PosSyncResult> {
     updated: counters.updated,
     removed,
     retired,
+    linked,
     distinct,
     expected: reportedTotal,
     complete,
@@ -286,11 +318,85 @@ export async function syncPosMachines(): Promise<PosSyncResult> {
   };
 }
 
+/** Raised by {@link applyAssignment} on an invalid backdated effective-from. */
+export class AssignmentError extends Error {
+  constructor(message: string, readonly statusCode = 400) {
+    super(message);
+    this.name = "AssignmentError";
+  }
+}
+
+/**
+ * Validate & clamp a backdated `effective-from` for a NEW assignment. The
+ * resulting holding window [effectiveFrom, ∞) is what the settlement engine uses
+ * to attribute money, so it MUST NOT overlap any prior holder's period —
+ * otherwise a backdated assignment could retroactively settle another retailer's
+ * swipes. Money-critical rules:
+ *   • Must be a valid date, not in the future (60s clock-skew tolerance).
+ *   • If the terminal is CURRENTLY held (an active holder we're about to close
+ *     at `now`), backdating would overlap that holder — refuse; recall first.
+ *   • Otherwise (from stock) it must be ≥ the most recent time the terminal left
+ *     a holder (latest returnedDate) — i.e. only into the stock gap, never into
+ *     a previous holder's period.
+ * Returns the validated effective start to stamp on the window.
+ */
+async function resolveEffectiveFrom(
+  tx: Prisma.TransactionClient,
+  machineId: string,
+  effectiveFrom: Date,
+  now: Date,
+  currentlyHeld: boolean
+): Promise<Date> {
+  if (Number.isNaN(effectiveFrom.getTime()))
+    throw new AssignmentError("Invalid effective-from date.");
+
+  const SKEW_MS = 60_000;
+  if (effectiveFrom.getTime() > now.getTime() + SKEW_MS)
+    throw new AssignmentError("Effective-from date cannot be in the future.");
+
+  // Clamp trivial future skew back to now.
+  const eff = effectiveFrom.getTime() > now.getTime() ? now : effectiveFrom;
+
+  if (currentlyHeld && eff.getTime() < now.getTime()) {
+    throw new AssignmentError(
+      "This terminal is currently assigned to another holder — recall it first, then assign with an effective date. Backdating a live reassignment would overlap the current holder's settlements.",
+      409
+    );
+  }
+
+  // Floor: the last time the terminal left ANY holder's hands. Backdating before
+  // this would reach into a previous holder's window.
+  const logs = await tx.posAssignmentLog.findMany({
+    where: { machineId, action: "assign", returnedDate: { not: null } },
+    select: { returnedDate: true },
+  });
+  const latestReturned = logs.reduce<Date | null>((max, l) => {
+    const d = l.returnedDate;
+    if (!d) return max;
+    return max && max.getTime() >= d.getTime() ? max : d;
+  }, null);
+
+  if (latestReturned && eff.getTime() < latestReturned.getTime()) {
+    throw new AssignmentError(
+      `Effective-from can't be earlier than ${latestReturned.toISOString()} — that period belongs to a previous holder of this terminal.`,
+      409
+    );
+  }
+
+  return eff;
+}
+
 /**
  * Move a machine to a new holder (or back to stock when `toUserId` is null)
  * inside an existing transaction, keeping the tracking-report lifecycle
  * coherent: the previous ACTIVE assignment entry is closed as RETURNED, and
  * the new entry starts ACTIVE (assign) or is a plain EVENT (unassign).
+ *
+ * `effectiveFrom` (audited admin override) backdates the holding window's start
+ * so a retailer's genuine swipes taken BEFORE the system assignment (e.g. the
+ * machine was physically in use before ops recorded it) settle to them. It is
+ * strictly validated so it can never overlap a previous holder — see
+ * {@link resolveEffectiveFrom}. Omit for the normal "starts now" assignment.
  */
 export async function applyAssignment(
   tx: Prisma.TransactionClient,
@@ -301,16 +407,31 @@ export async function applyAssignment(
     byUserId: string;
     note?: string;
     returnReason?: string;
+    effectiveFrom?: Date;
   }
 ) {
   const now = new Date();
   const action = opts.toUserId ? "assign" : "unassign";
 
+  // Resolve the effective start of the new holding window. Backdating is only
+  // meaningful when assigning, and is validated so it never overlaps a prior
+  // holder's settled period.
+  let effectiveAt = now;
+  if (opts.toUserId && opts.effectiveFrom) {
+    effectiveAt = await resolveEffectiveFrom(
+      tx,
+      opts.machineId,
+      opts.effectiveFrom,
+      now,
+      opts.fromUserId != null
+    );
+  }
+
   const row = await tx.posMachine.update({
     where: { id: opts.machineId },
     data: {
       assignedUserId: opts.toUserId,
-      assignedAt: opts.toUserId ? now : null,
+      assignedAt: opts.toUserId ? effectiveAt : null,
       assignedById: opts.toUserId ? opts.byUserId : null,
     },
     select: posMachineSelect,
@@ -334,7 +455,9 @@ export async function applyAssignment(
       byUserId: opts.byUserId,
       note: opts.note ?? undefined,
       status: action === "assign" ? "ACTIVE" : "EVENT",
-      assignedDate: action === "assign" ? now : undefined,
+      // Window start = the (validated) effective date. `createdAt` still records
+      // when the admin actually performed the action, so the backdate is audited.
+      assignedDate: action === "assign" ? effectiveAt : undefined,
       returnReason: action === "unassign" ? opts.returnReason ?? undefined : undefined,
     },
   });

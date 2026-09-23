@@ -8,7 +8,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { flags } from "@/lib/env";
-import { applyAssignment, posMachineSelect, serializePosMachine } from "@/lib/pos/assignments";
+import { applyAssignment, AssignmentError, posMachineSelect, serializePosMachine } from "@/lib/pos/assignments";
 import { dec } from "@/lib/money";
 
 export const fetchCache = "force-no-store";
@@ -19,6 +19,10 @@ const AssignBody = z.object({
   machineId: z.string().min(1, "machineId is required"),
   userId: z.string().min(1).nullable().default(null),
   note: z.string().max(500).optional(),
+  // Audited admin override: backdate the holding-window start so the retailer's
+  // genuine swipes taken before the system assignment settle to them. Strictly
+  // validated server-side so it can never overlap a previous holder's period.
+  effectiveFrom: z.string().datetime().optional(),
   // Subscription fields — when assigning, admin may set a monthly rent.
   // Subscription is auto-created on assignment when provided.
   subscription: z.object({
@@ -68,7 +72,7 @@ export async function POST(req: Request) {
   const parsed = AssignBody.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const { machineId, userId, note, subscription } = parsed.data;
+  const { machineId, userId, note, subscription, effectiveFrom } = parsed.data;
 
   const machine = await prisma.posMachine.findUnique({
     where: { id: machineId },
@@ -115,13 +119,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, machine: current && serializePosMachine(current) });
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
     const row = await applyAssignment(tx, {
       machineId,
       fromUserId,
       toUserId: userId,
       byUserId: admin.id,
       note,
+      effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
     });
 
     // Cancel any active subscription on this machine when unassigning or reassigning.
@@ -155,7 +162,12 @@ export async function POST(req: Request) {
     }
 
     return row;
-  });
+    });
+  } catch (e) {
+    if (e instanceof AssignmentError)
+      return NextResponse.json({ error: e.message }, { status: e.statusCode });
+    throw e;
+  }
 
   await prisma.auditLog.create({
     data: {
@@ -168,6 +180,7 @@ export async function POST(req: Request) {
         toUserId: userId,
         by: admin.email,
         note: note ?? null,
+        effectiveFrom: effectiveFrom ?? null,
         subscription: subscription ?? null,
       },
       ip: clientIp(req),

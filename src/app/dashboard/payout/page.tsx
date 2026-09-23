@@ -25,6 +25,7 @@ import {
   MessageCircle,
   Plus,
   Printer,
+  ReceiptText,
   RefreshCw,
   Search,
   Send,
@@ -47,6 +48,7 @@ import {
 } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { ReportActions } from "@/components/dashboard/ReportActions";
+import { PayoutReceiptDialog } from "@/components/dashboard/PayoutReceiptDialog";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
@@ -176,6 +178,7 @@ export default function PayoutPage() {
   const [loadingService, setLoadingService] = useState(true);
 
   const [showNoAccountModal, setShowNoAccountModal] = useState(false);
+  const [receiptId, setReceiptId] = useState<string | null>(null);
 
   const verifiedBenes = useMemo(() => beneficiaries.filter((b) => b.isVerified), [beneficiaries]);
 
@@ -323,6 +326,22 @@ export default function PayoutPage() {
         <span className="whitespace-nowrap text-xs text-ink-500">
           {formatIST(r.createdAt, { dateStyle: "medium", timeStyle: "short" })}
         </span>
+      ),
+    },
+    {
+      key: "id",
+      header: "Receipt",
+      align: "right",
+      render: (r) => (
+        <button
+          type="button"
+          onClick={() => setReceiptId(r.id)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 transition-colors hover:border-brand-300 hover:text-brand-700"
+          title="View receipt"
+        >
+          <ReceiptText className="h-3.5 w-3.5" />
+          Receipt
+        </button>
       ),
     },
   ];
@@ -561,6 +580,13 @@ export default function PayoutPage() {
           </p>
         </div>
       </ModalShell>
+
+      {/* Branded payout receipt (logo, charges, GST) — view / download PDF / share */}
+      <PayoutReceiptDialog
+        payoutId={receiptId}
+        open={receiptId !== null}
+        onClose={() => setReceiptId(null)}
+      />
     </div>
   );
 }
@@ -1148,6 +1174,7 @@ function InfoTile({ label, value, mono }: { label: string; value: string; mono?:
 
 function PayoutReceipt({ result, onDone }: { result: PayoutResult; onDone: () => void }) {
   const [copied, setCopied] = useState(false);
+  const [officialOpen, setOfficialOpen] = useState(false);
   const { session } = useAuth();
   const payBy = session?.userCode
     ? `Pay by Paybridgex · RT Code ${session.userCode}`
@@ -1263,18 +1290,30 @@ ${payBy}`;
           />
         </div>
 
-        <div className="mt-6 flex gap-2">
+        <Button className="mt-6 w-full" onClick={() => setOfficialOpen(true)}>
+          <ReceiptText className="h-4 w-4" />
+          Official receipt (PDF)
+        </Button>
+
+        <div className="mt-2 flex gap-2">
           <Button variant="outline" className="flex-1" onClick={onDone}>
             Done
           </Button>
           {result.status === "PROCESSING" && (
-            <Button className="flex-1" onClick={onDone}>
+            <Button variant="outline" className="flex-1" onClick={onDone}>
               <Search className="h-4 w-4" />
               Check status
             </Button>
           )}
         </div>
       </div>
+
+      {/* Branded, GST-itemised payout receipt (logo, charges) — download / share */}
+      <PayoutReceiptDialog
+        payoutId={result.id}
+        open={officialOpen}
+        onClose={() => setOfficialOpen(false)}
+      />
     </motion.div>
   );
 }

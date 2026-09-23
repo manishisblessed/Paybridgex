@@ -290,18 +290,9 @@ async function processSamedayPosEvent(
     }
   }
 
-  const result = await handlePosCapture({
-    transactionRef,
-    terminalId: terminalId || undefined,
-    grossAmount,
-    paymentMode,
-    provider,
-    cardType,
-    brandType,
-    classification,
-  });
-
-  // Mirror the capture into the display read-model. Best-effort.
+  // The partner's reported swipe time — the ANCHOR for holder attribution in
+  // the settlement engine (who owned the terminal WHEN it was swiped). Falls
+  // back to now (real-time capture) when the feed omits a usable timestamp.
   const maskedPan = String(txnData.formattedPan ?? txnData.maskedCardNumber ?? "").trim() || null;
   const capturedAt = (() => {
     for (const raw of [txnData.txnTime, txnData.transactionTime, txnData.txnDate, txnData.createdAt]) {
@@ -311,6 +302,20 @@ async function processSamedayPosEvent(
     }
     return null;
   })();
+
+  const result = await handlePosCapture({
+    transactionRef,
+    terminalId: terminalId || undefined,
+    grossAmount,
+    paymentMode,
+    provider,
+    cardType,
+    brandType,
+    classification,
+    capturedAt: capturedAt ?? undefined,
+  });
+
+  // Mirror the capture into the display read-model. Best-effort.
   try {
     await upsertMirrorFromWebhook({
       transactionRef,

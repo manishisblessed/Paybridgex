@@ -61,6 +61,7 @@ export async function POST(req: Request) {
         updated: result.updated,
         removed: result.removed,
         retired: result.retired,
+        linked: result.linked,
         distinct: result.distinct,
         expected: result.expected,
         complete: result.complete,

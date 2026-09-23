@@ -8,7 +8,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { prisma } from "@/lib/db";
 import { clientIp } from "@/lib/security/audit";
 import { flags } from "@/lib/env";
-import { applyAssignment } from "@/lib/pos/assignments";
+import { applyAssignment, AssignmentError } from "@/lib/pos/assignments";
 import { dec } from "@/lib/money";
 import type { Prisma } from "@prisma/client";
 
@@ -23,6 +23,10 @@ const BulkBody = z
     userId: z.string().min(1).nullable().default(null),
     note: z.string().max(500).optional(),
     returnReason: z.string().max(300).optional(),
+    // Audited admin override applied to every machine in the batch: backdate the
+    // holding-window start. Validated per machine so it can never overlap a
+    // previous holder — machines where it would are reported in `failed`.
+    effectiveFrom: z.string().datetime().optional(),
     // Subscription params — applied to every assigned machine in the batch.
     subscription: z.object({
       planId: z.string().min(1),
@@ -68,7 +72,8 @@ export async function POST(req: Request) {
   const parsed = BulkBody.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const { userId, note, returnReason, subscription } = parsed.data;
+  const { userId, note, returnReason, subscription, effectiveFrom } = parsed.data;
+  const effectiveFromDate = effectiveFrom ? new Date(effectiveFrom) : undefined;
 
   const machineIds = Array.from(new Set(parsed.data.machineIds));
   if (machineIds.length > MAX_BULK)
@@ -145,6 +150,8 @@ export async function POST(req: Request) {
           byUserId: admin.id,
           note: note ?? (userId ? "Bulk assigned" : "Bulk recalled"),
           returnReason,
+          // Only meaningful when assigning; ignored on recall (toUserId null).
+          effectiveFrom: userId ? effectiveFromDate : undefined,
         });
 
         // Cancel existing subscriptions when unassigning or reassigning.
@@ -173,8 +180,11 @@ export async function POST(req: Request) {
         }
       });
       succeeded.push({ id, label });
-    } catch {
-      failed.push({ id, label, error: "Assignment failed" });
+    } catch (e) {
+      // Surface the precise reason (e.g. a rejected backdate that would overlap
+      // a previous holder) instead of a generic failure.
+      const error = e instanceof AssignmentError ? e.message : "Assignment failed";
+      failed.push({ id, label, error });
     }
   }
 
@@ -188,6 +198,7 @@ export async function POST(req: Request) {
         by: admin.email,
         note: note ?? null,
         returnReason: returnReason ?? null,
+        effectiveFrom: effectiveFrom ?? null,
         subscription: subscription ?? null,
         requested: machineIds.length,
         succeeded: succeeded.length,

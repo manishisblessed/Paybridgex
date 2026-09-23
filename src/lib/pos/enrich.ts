@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
 import { isCardClassificationEnabled } from "@/lib/settings";
+import { buildHoldingPeriods, resolveHolderFromPeriods, type HoldingPeriod } from "@/lib/pos/holder";
 import type { PosTransaction } from "@/lib/partners/sameday-pos.types";
 
 /**
@@ -49,25 +50,15 @@ export async function enrichPosTransactions(
       })
     : [];
 
-  type HoldingPeriod = { userId: string; start: Date; end: Date | null };
+  // Build per-terminal holding windows using the SHARED resolver, so display
+  // attribution here can never drift from the money attribution used by the
+  // settlement engine (src/lib/pos/holder.ts).
   const periodsByTid = new Map<string, HoldingPeriod[]>();
   const holderIds = new Set<string>();
   for (const m of machines) {
     if (!m.tid) continue;
-    const periods: HoldingPeriod[] = [];
-    for (const log of m.assignmentLogs) {
-      if (!log.toUserId) continue;
-      periods.push({
-        userId: log.toUserId,
-        start: log.assignedDate ?? log.createdAt,
-        end: log.returnedDate,
-      });
-      holderIds.add(log.toUserId);
-    }
-    if (periods.length === 0 && m.assignedUserId && m.assignedAt) {
-      periods.push({ userId: m.assignedUserId, start: m.assignedAt, end: null });
-      holderIds.add(m.assignedUserId);
-    }
+    const periods = buildHoldingPeriods(m);
+    for (const p of periods) holderIds.add(p.userId);
     periodsByTid.set(m.tid, periods);
   }
 
@@ -79,15 +70,8 @@ export async function enrichPosTransactions(
     : [];
   const holderById = new Map(holders.map((u) => [u.id, u]));
 
-  const resolveHolderId = (tid: string, at: Date): string | null => {
-    const periods = periodsByTid.get(tid);
-    if (!periods) return null;
-    for (let i = periods.length - 1; i >= 0; i--) {
-      const p = periods[i];
-      if (at >= p.start && (p.end === null || at <= p.end)) return p.userId;
-    }
-    return null;
-  };
+  const resolveHolderId = (tid: string, at: Date): string | null =>
+    resolveHolderFromPeriods(periodsByTid.get(tid) ?? [], at);
 
   const enriched = rows.map((txn) => {
     const txnTime = new Date(txn.txn_time ?? txn.created_at);

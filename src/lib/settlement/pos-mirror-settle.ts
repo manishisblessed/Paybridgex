@@ -2,6 +2,7 @@ import { flags } from "@/lib/env";
 import { getSetting, isCardClassificationEnabled } from "@/lib/settings";
 import { prisma } from "@/lib/db";
 import { handlePosCapture } from "@/lib/settlement/pos";
+import { loadHoldingPeriodsByTid, resolveHolderFromPeriods } from "@/lib/pos/holder";
 
 /**
  * POS settlement sweep — MIRROR-DRIVEN.
@@ -37,6 +38,7 @@ export type PosMirrorSettleResult = {
   duplicate: number; // already had a settlement entry
   noScheme: number; // assigned but not priceable (no scheme/rate) — needs admin
   skippedRows: number; // no assigned/active user, non-positive net, bad row
+  preAssignment: number; // captured BEFORE the holder's assignment — never auto-credited (manual)
 };
 
 /** Start of the IST day `days` ago, as a UTC Date. */
@@ -87,6 +89,7 @@ export async function runPosMirrorSettleSweep(opts?: {
     duplicate: 0,
     noScheme: 0,
     skippedRows: 0,
+    preAssignment: 0,
   };
 
   if (!flags.pos) return { ...base, skipped: true, reason: "POS partner disabled" };
@@ -108,6 +111,14 @@ export async function runPosMirrorSettleSweep(opts?: {
   const tids = await eligibleTerminalIds();
   base.eligibleTerminals = tids.length;
   if (tids.length === 0) return base; // nothing assigned+schemed → nothing to settle
+
+  // Holding windows per terminal — the ATTRIBUTION gate. A capture only settles
+  // to the retailer who HELD the terminal at swipe time; captures taken before
+  // the current assignment (or while the terminal was in stock) resolve to no
+  // holder and are NEVER auto-credited (left for manual handling). This mirrors
+  // handlePosCapture's own authoritative gate, applied here first so the heavy
+  // pricing/settlement path is never even entered for pre-assignment captures.
+  const periodsByTid = await loadHoldingPeriodsByTid(tids);
 
   // Card classification off → don't pass a tier the MDR resolver would ignore.
   const classificationEnabled = await isCardClassificationEnabled();
@@ -135,6 +146,16 @@ export async function runPosMirrorSettleSweep(opts?: {
     const grossAmount = Number(t.amount);
     if (!t.terminalId || !Number.isFinite(grossAmount) || grossAmount <= 0) {
       base.skippedRows++;
+      continue;
+    }
+
+    // ATTRIBUTION GATE — settle ONLY captures taken during a holder's window.
+    // Pre-assignment / stock-era captures have no holder and are excluded from
+    // auto-settlement (they must be handled manually), never credited to the
+    // terminal's current assignee.
+    const holderId = resolveHolderFromPeriods(periodsByTid.get(t.terminalId) ?? [], t.txnTime);
+    if (!holderId) {
+      base.preAssignment++;
       continue;
     }
 

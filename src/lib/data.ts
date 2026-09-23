@@ -35,6 +35,9 @@ export const company = {
   nodalEmail: "nodal@paybridgex.in",
   phone: "9316810093",
   cin: "U82910GJ2026OPC181144",
+  // TODO(paybridgex): set the company's real GSTIN here once registered. While
+  // empty, receipts simply omit the GSTIN line (no placeholder is shown).
+  gstin: "",
   incorporated: "2026",
   jurisdiction: "Ahmedabad, Gujarat",
   address:

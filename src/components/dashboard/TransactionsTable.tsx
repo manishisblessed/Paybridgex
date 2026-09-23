@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Loader2, ArrowRight, ReceiptText } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
+import { ReceiptDialog } from "@/components/dashboard/ReceiptDialog";
 import type { Transaction } from "@/lib/data";
 import { formatINR } from "@/lib/utils";
 
@@ -28,6 +30,8 @@ export function TransactionsTable({
    *  commission on a txn belongs to the upline, not the retailer). */
   showCommission?: boolean;
 }) {
+  const [receiptRef, setReceiptRef] = useState<string | null>(null);
+
   return (
     <div className="overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-sm">
       {showHeader && (
@@ -80,6 +84,7 @@ export function TransactionsTable({
                 )}
                 <th className="px-5 py-3 font-semibold">Status</th>
                 <th className="px-5 py-3 font-semibold">Date</th>
+                <th className="px-5 py-3 font-semibold text-right">Receipt</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100/80 text-ink-800">
@@ -100,12 +105,29 @@ export function TransactionsTable({
                     <Badge variant={statusVariant[t.status]}>{t.status}</Badge>
                   </td>
                   <td className="px-5 py-3 text-xs text-ink-500">{t.date}</td>
+                  <td className="px-5 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => setReceiptRef(t.id)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 transition-colors hover:border-brand-300 hover:text-brand-700"
+                      title="View receipt"
+                    >
+                      <ReceiptText className="h-3.5 w-3.5" />
+                      Receipt
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      <ReceiptDialog
+        refId={receiptRef}
+        open={receiptRef !== null}
+        onClose={() => setReceiptRef(null)}
+      />
     </div>
   );
 }
