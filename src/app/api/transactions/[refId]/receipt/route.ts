@@ -5,7 +5,7 @@ import type { TxnStatus } from "@prisma/client";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { enforceRateLimit, RATE_LIMITS, RateLimitError } from "@/lib/security/rateLimit";
 import { prisma } from "@/lib/db";
-import { add, dec, toNumber } from "@/lib/money";
+import { add, dec, sub, toNumber } from "@/lib/money";
 import { gstRate, splitCgstSgst } from "@/lib/reports/gstMath";
 import { isAdminRole } from "@/lib/security/ownership";
 import {
@@ -98,12 +98,18 @@ export async function GET(req: Request, { params }: { params: { refId: string } 
     return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
   }
 
-  // GST breakdown: the service `fee` is the taxable value; the recorded `gst`
-  // is the tax on it. Split into equal CGST/SGST halves (intra-state).
-  const feeDec = dec(t.fee);
-  const gstDec = dec(t.gst);
+  // GST breakdown. IMPORTANT: `Transaction.fee` is GST-INCLUSIVE — it already
+  // contains `Transaction.gst` (see the pay routes: feeMoney = charge + gst, or
+  // the gst-inclusive charge itself). The wallet is debited `amount + fee` only
+  // (runTransaction.reserveAmount), GST is never added on top again. So:
+  //   taxable value = fee − gst      (the ex-GST service charge)
+  //   GST rate      = gst / taxable  (→ 18% = 9% CGST + 9% SGST)
+  //   total charged = amount + fee
+  const feeDec = dec(t.fee); // GST-inclusive service charge
+  const gstDec = dec(t.gst); // GST portion contained within the fee
+  const taxableDec = sub(feeDec, gstDec); // ex-GST taxable value
   const { cgst, sgst } = splitCgstSgst(gstDec);
-  const total = add(add(t.amount, feeDec), gstDec);
+  const total = add(t.amount, feeDec);
 
   // Retailers never see commission (see /api/transactions rationale).
   const hideCommission = user.role === "RETAILER";
@@ -117,11 +123,11 @@ export async function GET(req: Request, { params }: { params: { refId: string } 
     operator: t.operator,
     partnerTxnId: t.partnerTxnId,
     amount: toNumber(t.amount),
-    fee: toNumber(feeDec),
+    fee: toNumber(taxableDec), // shown as "Service charge (taxable value)"
     gst: toNumber(gstDec),
     cgst: toNumber(cgst),
     sgst: toNumber(sgst),
-    gstRate: gstRate(gstDec, feeDec),
+    gstRate: gstRate(gstDec, taxableDec),
     total: toNumber(total),
     commission: hideCommission ? null : toNumber(t.commission),
     retailer: {

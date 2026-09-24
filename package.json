@@ -17,6 +17,7 @@
     "backfill:pos-mirror": "tsx scripts/backfill-pos-mirror.ts",
     "backfill:bbps-margin": "tsx scripts/backfill-bbps-margin.ts",
     "recon:verify": "tsx scripts/verify-recon.ts",
+    "verify:receipt-gst": "tsx scripts/verify-receipt-gst.ts",
     "recon:pos-reversals": "tsx scripts/pos-back-reconcile.ts",
     "backfill:service-vendor": "tsx scripts/backfill-service-vendor.ts",
     "backfill:network-services": "tsx scripts/backfill-network-services.ts",
