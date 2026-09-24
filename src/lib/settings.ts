@@ -131,6 +131,16 @@ const SETTING_SCHEMAS = {
     hour: z.number().int().min(0).max(23).default(9),
     paused: z.boolean().default(false),
     minAmount: z.number().nonnegative().default(50),
+    /**
+     * Extra IST days past a capture's DUE day within which the cron will still
+     * auto-settle it. 0 (default) = strict T+1: each run settles ONLY the
+     * previous day's captures (their exact due day), never an older backlog.
+     * Captures whose due day has already passed by more than this are left
+     * PENDING (surfaced as `stale`) for deliberate admin action, so a worker
+     * outage can never trigger a mass back-settlement of real money. Raise only
+     * to let the cron absorb short outages automatically.
+     */
+    catchUpDays: z.number().int().min(0).max(30).default(0),
   }),
 
   /** PG acquirer settlement — instant mode (admin-toggled per user or global). */

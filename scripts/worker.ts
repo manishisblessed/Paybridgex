@@ -306,10 +306,15 @@ async function main() {
     );
     if (!cfg.enabled || cfg.paused || istHour !== cfg.hour) return;
     const r = await runPosT1SettlementSweep();
-    if (r.processed > 0)
+    if (r.processed > 0 || r.stale > 0)
       log(
         `pos.settlement.t1: processed=${r.processed} settled=${r.settled} ` +
-          `failed=${r.failed} amount=₹${r.totalAmount}`
+          `failed=${r.failed} held=${r.held} stale=${r.stale} amount=₹${r.totalAmount}`
+      );
+    if (r.stale > 0)
+      log(
+        `pos.settlement.t1: WARNING ${r.stale} PENDING T+1 capture(s) past their due ` +
+          `day were NOT auto-settled (backlog). Review and settle manually.`
       );
   });
   await boss.schedule(QUEUES.POS_SETTLEMENT_T1, "10 * * * *", {}, { tz: "Asia/Kolkata" });

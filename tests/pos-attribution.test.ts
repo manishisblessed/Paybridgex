@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildHoldingPeriods, resolveHolderFromPeriods } from "@/lib/pos/holder";
 import { applyAssignment, AssignmentError } from "@/lib/pos/assignments";
+import { classifyT1Due } from "@/lib/settlement/pos";
 
 /**
  * Locks in the money-critical POS attribution rule: a capture belongs to
@@ -158,5 +159,44 @@ describe("applyAssignment — audited effective-from backdate guardrails", () =>
     const stamped = (assign.assignedDate as Date).getTime();
     expect(stamped).toBeGreaterThanOrEqual(before - 1000);
     expect(stamped).toBeLessThanOrEqual(Date.now() + 1000);
+  });
+});
+
+describe("classifyT1Due — cron settles only what's due for this run", () => {
+  // Classic T+1: brand has no cutoff, so dueBoundary = start of today IST.
+  const todayStart = d("2026-09-24T18:30:00Z"); // 25 Sep 00:00 IST — a run boundary
+  const DAY = 24 * 60 * 60 * 1000;
+  const yesterday = new Date(todayStart.getTime() - DAY / 2); // ~mid previous day
+  const dayBefore = new Date(todayStart.getTime() - 1.5 * DAY); // ~mid day-before-yesterday
+  const today = new Date(todayStart.getTime() + DAY / 4); // after the boundary
+
+  it("settles the PREVIOUS day's captures (strict, catchUpDays=0)", () => {
+    expect(classifyT1Due(yesterday, todayStart, 0)).toBe("DUE");
+  });
+
+  it("does NOT settle day-before-yesterday captures (strict) — leaves them STALE", () => {
+    expect(classifyT1Due(dayBefore, todayStart, 0)).toBe("STALE");
+  });
+
+  it("holds captures not yet due (at/after the boundary)", () => {
+    expect(classifyT1Due(today, todayStart, 0)).toBe("HELD");
+  });
+
+  it("absorbs one extra day of backlog when catchUpDays=1", () => {
+    expect(classifyT1Due(dayBefore, todayStart, 1)).toBe("DUE");
+    // Three days old is still stale even with a 1-day catch-up.
+    const threeDaysOld = new Date(todayStart.getTime() - 2.5 * DAY);
+    expect(classifyT1Due(threeDaysOld, todayStart, 1)).toBe("STALE");
+  });
+
+  it("respects a brand T+2 cutoff: after-cutoff captures settle on their T+2 day", () => {
+    // Brand cutoff 18:00 IST → dueBoundary = todayStart - 6h.
+    const dueBoundary = new Date(todayStart.getTime() - 6 * 60 * 60 * 1000);
+    // A capture from day-before-yesterday, AFTER cutoff, is due on THIS (T+2) run.
+    const t2 = new Date(dueBoundary.getTime() - DAY + 60 * 60 * 1000); // just inside the window
+    expect(classifyT1Due(t2, dueBoundary, 0)).toBe("DUE");
+    // A yesterday capture AFTER cutoff is not yet due — held for its T+2 run.
+    const heldAfterCutoff = new Date(dueBoundary.getTime() + 60 * 60 * 1000);
+    expect(classifyT1Due(heldAfterCutoff, dueBoundary, 0)).toBe("HELD");
   });
 });

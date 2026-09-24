@@ -32,6 +32,13 @@ export const SETTLED_VIA = {
   INSTANT_BUTTON: "INSTANT_BUTTON",
   /** Swept by the next-day T+1 settlement cron (T1 rate). */
   T1_CRON: "T1_CRON",
+  /**
+   * Reconciled to an out-of-band manual credit (e.g. an admin wallet ADJUSTMENT
+   * pushed during an incident). The entry is marked SETTLED and linked to the
+   * pre-existing WalletTxn WITHOUT crediting again — this exists purely to make
+   * the settlement engine treat the capture as done so no sweep ever re-pays it.
+   */
+  MANUAL_RECONCILE: "MANUAL_RECONCILE",
 } as const;
 
 export type SettledVia = (typeof SETTLED_VIA)[keyof typeof SETTLED_VIA];

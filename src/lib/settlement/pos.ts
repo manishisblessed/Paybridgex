@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/db";
 import { creditWallet } from "@/lib/ledger";
 import { getEffectiveMdr, type MdrDimensions } from "@/lib/mdr/resolver";
-import { resolveBrandMdr } from "@/lib/brand/mdr";
 import { distributeMdrCommission } from "@/lib/commission/distribute";
 import { isAboveMdrFloor } from "@/lib/mdr/floor";
 import { dec, sub, gte, toNumber, round, gt, eq } from "@/lib/money";
@@ -70,12 +69,26 @@ type PricedMdr = {
 };
 
 /**
- * Price a capture's MDR. Brand rate card wins when the machine has a brand;
- * otherwise the owner's own unified Scheme (cascade) is used. Returns null when the
- * money cannot be priced (no matching brand rate / no user scheme) — the caller
- * must park it rather than settle unpriced money.
+ * Price a POS capture's MDR — STRICTLY off the retailer's own assigned Scheme.
+ *
+ * A transaction is priceable ONLY when the retailer has a scheme with a VALID
+ * slab matching this transaction (amount band + card/acquirer dimensions), i.e.
+ * `getEffectiveMdr` resolves `source === "USER_SCHEME"`. In that case the exact
+ * slab MDR is deducted and the SAME slab funds the per-transaction commission
+ * (see distributeCommissionForPos → getEffectiveMdr), so settlement and
+ * commission are always consistent and booked per transaction.
+ *
+ * When no scheme is assigned, or no valid slab matches (`source === "NONE"`), or
+ * the resolved MDR is below the company floor, this returns null → the caller
+ * HOLDS the capture (NO_SCHEME); it is never settled and never credited. This is
+ * deliberate and money-critical: we never credit unpriced/unschemed money.
+ *
+ * NOTE: the acquirer BRAND rate card is intentionally NOT used to price the
+ * merchant MDR. Pricing is per-retailer scheme only, so a brand/provider
+ * mismatch on the machine can never override the retailer's scheme or block a
+ * genuinely schemed capture. `brandId` on the result is therefore always null.
  */
-async function priceMdr(args: {
+export async function priceMdr(args: {
   userId: string;
   brandId: string | null;
   provider: string | null;
@@ -84,70 +97,26 @@ async function priceMdr(args: {
   settlementType: "T0" | "T1";
   dims?: Omit<MdrDimensions, "paymentMode" | "settlementType">;
 }): Promise<PricedMdr | null> {
-  let result: PricedMdr | null = null;
+  const mdr = await getEffectiveMdr(args.userId, "POS" as MdrServiceKind, args.grossAmount, {
+    paymentMode: args.paymentMode,
+    settlementType: args.settlementType,
+    company: args.dims?.company ?? null,
+    cardType: args.dims?.cardType ?? null,
+    brandType: args.dims?.brandType ?? null,
+    classification: args.dims?.classification ?? null,
+  });
+  // Require a valid scheme slab — no scheme / no matching slab → HOLD.
+  if (mdr.source !== "USER_SCHEME") return null;
 
-  if (args.brandId) {
-    const brandMdr = await resolveBrandMdr({
-      brandId: args.brandId,
-      amount: args.grossAmount,
-      provider: args.provider,
-      paymentMode: args.paymentMode,
-      cardType: args.dims?.cardType ?? null,
-      brandType: args.dims?.brandType ?? null,
-      classification: args.dims?.classification ?? null,
-      settlementType: args.settlementType,
-    });
-    if (!brandMdr) return null;
-    // Revenue guard: a branded capture prices the MERCHANT MDR off the brand
-    // rate card, but the company margin + upline (DT/MD/SD) commission are
-    // priced off the retailer's own scheme (see distributeCommissionForPos →
-    // getEffectiveMdr). If the retailer has NO scheme that resolves for this
-    // capture, settling would credit the merchant while booking ZERO revenue
-    // and ZERO commission — a silent loss. Refuse to settle here (park as
-    // NO_SCHEME, exactly like the non-branded path) so admin assigns a scheme
-    // and the capture is replayed. The POS ingest sweep surfaces these as
-    // `noScheme` and alerts ops to add the missing scheme/MDR slab.
-    const revenueBasis = await getEffectiveMdr(
-      args.userId,
-      "POS" as MdrServiceKind,
-      args.grossAmount,
-      {
-        paymentMode: args.paymentMode,
-        settlementType: args.settlementType,
-        company: args.dims?.company ?? null,
-        cardType: args.dims?.cardType ?? null,
-        brandType: args.dims?.brandType ?? null,
-        classification: args.dims?.classification ?? null,
-      }
-    );
-    if (revenueBasis.source === "NONE") return null;
-    result = {
-      mdrAmount: round(brandMdr.mdr),
-      brandId: args.brandId,
-      provider: args.provider,
-      mdrRateId: brandMdr.rateId,
-    };
-  } else {
-    // Legacy fallback: owner's own MDR scheme (card-dimension aware).
-    const mdr = await getEffectiveMdr(args.userId, "POS" as MdrServiceKind, args.grossAmount, {
-      paymentMode: args.paymentMode,
-      settlementType: args.settlementType,
-      company: args.dims?.company ?? null,
-      cardType: args.dims?.cardType ?? null,
-      brandType: args.dims?.brandType ?? null,
-      classification: args.dims?.classification ?? null,
-    });
-    if (mdr.source === "NONE") return null;
-    result = {
-      mdrAmount: round(mdr.mdr),
-      brandId: null,
-      provider: args.provider,
-      mdrRateId: mdr.slabId,
-    };
-  }
+  const result: PricedMdr = {
+    mdrAmount: round(mdr.mdr),
+    brandId: null,
+    provider: args.provider,
+    mdrRateId: mdr.slabId,
+  };
 
   // Runtime safety net: refuse to settle if the resolved MDR is below the
-  // company floor. This catches stale rates or misconfigurations.
+  // company floor. This catches stale rates or misconfigurations — HOLD instead.
   const aboveFloor = await isAboveMdrFloor(
     "POS",
     args.paymentMode,
@@ -270,8 +239,8 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
     classification: input.classification ?? null,
   };
 
-  // Price MDR against the brand rate card (or legacy scheme). Refuse to settle
-  // unpriced money — park it so admin can add a rate and replay the webhook.
+  // Price MDR strictly off the retailer's scheme slab. Refuse to settle unpriced
+  // money — HOLD it (NO_SCHEME) so admin assigns a scheme/slab and replays.
   let priced = await priceMdr({
     userId,
     brandId,
@@ -1007,35 +976,75 @@ export async function listPendingPosSettlements(userId: string) {
   return rows;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
- * T+1 cron: settle PENDING POS entries captured BEFORE the current IST day
- * into retailer wallets. Called by the worker at the configured hour
- * (default 09:00 IST); also invocable manually via the admin API. Each entry's
- * MDR is re-verified against the brand's current rate before crediting.
+ * Classify a PENDING T+1 capture for the CURRENT cron run, given its brand due
+ * boundary and the configured catch-up window. This is the money-safety gate
+ * that stops an outage backlog from ever being mass-settled:
+ *
+ *   • HELD  — not yet due (captured at/after the brand cutoff → a later day).
+ *   • STALE — its due day has already passed by more than `catchUpDays`; it is
+ *             NOT auto-settled (left PENDING for deliberate admin action).
+ *   • DUE   — due for THIS run: within the window
+ *             [dueBoundary − (1 + catchUpDays) days, dueBoundary).
+ *
+ * With catchUpDays = 0 (default) and a brand with no cutoff (dueBoundary =
+ * start-of-today IST), the DUE window is exactly the PREVIOUS IST day — so a run
+ * settles only yesterday's captures, never day-before-yesterday or older.
+ */
+export function classifyT1Due(
+  captured: Date,
+  dueBoundary: Date,
+  catchUpDays: number
+): "DUE" | "HELD" | "STALE" {
+  const cap = captured.getTime();
+  const due = dueBoundary.getTime();
+  if (cap >= due) return "HELD"; // not yet due (brand cutoff → later day)
+  const windowStart = due - (1 + Math.max(0, catchUpDays)) * DAY_MS;
+  if (cap < windowStart) return "STALE"; // due day already passed → manual only
+  return "DUE";
+}
+
+/**
+ * T+1 cron: settle PENDING POS entries that are DUE for this run into retailer
+ * wallets. Called by the worker at the configured hour (default 09:00 IST); also
+ * invocable manually via the admin API. Each entry's MDR is re-verified against
+ * the brand's current rate before crediting.
+ *
+ * STRICT T+1 by default: a run settles ONLY the previous IST day's captures
+ * (their exact due day), plus each brand's T+2 cutoff set. Captures whose due
+ * day has already passed (a backlog after a worker outage) are NOT auto-settled
+ * — they are reported as `stale` and left PENDING for deliberate admin action,
+ * so downtime can never trigger a mass back-settlement of real money. The
+ * `settlement.pos_t1.catchUpDays` knob widens the auto-settle window when ops
+ * explicitly want the cron to absorb short outages. Attribution is enforced
+ * again inside settleEntry (holder-at-capture-time), so only post-assignment
+ * captures ever credit.
  */
 export async function runPosT1SettlementSweep(): Promise<{
   processed: number;
   settled: number;
   failed: number;
+  stale: number;
+  held: number;
   totalAmount: number;
 }> {
   const config = await getSetting("settlement.pos_t1");
   if (!config.enabled || config.paused) {
-    return { processed: 0, settled: 0, failed: 0, totalAmount: 0 };
+    return { processed: 0, settled: 0, failed: 0, stale: 0, held: 0, totalAmount: 0 };
   }
 
-  // True T+1: only captures from previous IST days are due. Settle by CAPTURE
-  // date so a capture pull-ingested a day late still settles on its correct
-  // day; legacy rows without capturedAt fall back to their createdAt.
+  const catchUpDays = config.catchUpDays ?? 0;
+
+  // True T+1: settle by CAPTURE date so a capture pull-ingested a day late still
+  // settles on its correct day; legacy rows without capturedAt fall back to
+  // createdAt.
   const todayStart = startOfTodayIst();
 
   // Per-company (brand) T+1 cutoff. A capture taken at/after the brand's cutoff
   // IST hour belongs to the NEXT business day, so it becomes due one day later
-  // (i.e. T+2). The DB pre-filter below (capturedAt < todayStart) is a SUPERSET
-  // of every brand's due set — the latest possible boundary is todayStart
-  // (cutoff = end of day) — so we fetch that set and hold "late" captures per
-  // brand in code. As todayStart advances each day, a held capture naturally
-  // clears its brand boundary on the next run, landing it on T+2.
+  // (i.e. T+2). Brands with no cutoff use todayStart (classic T+1).
   const brandCutoffs = await prisma.brand.findMany({ select: { id: true, t1CutoffHour: true } });
   const cutoffByBrand = new Map(brandCutoffs.map((b) => [b.id, b.t1CutoffHour]));
   const HOUR_MS = 60 * 60 * 1000;
@@ -1046,26 +1055,55 @@ export async function runPosT1SettlementSweep(): Promise<{
     return new Date(todayStart.getTime() - (24 - hour) * HOUR_MS);
   };
 
+  // Fetch floor: the oldest capture that could still be DUE this run. The
+  // earliest possible dueBoundary is yesterdayStart (cutoff hour 0), so the
+  // earliest DUE window start is yesterdayStart − (1 + catchUpDays) days =
+  // todayStart − (2 + catchUpDays) days. Rows older than this are unquestionably
+  // stale; we never scan or settle them (they need manual handling).
+  const floor = new Date(todayStart.getTime() - (2 + catchUpDays) * DAY_MS);
+
   const entries = await prisma.posSettlementEntry.findMany({
     where: {
       status: "PENDING",
       mode: "T1",
-      OR: [{ capturedAt: { lt: todayStart } }, { capturedAt: null, createdAt: { lt: todayStart } }],
+      OR: [
+        { capturedAt: { gte: floor, lt: todayStart } },
+        { capturedAt: null, createdAt: { gte: floor, lt: todayStart } },
+      ],
     },
     orderBy: { createdAt: "asc" },
     take: 500,
   });
 
+  // Backlog older than the fetch floor is definitively stale — count it (without
+  // settling) so ops see the size of what needs manual attention after downtime.
+  const staleBacklog = await prisma.posSettlementEntry.count({
+    where: {
+      status: "PENDING",
+      mode: "T1",
+      OR: [{ capturedAt: { lt: floor } }, { capturedAt: null, createdAt: { lt: floor } }],
+    },
+  });
+
   let settled = 0;
   let failed = 0;
+  let held = 0;
+  let stale = staleBacklog;
   let totalAmount = 0;
 
   for (const entry of entries) {
-    // Company cutoff gate: hold captures taken at/after the brand's cutoff for
-    // their T+2 run. capturedAt drives the call; legacy rows fall back to
+    // Due-window gate. capturedAt drives the decision; legacy rows fall back to
     // createdAt. Brands with no cutoff use todayStart (classic T+1).
     const captured = entry.capturedAt ?? entry.createdAt;
-    if (captured >= dueBoundary(entry.brandId)) continue;
+    const cls = classifyT1Due(captured, dueBoundary(entry.brandId), catchUpDays);
+    if (cls === "HELD") {
+      held++;
+      continue; // not yet due (brand T+2) — a later run settles it
+    }
+    if (cls === "STALE") {
+      stale++;
+      continue; // due day passed — leave PENDING for deliberate admin action
+    }
 
     if (!gte(entry.netAmount, config.minAmount)) {
       continue; // Below minimum — leave for next run
@@ -1085,7 +1123,7 @@ export async function runPosT1SettlementSweep(): Promise<{
     }
   }
 
-  return { processed: entries.length, settled, failed, totalAmount };
+  return { processed: entries.length, settled, failed, stale, held, totalAmount };
 }
 
 /**
