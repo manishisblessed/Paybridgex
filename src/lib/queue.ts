@@ -82,6 +82,13 @@ export const QUEUES = {
   // (worker wedged / schedule paused) so pending money that isn't settling is
   // never silent. See src/lib/recon/heartbeat.ts.
   RECON_HEARTBEAT: "recon.heartbeat",
+  // Mid-operation connectivity monitor (every 5 min). The boot preflight only
+  // proves each provider's status API is reachable ONCE at startup; this job
+  // re-probes on a schedule and alerts the moment a status API goes dark
+  // (FORBIDDEN / IP de-whitelisted) while the worker keeps running — the case
+  // where sweeps still "succeed" but silently settle nothing. Records every
+  // probe to AuditLog and alerts only on state change. See recon/preflight.ts.
+  RECON_CONNECTIVITY: "recon.connectivity",
   // QR collection T+1 settlement — sweeps approved (SETTLEABLE) claims the
   // retailer didn't instant-settle into their wallet the next IST day, net of
   // the scheme's T1 MDR. Scheduled hourly; fires only at the configured hour.

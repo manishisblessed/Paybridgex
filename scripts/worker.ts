@@ -35,7 +35,7 @@ import { runLedgerIntegrityAudit } from "@/lib/recon/integrity";
 import { runDailyPayoutReconciliation } from "@/lib/recon/payouts";
 import { runBbpsReconciliation } from "@/lib/recon/bbps";
 import { runRechargekitReconciliation } from "@/lib/recon/rechargekit";
-import { runReconPreflight } from "@/lib/recon/preflight";
+import { runReconPreflight, runReconConnectivityMonitor } from "@/lib/recon/preflight";
 import { runReconHeartbeat } from "@/lib/recon/heartbeat";
 import { sweepDisputeSlas } from "@/lib/disputes/service";
 import { runSettlementAutosweep } from "@/lib/settlement/autosweep";
@@ -168,6 +168,20 @@ async function main() {
     if (r.stale.length > 0) log(`recon.heartbeat: STALE rails=${r.stale.join(",")}`);
   });
   await boss.schedule(QUEUES.RECON_HEARTBEAT, "*/15 * * * *");
+
+  // QUEUES.RECON_CONNECTIVITY — mid-operation connectivity monitor. The boot
+  // preflight proves reachability only ONCE; a provider's status API can go
+  // dark (FORBIDDEN / IP de-whitelisted) while the worker runs, at which point
+  // sweeps keep "succeeding" but settle nothing. Every 5 min this re-probes each
+  // enabled rail's status API, records the result to AuditLog, and fires a
+  // critical alert the instant a rail becomes unreachable (and a recovery notice
+  // when it returns) — so a blocked status API is never silent.
+  await boss.work(QUEUES.RECON_CONNECTIVITY, async () => {
+    const r = await runReconConnectivityMonitor();
+    if (r.newlyBlocked.length > 0) log(`recon.connectivity: LOST rails=${r.newlyBlocked.join(",")}`);
+    if (r.recovered.length > 0) log(`recon.connectivity: RESTORED rails=${r.recovered.join(",")}`);
+  });
+  await boss.schedule(QUEUES.RECON_CONNECTIVITY, "*/5 * * * *");
 
   // QUEUES.REKYC_MONTHLY — flag all ACTIVE network users for re-verification.
   // The sweep is internally idempotent, so a duplicate/retried delivery is safe.
@@ -564,7 +578,7 @@ async function main() {
   }
 
   log(
-    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), rechargekit.reconcile (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.settle.sweep (*/10 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), pos.mirror.sync (*/2 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
+    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), rechargekit.reconcile (*/5 * * * *), recon.heartbeat (*/15 * * * *), recon.connectivity (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.settle.sweep (*/10 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), pos.mirror.sync (*/2 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
   );
 }
 
