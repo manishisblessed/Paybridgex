@@ -14,6 +14,16 @@ import { toDisplayRole } from "@/lib/auth";
 import type { Transaction } from "@/lib/data";
 import { TXN_CATEGORY_OPTIONS } from "@/lib/services/txnCategories";
 
+// Roles that originate business transactions. Values match the `role` param the
+// /api/admin/users endpoint expects (kebab-case).
+const ROLE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "All", label: "All Roles" },
+  { value: "retailer", label: "Retailer" },
+  { value: "distributor", label: "Distributor" },
+  { value: "master-distributor", label: "Master Distributor" },
+  { value: "super-distributor", label: "Super Distributor" },
+];
+
 export default function TransactionsPage() {
   const { data: session } = useSession();
   const displayRole = toDisplayRole(session?.user?.role as any);
@@ -31,8 +41,53 @@ export default function TransactionsPage() {
   const [status, setStatus] = useState("All");
   const [service, setService] = useState("All");
   const [userFilter, setUserFilter] = useState("");
+  // Role → User drill-down: pick a role, then a specific user of that role to
+  // isolate their transactions. Admins only.
+  const [role, setRole] = useState("All");
+  const [userId, setUserId] = useState("");
+  const [userOptions, setUserOptions] = useState<
+    Array<{ id: string; name: string; userCode: string }>
+  >([]);
+  const [usersLoading, setUsersLoading] = useState(false);
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // When a role is chosen, load every user of that role so the User dropdown
+  // can be populated. Clears the selected user whenever the role changes.
+  useEffect(() => {
+    if (!isPlatformWide || role === "All") {
+      setUserOptions([]);
+      setUserId("");
+      return;
+    }
+    let cancelled = false;
+    setUsersLoading(true);
+    setUserId("");
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/users?role=${encodeURIComponent(role)}&pageSize=100`
+        );
+        const json = await res.json();
+        if (cancelled) return;
+        const list = Array.isArray(json.users)
+          ? json.users.map((u: { id: string; name: string; userCode: string }) => ({
+              id: u.id,
+              name: u.name,
+              userCode: u.userCode,
+            }))
+          : [];
+        setUserOptions(list);
+      } catch {
+        if (!cancelled) setUserOptions([]);
+      } finally {
+        if (!cancelled) setUsersLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [role, isPlatformWide]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,6 +98,7 @@ export default function TransactionsPage() {
       if (service !== "All") params.set("service", service);
       if (isPlatformWide && userFilter.trim())
         params.set("user", userFilter.trim());
+      if (isPlatformWide && userId) params.set("userId", userId);
       const res = await fetch(`/api/transactions?${params}`);
       const json = await res.json();
       if (Array.isArray(json.data)) setRows(json.data);
@@ -52,7 +108,7 @@ export default function TransactionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [q, status, service, userFilter, isPlatformWide]);
+  }, [q, status, service, userFilter, userId, isPlatformWide]);
 
   useEffect(() => {
     const t = setTimeout(load, 250);
@@ -140,6 +196,43 @@ export default function TransactionsPage() {
               className="pl-9"
             />
           </div>
+        )}
+        {isPlatformWide && (
+          <Select
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            className="w-44"
+            aria-label="Filter by role"
+          >
+            {ROLE_OPTIONS.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </Select>
+        )}
+        {isPlatformWide && role !== "All" && (
+          <Select
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+            className="w-56"
+            aria-label="Select user"
+            disabled={usersLoading}
+          >
+            <option value="">
+              {usersLoading
+                ? "Loading users…"
+                : userOptions.length === 0
+                  ? "No users found"
+                  : "All users in role"}
+            </option>
+            {userOptions.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+                {u.userCode && u.userCode !== "—" ? ` (${u.userCode})` : ""}
+              </option>
+            ))}
+          </Select>
         )}
         <Select
           value={service}

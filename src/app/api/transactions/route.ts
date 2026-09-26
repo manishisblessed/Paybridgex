@@ -47,6 +47,7 @@ export async function GET(req: Request) {
   const statusFilter = searchParams.get("status");
   const serviceFilter = searchParams.get("service");
   const userFilter = (searchParams.get("user") ?? "").trim();
+  const userIdFilter = (searchParams.get("userId") ?? "").trim();
 
   const isAdmin = isAdminRole(user.role);
   const where: Record<string, unknown> = isAdmin ? {} : { userId: user.id };
@@ -66,6 +67,12 @@ export async function GET(req: Request) {
   // Service-category filter (POS / QR / Payout / BBPS / Credit Card / CC-2).
   const categoryWhere = txnCategoryWhere(serviceFilter);
   if (categoryWhere) and.push(categoryWhere);
+
+  // Exact user match (admins only) — used by the Role → User dropdown so a
+  // specific selected account is isolated regardless of name collisions.
+  if (isAdmin && userIdFilter) {
+    and.push({ userId: userIdFilter });
+  }
 
   // Filter by originating user — admins only, so a retailer can't probe other
   // accounts. Matches user name / userCode / phone (partial, case-insensitive).
