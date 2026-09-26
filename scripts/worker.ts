@@ -35,6 +35,8 @@ import { runLedgerIntegrityAudit } from "@/lib/recon/integrity";
 import { runDailyPayoutReconciliation } from "@/lib/recon/payouts";
 import { runBbpsReconciliation } from "@/lib/recon/bbps";
 import { runRechargekitReconciliation } from "@/lib/recon/rechargekit";
+import { runReconPreflight } from "@/lib/recon/preflight";
+import { runReconHeartbeat } from "@/lib/recon/heartbeat";
 import { sweepDisputeSlas } from "@/lib/disputes/service";
 import { runSettlementAutosweep } from "@/lib/settlement/autosweep";
 import { runT1SettlementSweep } from "@/lib/settlement/t1";
@@ -84,6 +86,19 @@ function log(...args: unknown[]) {
 async function main() {
   const boss = await getBoss();
   log("pg-boss started; registering handlers…");
+
+  // Boot-time connectivity self-check: prove this box can actually REACH each
+  // enabled money provider's status API. A whitelist/auth lapse makes every
+  // recon poll fail silently (pending money never settles) — surface it LOUDLY
+  // now instead of after customers complain. Best-effort; never blocks boot.
+  try {
+    const pf = await runReconPreflight();
+    log(
+      `recon.preflight: ${pf.probed.map((p) => `${p.rail}=${p.blocked ? "BLOCKED" : "ok"}`).join(" ") || "no rails enabled"}`
+    );
+  } catch (e) {
+    log("recon.preflight failed:", String(e));
+  }
 
   // QUEUES.PAYOUT_INITIATE — call the payout rail for an APPROVED payout.
   await boss.work<{ payoutRequestId: string }>(QUEUES.PAYOUT_INITIATE, async (jobs) => {
@@ -141,6 +156,18 @@ async function main() {
     }
   });
   await boss.schedule(QUEUES.RECHARGEKIT_RECONCILE, "*/5 * * * *");
+
+  // QUEUES.RECON_HEARTBEAT — dead-man's-switch. Every 15 min, verify each
+  // enabled rail's sweep actually ran recently (via its AuditLog completion
+  // marker) and fire a critical alert if one has stalled, so pending money that
+  // isn't settling is never silent. The always-on web server also exposes the
+  // same check at GET /api/health/recon for an external uptime monitor (which
+  // catches a fully dead worker this in-worker job cannot).
+  await boss.work(QUEUES.RECON_HEARTBEAT, async () => {
+    const r = await runReconHeartbeat();
+    if (r.stale.length > 0) log(`recon.heartbeat: STALE rails=${r.stale.join(",")}`);
+  });
+  await boss.schedule(QUEUES.RECON_HEARTBEAT, "*/15 * * * *");
 
   // QUEUES.REKYC_MONTHLY — flag all ACTIVE network users for re-verification.
   // The sweep is internally idempotent, so a duplicate/retried delivery is safe.

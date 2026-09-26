@@ -1166,6 +1166,10 @@ export type Transaction = {
   date: string;
   customer: string;
   commission: number;
+  /** Retailer/user who originated the txn — name + code. Present on the
+   *  platform-wide admin feed so each row can be attributed to a user. */
+  user?: string;
+  userCode?: string;
 };
 
 export type NetworkUser = {

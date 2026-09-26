@@ -50,21 +50,24 @@ async function main() {
   const cfg = await getSetting("settlement.pos_t1");
   const catchUpDays = (cfg as { catchUpDays?: number }).catchUpDays ?? 0;
 
-  // Simulate the T+1 run that happens TOMORROW morning.
+  // Simulate the NEXT scheduled T+1 run (today at cfg.hour if we haven't passed
+  // it yet, otherwise tomorrow at cfg.hour). The sweep uses startOfTodayIst() at
+  // run time, so dueBoundary = start of the RUN's IST day.
   const now = new Date();
-  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const nowIstHour = new Date(now.getTime() + 5.5 * 60 * 60 * 1000).getUTCHours();
+  const runDayStart =
+    nowIstHour < cfg.hour
+      ? startOfIstDay(now) // next run is today
+      : startOfIstDay(new Date(now.getTime() + 24 * 60 * 60 * 1000)); // already past → tomorrow
   const todayStartNow = startOfIstDay(now);
-  const todayStartTomorrow = startOfIstDay(tomorrow);
-  // No brand on this machine → dueBoundary = start of the run's IST day (classic T+1).
-  const dueBoundaryTomorrow = todayStartTomorrow;
+  const dueBoundaryTomorrow = runDayStart; // no brand → classic T+1
 
-  console.log(`\n=== Will TODAY's captures settle TOMORROW? — TID ${TID} ===`);
+  console.log(`\n=== Will the DUE captures settle at the NEXT ${cfg.hour}:00 IST run? ===`);
+  console.log(`TID filter: ${TID}  (PENDING section below covers ALL terminals)`);
   console.log(`Machine brand=${machine.brandId ?? "NULL (scheme-priced)"} company=${machine.company} provider=${machine.provider}`);
-  console.log(`Holder: ${machine.assignedUser?.name} scheme=${machine.assignedUser?.schemeId ?? "NONE"}`);
   console.log(`T+1 config: hour=${cfg.hour}:00 IST  enabled=${cfg.enabled}  paused=${cfg.paused}  minAmount=${inr(cfg.minAmount)}  catchUpDays=${catchUpDays}`);
-  console.log(`Today (IST) starts:        ${iso(todayStartNow)}`);
-  console.log(`Tomorrow's run dueBoundary: ${iso(dueBoundaryTomorrow)}`);
-  console.log(`Tomorrow's DUE window:      [${iso(new Date(dueBoundaryTomorrow.getTime() - (1 + catchUpDays) * 86400000))} , ${iso(dueBoundaryTomorrow)})\n`);
+  console.log(`Now (IST hour): ${nowIstHour}  → next run day starts: ${iso(runDayStart)}`);
+  console.log(`Next run DUE window: [${iso(new Date(dueBoundaryTomorrow.getTime() - (1 + catchUpDays) * 86400000))} , ${iso(dueBoundaryTomorrow)})\n`);
 
   // Every CAPTURED mirror row on this TID with NO settlement entry yet.
   const rows = await prisma.posTransactionMirror.findMany({
@@ -107,9 +110,46 @@ async function main() {
     }
   }
 
-  console.log(`\nRESULT: ${willSettle} of TODAY's captures will settle tomorrow at ${cfg.hour}:00 IST, net ${inr(willSettleNet)}.`);
+  console.log(`\nRESULT (captures→entries): ${willSettle} of TODAY's captures will queue+settle tomorrow, net ${inr(willSettleNet)}.`);
+
+  // ---- The REAL check: existing PENDING T1 entries the worker already created ----
+  // This mirrors runPosT1SettlementSweep's decision exactly for tomorrow's run.
+  console.log(`\n=== Existing PENDING T1 entries → tomorrow's T+1 sweep decision ===`);
+  const pend = await prisma.posSettlementEntry.findMany({
+    where: { status: "PENDING", mode: "T1" },
+    orderBy: { createdAt: "asc" },
+    select: { transactionRef: true, userId: true, machineId: true, brandId: true, netAmount: true, capturedAt: true, createdAt: true },
+    take: 500,
+  });
+  console.log(`PENDING T1 entries system-wide: ${pend.length}`);
+  let due = 0, dueNet = 0, heldC = 0, staleC = 0, belowMin = 0, badHolder = 0;
+  for (const e of pend) {
+    const captured = e.capturedAt ?? e.createdAt;
+    // No brand on the entry (scheme-priced) → dueBoundary = start of run's IST day.
+    const cls = classifyT1Due(captured, dueBoundaryTomorrow, catchUpDays);
+    const aboveMin = gte(dec(e.netAmount as never), cfg.minAmount);
+    let holderOk = true;
+    if (e.capturedAt && e.machineId) {
+      const h = await resolvePosHolderForMachine(e.machineId, e.capturedAt);
+      holderOk = !!h && h.userId === e.userId;
+    }
+    const willPay = cls === "DUE" && aboveMin && holderOk;
+    if (cls === "HELD") heldC++;
+    if (cls === "STALE") staleC++;
+    if (cls === "DUE" && !aboveMin) belowMin++;
+    if (cls === "DUE" && !holderOk) badHolder++;
+    if (willPay) { due++; dueNet += toNumber(e.netAmount); }
+    console.log(
+      `  ${e.transactionRef.padEnd(30)} brand=${e.brandId ?? "null"} swipe=${iso(captured)} ` +
+        `net=${inr(e.netAmount as never).padStart(13)} ${cls} holder=${holderOk ? "OK" : "MISMATCH"} ` +
+        `min=${aboveMin ? "ok" : "below"} → ${willPay ? "SETTLES ✓" : "no"}`
+    );
+  }
+  console.log(`\nTOMORROW at ${cfg.hour}:00 IST the T+1 sweep will settle: ${due} entries, net ${inr(dueNet)}.`);
+  if (heldC || staleC || belowMin || badHolder)
+    console.log(`  (held=${heldC} stale=${staleC} belowMin=${belowMin} holderMismatch=${badHolder} — left PENDING)`);
   if (!cfg.enabled || cfg.paused) console.log(`⚠ T+1 is ${cfg.paused ? "PAUSED" : "DISABLED"} — enable it or nothing settles.`);
-  console.log(`Reminder: this only happens if the WORKER is running (ingestion every 10 min + T+1 at ${cfg.hour}:00).`);
+  console.log(`Reminder: this requires the WORKER process to be running at ${cfg.hour}:00 IST.`);
   await prisma.$disconnect();
 }
 main().catch((e) => { console.error(e); process.exit(1); });

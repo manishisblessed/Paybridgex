@@ -5,7 +5,8 @@ import {
   finalizeServiceTransaction,
   FINALIZABLE_TXN_SELECT,
 } from "@/lib/services/finalize";
-import { reconcileRechargekitFromWebhook, refsFromResponse } from "@/lib/recon/rechargekit";
+import { reconcileRechargekitFromWebhook } from "@/lib/recon/rechargekit";
+import { deriveTxnRefs } from "@/lib/recon/refs";
 import { logger } from "@/lib/logger";
 
 const log = logger.child({ module: "recon/reconcileOne" });
@@ -67,11 +68,11 @@ export async function reconcileOneTransaction(
       // Scope to a single user's own transaction for retailer self-service.
       ...(opts.ownerUserId ? { userId: opts.ownerUserId } : {}),
     },
-    select: { ...FINALIZABLE_TXN_SELECT, response: true },
+    select: { ...FINALIZABLE_TXN_SELECT, request: true, response: true },
   });
   if (!row) return { found: false };
 
-  const { response, ...txn } = row;
+  const { request, response, ...txn } = row;
 
   const rail: "rechargekit" | "bbps" | "unsupported" =
     txn.partner === RK_PARTNER
@@ -87,7 +88,13 @@ export async function reconcileOneTransaction(
 
   // ── RechargeKit CC-2 ──────────────────────────────────────────────────────
   if (rail === "rechargekit") {
-    const refs = [txn.partnerTxnId ?? "", txn.refId, ...refsFromResponse(response)].filter(Boolean);
+    // Every candidate handle: partnerTxnId + anything mined from the pay
+    // request/response, plus our own refId (a valid webhook correlation key).
+    const refs = Array.from(
+      new Set(
+        [...deriveTxnRefs({ partnerTxnId: txn.partnerTxnId, request, response }), txn.refId].filter(Boolean)
+      )
+    );
     const r = await reconcileRechargekitFromWebhook(refs, source);
     const outcome = normalizeOutcome(r.outcome);
     return { found: true, refId: txn.refId, alreadyTerminal: false, status: txn.status, rail, outcome };
@@ -96,21 +103,36 @@ export async function reconcileOneTransaction(
   // ── BBPS (Bharat BillPay / Pay2New) ───────────────────────────────────────
   if (rail === "bbps") {
     const bbps = getPartner("bbps");
-    if (!bbps.status || !txn.partnerTxnId) {
+    // Recover a poll reference from partnerTxnId OR the stored request/response
+    // (Pay2New's bill_fetch_ref) so a row with a blank partnerTxnId — a pay that
+    // died before persisting the partner result — is still resolvable here.
+    const refs = deriveTxnRefs({ partnerTxnId: txn.partnerTxnId, request, response });
+    if (!bbps.status || refs.length === 0) {
       log.warn({ refId: txn.refId }, "BBPS reconcile: no status method or provider ref");
       return { found: true, refId: txn.refId, alreadyTerminal: false, status: txn.status, rail, outcome: "noop" };
     }
-    const s = await bbps.status({ orderId: txn.partnerTxnId });
-    if (!s.ok) {
+    let s: Awaited<ReturnType<NonNullable<typeof bbps.status>>> | null = null;
+    let resolvedRef: string | null = null;
+    for (const ref of refs) {
+      let r = await bbps.status({ orderId: ref });
+      if (!r.ok) r = await bbps.status({ requestId: ref });
+      if (r.ok) {
+        s = r;
+        resolvedRef = ref;
+        break;
+      }
+    }
+    if (!s || !s.ok) {
       return { found: true, refId: txn.refId, alreadyTerminal: false, status: txn.status, rail, outcome: "noop" };
     }
     if (s.data.status === "PENDING") {
+      // Pending stays pending until the provider returns a terminal state.
       return { found: true, refId: txn.refId, alreadyTerminal: false, status: txn.status, rail, outcome: "pending" };
     }
     const res = await finalizeServiceTransaction({
       txn,
       status: s.data.status, // SUCCESS | FAILED | REFUNDED
-      partnerTxnId: txn.partnerTxnId,
+      partnerTxnId: txn.partnerTxnId ?? resolvedRef,
       errorCode: s.data.status === "SUCCESS" ? null : "BBPS_PROVIDER_FAILED",
       errorMessage:
         s.data.status === "SUCCESS"

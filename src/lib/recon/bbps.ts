@@ -7,6 +7,7 @@ import {
   FINALIZABLE_TXN_SELECT,
 } from "@/lib/services/finalize";
 import { sendOpsAlert } from "@/lib/monitoring/alerts";
+import { deriveTxnRefs } from "@/lib/recon/refs";
 import { logger } from "@/lib/logger";
 
 const BBPS_SERVICES: ServiceCode[] = [
@@ -68,26 +69,48 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
   let refunded = 0;
 
   // 1. DRAIN — poll every PROCESSING BBPS transaction older than 2 minutes.
+  //
+  // We DELIBERATELY do NOT filter on `partnerTxnId: { not: null }`. A pay that
+  // died between the fund reserve and writing the partner result leaves the row
+  // with a BLANK partnerTxnId — but the pollable provider reference (Pay2New's
+  // `bill_fetch_ref`) survives in the stored `request` JSON. `deriveTxnRefs`
+  // recovers it, so such a row is reconciled instead of stranded in PROCESSING
+  // forever (the exact gap that stalled real credit-card payments). Rows with
+  // truly no recoverable reference are skipped (nothing to poll) and left for
+  // the STUCK escalation below.
   const inflight = await prisma.transaction.findMany({
     where: {
       status: "PROCESSING",
       service: { in: BBPS_SERVICES },
       partner: { not: RK_PARTNER },
-      partnerTxnId: { not: null },
       createdAt: { lt: new Date(now - DRAIN_AGE_MS) },
     },
     orderBy: { createdAt: "asc" },
     take: 200,
-    select: FINALIZABLE_TXN_SELECT,
+    select: { ...FINALIZABLE_TXN_SELECT, request: true, response: true },
   });
 
   let drained = 0;
-  for (const txn of inflight) {
+  for (const row of inflight) {
     try {
-      const r = await bbps.status!({ orderId: txn.partnerTxnId! });
-      if (!r.ok) continue;
+      const { request, response, ...txn } = row;
+      const refs = deriveTxnRefs({ partnerTxnId: txn.partnerTxnId, request, response });
+      if (refs.length === 0) continue; // unpollable — STUCK stage will escalate
 
-      if (r.data.status === "PENDING") {
+      // Try each candidate reference (order_id first, then request_id) until the
+      // provider resolves one. The FIRST non-transient (ok) answer wins.
+      let resolved: { status: "SUCCESS" | "PENDING" | "FAILED" | "REFUNDED"; ref: string; raw: unknown } | null = null;
+      for (const ref of refs) {
+        let r = await bbps.status!({ orderId: ref });
+        if (!r.ok) r = await bbps.status!({ requestId: ref });
+        if (!r.ok) continue; // transient/unknown for this ref — try the next
+        resolved = { status: r.data.status, ref, raw: r.raw };
+        break;
+      }
+      if (!resolved) continue; // no ref resolved — transient; next run retries
+
+      if (resolved.status === "PENDING") {
+        // Pending stays pending until the provider returns a terminal state.
         drained++;
         continue;
       }
@@ -96,25 +119,27 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
       // BBPS bill payment settles exactly like the pay path: SUCCESS books the
       // company margin ((fee − GST) − vendorCharge) into the Revenue Wallet, and
       // FAILED/REFUNDED reverses the held reserve. Idempotent via the status
-      // claim + keyed ledger, so racing the webhook is a safe no-op. (The old
-      // inline path skipped the margin credit — a silent revenue leak.)
+      // claim + keyed ledger, so a SUCCESS row can never be refunded and a
+      // FAILED reserve is refunded at most once, no matter how often this runs.
       const res = await finalizeServiceTransaction({
         txn,
-        status: r.data.status, // SUCCESS | FAILED | REFUNDED
-        partnerTxnId: txn.partnerTxnId,
-        errorCode: r.data.status === "SUCCESS" ? null : "BBPS_PROVIDER_FAILED",
+        status: resolved.status, // SUCCESS | FAILED | REFUNDED
+        // Stamp the resolving reference so a row that had a blank partnerTxnId
+        // is now traceable to the provider record.
+        partnerTxnId: txn.partnerTxnId ?? resolved.ref,
+        errorCode: resolved.status === "SUCCESS" ? null : "BBPS_PROVIDER_FAILED",
         errorMessage:
-          r.data.status === "SUCCESS"
+          resolved.status === "SUCCESS"
             ? null
-            : `Bill payment ${r.data.status.toLowerCase()} by provider`,
-        raw: r.raw,
+            : `Bill payment ${resolved.status.toLowerCase()} by provider`,
+        raw: resolved.raw,
         source: "recon",
       });
       if (res.outcome === "settled") settled++;
       else if (res.outcome === "refunded") refunded++;
       drained++;
     } catch (err) {
-      logger.warn({ action: "recon.bbps_poll_failed", txnId: txn.id, err: String(err) });
+      logger.warn({ action: "recon.bbps_poll_failed", txnId: row.id, err: String(err) });
     }
   }
 

@@ -77,6 +77,11 @@ export const QUEUES = {
   // and settles/refunds them (idempotent, shares finalizeServiceTransaction with
   // the webhook path). Runs every 5 minutes. See src/lib/recon/rechargekit.ts.
   RECHARGEKIT_RECONCILE: "rechargekit.reconcile",
+  // Recon heartbeat / dead-man's-switch (every 15 min). Reads each enabled
+  // rail's completion marker and fires a critical alert if a sweep has stalled
+  // (worker wedged / schedule paused) so pending money that isn't settling is
+  // never silent. See src/lib/recon/heartbeat.ts.
+  RECON_HEARTBEAT: "recon.heartbeat",
   // QR collection T+1 settlement — sweeps approved (SETTLEABLE) claims the
   // retailer didn't instant-settle into their wallet the next IST day, net of
   // the scheme's T1 MDR. Scheduled hourly; fires only at the configured hour.

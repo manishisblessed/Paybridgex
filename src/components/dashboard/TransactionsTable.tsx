@@ -22,6 +22,7 @@ export function TransactionsTable({
   showHeader = true,
   loading = false,
   showCommission = true,
+  showUser = false,
 }: {
   data?: Transaction[];
   showHeader?: boolean;
@@ -29,6 +30,8 @@ export function TransactionsTable({
   /** Hide the Commission column (e.g. for retailers, where the settlement-rail
    *  commission on a txn belongs to the upline, not the retailer). */
   showCommission?: boolean;
+  /** Show the originating retailer/user column (platform-wide admin feed). */
+  showUser?: boolean;
 }) {
   const [receiptRef, setReceiptRef] = useState<string | null>(null);
 
@@ -76,6 +79,9 @@ export function TransactionsTable({
             <thead className="bg-ink-50/60 text-left text-[11px] uppercase tracking-wider text-ink-500">
               <tr>
                 <th className="px-5 py-3 font-semibold">Txn ID</th>
+                {showUser && (
+                  <th className="px-5 py-3 font-semibold">Retailer</th>
+                )}
                 <th className="px-5 py-3 font-semibold">Service</th>
                 <th className="px-5 py-3 font-semibold">Customer</th>
                 <th className="px-5 py-3 font-semibold text-right">Amount</th>
@@ -91,6 +97,18 @@ export function TransactionsTable({
               {data.map((t) => (
                 <tr key={t.id} className="transition-colors duration-150 hover:bg-brand-50/40">
                   <td className="px-5 py-3 font-mono text-xs">{t.id}</td>
+                  {showUser && (
+                    <td className="px-5 py-3">
+                      <div className="font-medium text-ink-800">
+                        {t.user ?? "—"}
+                      </div>
+                      {t.userCode && (
+                        <div className="font-mono text-[11px] text-ink-500">
+                          {t.userCode}
+                        </div>
+                      )}
+                    </td>
+                  )}
                   <td className="px-5 py-3">{t.service}</td>
                   <td className="px-5 py-3 text-ink-600">{t.customer}</td>
                   <td className="px-5 py-3 text-right font-semibold">

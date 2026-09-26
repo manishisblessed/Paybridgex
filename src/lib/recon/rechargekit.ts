@@ -10,6 +10,7 @@ import {
   type FinalizableTxn,
 } from "@/lib/services/finalize";
 import { sendOpsAlert } from "@/lib/monitoring/alerts";
+import { deriveTxnRefs } from "@/lib/recon/refs";
 import { logger } from "@/lib/logger";
 
 const log = logger.child({ module: "recon/rechargekit" });
@@ -40,8 +41,12 @@ export function refsFromResponse(response: unknown): string[] {
   return out;
 }
 
-/** Column set for RechargeKit finalizers — adds `response` for the ref fallback. */
-const RK_TXN_SELECT = { ...FINALIZABLE_TXN_SELECT, response: true };
+/**
+ * Column set for RechargeKit finalizers — adds `request` + `response` so
+ * `deriveTxnRefs` can recover a poll reference even when `partnerTxnId` was
+ * never persisted (pay process died before writing the partner result).
+ */
+const RK_TXN_SELECT = { ...FINALIZABLE_TXN_SELECT, request: true, response: true };
 
 /**
  * Poll the RechargeKit status API for one transaction and finalize it.
@@ -126,12 +131,12 @@ export async function reconcileRechargekitFromWebhook(
     return { matched: true, outcome: "noop", refId: row.refId };
   }
 
-  const { response, ...txn } = row;
-  // The webhook's own ids + any ids recovered from the stored pay response are
-  // authoritative poll candidates alongside partnerTxnId.
+  const { request, response, ...txn } = row;
+  // The webhook's own ids + any ids recovered from the stored pay request/
+  // response are authoritative poll candidates alongside partnerTxnId.
   const { outcome } = await pollAndFinalize(txn, source, [
     ...cleaned,
-    ...refsFromResponse(response),
+    ...deriveTxnRefs({ partnerTxnId: txn.partnerTxnId, request, response }),
   ]);
   return { matched: true, outcome, refId: row.refId };
 }
@@ -188,8 +193,12 @@ export async function runRechargekitReconciliation(): Promise<RechargekitReconSu
   let pending = 0;
   for (const row of inflight) {
     try {
-      const { response, ...txn } = row;
-      const { outcome } = await pollAndFinalize(txn, "recon", refsFromResponse(response));
+      const { request, response, ...txn } = row;
+      const { outcome } = await pollAndFinalize(
+        txn,
+        "recon",
+        deriveTxnRefs({ partnerTxnId: txn.partnerTxnId, request, response })
+      );
       if (outcome === "settled") settled++;
       else if (outcome === "refunded") refunded++;
       else if (outcome === "pending") {

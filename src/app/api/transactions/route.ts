@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { toNumber } from "@/lib/money";
 import { formatISTDateTime } from "@/lib/utils";
 import { isAdminRole } from "@/lib/security/ownership";
+import { txnCategoryWhere } from "@/lib/services/txnCategories";
 
 const CreateBody = z.object({
   service: z.string().trim().min(1).max(64).optional(),
@@ -44,10 +45,14 @@ export async function GET(req: Request) {
   const limit = Math.min(Math.max(Number(searchParams.get("limit")) || 50, 1), 200);
   const q = (searchParams.get("q") ?? "").trim();
   const statusFilter = searchParams.get("status");
+  const serviceFilter = searchParams.get("service");
+  const userFilter = (searchParams.get("user") ?? "").trim();
 
-  const where: Record<string, unknown> = isAdminRole(user.role)
-    ? {}
-    : { userId: user.id };
+  const isAdmin = isAdminRole(user.role);
+  const where: Record<string, unknown> = isAdmin ? {} : { userId: user.id };
+  // AND is accumulated so the (optional) user-filter, service-category, and
+  // free-text search each constrain the result independently.
+  const and: Record<string, unknown>[] = [];
 
   if (statusFilter && statusFilter !== "All") {
     const map: Record<string, TxnStatus[]> = {
@@ -58,18 +63,58 @@ export async function GET(req: Request) {
     if (map[statusFilter]) where.status = { in: map[statusFilter] };
   }
 
+  // Service-category filter (POS / QR / Payout / BBPS / Credit Card / CC-2).
+  const categoryWhere = txnCategoryWhere(serviceFilter);
+  if (categoryWhere) and.push(categoryWhere);
+
+  // Filter by originating user — admins only, so a retailer can't probe other
+  // accounts. Matches user name / userCode / phone (partial, case-insensitive).
+  if (isAdmin && userFilter) {
+    and.push({
+      user: {
+        is: {
+          OR: [
+            { name: { contains: userFilter, mode: "insensitive" } },
+            { userCode: { contains: userFilter, mode: "insensitive" } },
+            { phone: { contains: userFilter, mode: "insensitive" } },
+          ],
+        },
+      },
+    });
+  }
+
   if (q) {
-    where.OR = [
+    const or: Record<string, unknown>[] = [
       { refId: { contains: q, mode: "insensitive" } },
       { customer: { contains: q, mode: "insensitive" } },
       { operator: { contains: q, mode: "insensitive" } },
     ];
+    // Admins can also match the free-text search against the originating user
+    // (name / code) so a name typed into the main search box works too.
+    if (isAdmin) {
+      or.push({
+        user: {
+          is: {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { userCode: { contains: q, mode: "insensitive" } },
+            ],
+          },
+        },
+      });
+    }
+    and.push({ OR: or });
   }
+
+  if (and.length) where.AND = and;
 
   const rows = await prisma.transaction.findMany({
     where: where as any,
     orderBy: { createdAt: "desc" },
     take: limit,
+    include: isAdmin
+      ? { user: { select: { name: true, userCode: true } } }
+      : undefined,
   });
 
   // Retailers do not see commission on the transaction feed: on settlement rails
@@ -79,15 +124,21 @@ export async function GET(req: Request) {
   // (sourced from CommissionCredit). Zero it out so it isn't even sent client-side.
   const hideCommission = user.role === "RETAILER";
 
-  const data = rows.map((t) => ({
-    id: t.refId,
-    service: formatService(t.service, t.operator),
-    amount: toNumber(t.amount),
-    status: displayStatus(t.status),
-    date: formatISTDateTime(t.createdAt),
-    customer: t.customer ?? "—",
-    commission: hideCommission ? 0 : toNumber(t.commission),
-  }));
+  const data = rows.map((t) => {
+    const u = (t as { user?: { name: string; userCode: string | null } }).user;
+    return {
+      id: t.refId,
+      service: formatService(t.service, t.operator),
+      amount: toNumber(t.amount),
+      status: displayStatus(t.status),
+      date: formatISTDateTime(t.createdAt),
+      customer: t.customer ?? "—",
+      commission: hideCommission ? 0 : toNumber(t.commission),
+      ...(isAdmin && u
+        ? { user: u.name, userCode: u.userCode ?? undefined }
+        : {}),
+    };
+  });
 
   return NextResponse.json({ ok: true, data });
 }

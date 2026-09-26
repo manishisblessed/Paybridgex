@@ -12,6 +12,7 @@ import { TransactionsTable } from "@/components/dashboard/TransactionsTable";
 import { ReportActions } from "@/components/dashboard/ReportActions";
 import { toDisplayRole } from "@/lib/auth";
 import type { Transaction } from "@/lib/data";
+import { TXN_CATEGORY_OPTIONS } from "@/lib/services/txnCategories";
 
 export default function TransactionsPage() {
   const { data: session } = useSession();
@@ -28,6 +29,8 @@ export default function TransactionsPage() {
     displayRole === "sub-admin";
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("All");
+  const [service, setService] = useState("All");
+  const [userFilter, setUserFilter] = useState("");
   const [rows, setRows] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -37,6 +40,9 @@ export default function TransactionsPage() {
       const params = new URLSearchParams({ limit: "200" });
       if (q) params.set("q", q);
       if (status !== "All") params.set("status", status);
+      if (service !== "All") params.set("service", service);
+      if (isPlatformWide && userFilter.trim())
+        params.set("user", userFilter.trim());
       const res = await fetch(`/api/transactions?${params}`);
       const json = await res.json();
       if (Array.isArray(json.data)) setRows(json.data);
@@ -46,7 +52,7 @@ export default function TransactionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [q, status]);
+  }, [q, status, service, userFilter, isPlatformWide]);
 
   useEffect(() => {
     const t = setTimeout(load, 250);
@@ -116,10 +122,37 @@ export default function TransactionsPage() {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search by ID, service or customer..."
+            placeholder={
+              isPlatformWide
+                ? "Search by ID, service, customer or retailer..."
+                : "Search by ID, service or customer..."
+            }
             className="pl-9"
           />
         </div>
+        {isPlatformWide && (
+          <div className="relative w-56 min-w-[180px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+            <Input
+              value={userFilter}
+              onChange={(e) => setUserFilter(e.target.value)}
+              placeholder="Filter by user (name / code)…"
+              className="pl-9"
+            />
+          </div>
+        )}
+        <Select
+          value={service}
+          onChange={(e) => setService(e.target.value)}
+          className="w-52"
+          aria-label="Filter by service"
+        >
+          {TXN_CATEGORY_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
         <Select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
@@ -139,6 +172,12 @@ export default function TransactionsPage() {
           subtitle={`Live view · ${rows.length} records`}
           columns={[
             { key: "id", header: "Txn ID" },
+            ...(isPlatformWide
+              ? [
+                  { key: "user" as const, header: "Retailer" },
+                  { key: "userCode" as const, header: "User Code" },
+                ]
+              : []),
             { key: "service", header: "Service" },
             { key: "customer", header: "Customer" },
             { key: "amount", header: "Amount (INR)" },
@@ -153,7 +192,7 @@ export default function TransactionsPage() {
       </FilterBar>
 
       <Reveal distance={16} duration={0.45}>
-        <TransactionsTable data={rows} showHeader={false} loading={loading} showCommission={showCommission} />
+        <TransactionsTable data={rows} showHeader={false} loading={loading} showCommission={showCommission} showUser={isPlatformWide} />
       </Reveal>
     </div>
   );
