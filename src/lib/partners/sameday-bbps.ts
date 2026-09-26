@@ -222,7 +222,7 @@ export const samedayBbps: BbpsProvider = {
       optional3: "",
       optional4: "",
       pincode: cc.pincode,
-    });
+    }, undefined, { audit: true });
     if (!r.ok) return r;
     return {
       ok: true,

@@ -8,6 +8,7 @@ import {
 } from "@/lib/services/finalize";
 import { sendOpsAlert } from "@/lib/monitoring/alerts";
 import { deriveTxnRefs } from "@/lib/recon/refs";
+import { recoverRefsFromApiLog } from "@/lib/recon/recover";
 import { logger } from "@/lib/logger";
 
 const BBPS_SERVICES: ServiceCode[] = [
@@ -90,24 +91,37 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
     select: { ...FINALIZABLE_TXN_SELECT, request: true, response: true },
   });
 
+  // Poll a list of candidate references (order_id first, then request_id) until
+  // the provider resolves one. The FIRST non-transient (ok) answer wins.
+  type Resolved = { status: "SUCCESS" | "PENDING" | "FAILED" | "REFUNDED"; ref: string; raw: unknown };
+  const tryResolve = async (refs: string[]): Promise<Resolved | null> => {
+    for (const ref of refs) {
+      let r = await bbps.status!({ orderId: ref });
+      if (!r.ok) r = await bbps.status!({ requestId: ref });
+      if (!r.ok) continue; // transient/unknown for this ref — try the next
+      return { status: r.data.status, ref, raw: r.raw };
+    }
+    return null;
+  };
+
   let drained = 0;
   for (const row of inflight) {
     try {
       const { request, response, ...txn } = row;
-      const refs = deriveTxnRefs({ partnerTxnId: txn.partnerTxnId, request, response });
-      if (refs.length === 0) continue; // unpollable — STUCK stage will escalate
+      const baseRefs = deriveTxnRefs({ partnerTxnId: txn.partnerTxnId, request, response });
+      let resolved = baseRefs.length ? await tryResolve(baseRefs) : null;
 
-      // Try each candidate reference (order_id first, then request_id) until the
-      // provider resolves one. The FIRST non-transient (ok) answer wins.
-      let resolved: { status: "SUCCESS" | "PENDING" | "FAILED" | "REFUNDED"; ref: string; raw: unknown } | null = null;
-      for (const ref of refs) {
-        let r = await bbps.status!({ orderId: ref });
-        if (!r.ok) r = await bbps.status!({ requestId: ref });
-        if (!r.ok) continue; // transient/unknown for this ref — try the next
-        resolved = { status: r.data.status, ref, raw: r.raw };
-        break;
+      // Crash-proof fallback: if nothing on the row itself resolves, recover the
+      // provider poll key from PartnerApiLog. This heals a row whose pay call
+      // response (and thus request_id/order_id) was lost when the process died
+      // mid-flight — no manual panel lookup needed. Only queried when the cheap
+      // in-row refs fail, so it adds no per-row DB cost in the common case.
+      if (!resolved) {
+        const recovered = (await recoverRefsFromApiLog(txn.refId)).filter((r) => !baseRefs.includes(r));
+        if (recovered.length) resolved = await tryResolve(recovered);
       }
-      if (!resolved) continue; // no ref resolved — transient; next run retries
+
+      if (!resolved) continue; // nothing pollable yet — STUCK stage escalates
 
       if (resolved.status === "PENDING") {
         // Pending stays pending until the provider returns a terminal state.
@@ -151,17 +165,32 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
       partner: { not: RK_PARTNER },
       createdAt: { lt: new Date(now - STUCK_THRESHOLD_MS) },
     },
-    select: { id: true, refId: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, refId: true, amount: true, createdAt: true, request: true },
   });
 
   if (stillStuck.length > 0) {
+    // Enrich the alert so ops can resolve WITHOUT any diagnostics: the
+    // bill_fetch_ref is an opaque provider token (NOT PII) that pinpoints the
+    // txn in the Same Day panel to read its terminal status + request_id.
+    // Amount + age help cross-reference; no mobile/card is included.
+    const items = stillStuck
+      .slice(0, 10)
+      .map((r) => {
+        const billFetchRef = deriveTxnRefs({ request: r.request }).find(Boolean) ?? "—";
+        const ageMin = Math.floor((now - r.createdAt.getTime()) / 60_000);
+        return `${r.refId} Rs.${r.amount.toNumber()} age=${ageMin}m billFetchRef=${billFetchRef}`;
+      })
+      .join(" ; ");
     await sendOpsAlert({
       title: "BBPS transactions stuck in PROCESSING",
       severity: "warning",
       details: {
         count: stillStuck.length,
         oldest: stillStuck[0].createdAt.toISOString(),
-        refIds: stillStuck.slice(0, 10).map((r) => r.refId).join(", "),
+        // Look up billFetchRef in the Same Day panel → read terminal status +
+        // request_id, then the recon recovery/one-off resolver finalizes it.
+        stuck: items,
       },
     });
   }

@@ -239,7 +239,7 @@ export async function rechargekitPay(input: {
     beneficiary_name: input.beneficiaryName,
     amount: input.amount,
     operator_code: input.operatorCode,
-  });
+  }, undefined, { audit: true });
 
   if (!r.ok) {
     log.warn(

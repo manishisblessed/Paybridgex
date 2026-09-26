@@ -11,6 +11,7 @@ import { distributeCommission, distributeMdrCommission, mdrKindForService } from
 import { creditServiceMargin } from "../commission/revenue";
 import { isChargeDrivenService } from "../scheme/constants";
 import { friendlyPartnerError, isSensitivePartnerCode } from "../partners/friendlyError";
+import { partnerCallContext } from "../partners/callContext";
 import { sendOpsAlert } from "../monitoring/alerts";
 import type { PartnerResult } from "../partners/types";
 
@@ -168,9 +169,15 @@ export async function runTransaction<TIn, TOut>(
   }
 
   // 3. Hit the partner OUTSIDE the DB transaction.
+  //
+  // Run the partner call inside the async call context carrying this refId so
+  // the transport (samedayRequest) can durably log every money-moving call to
+  // PartnerApiLog correlated to THIS transaction. If the process dies between
+  // this call returning and step 4 persisting the response, the provider's poll
+  // key (request_id/order_id) survives in PartnerApiLog and recon recovers it.
   let result: PartnerResult<TOut>;
   try {
-    result = await input.call();
+    result = await partnerCallContext.run({ txnRefId: refId }, () => input.call());
   } catch (e) {
     result = { ok: false, code: "EXCEPTION", message: (e as Error).message };
   }

@@ -11,6 +11,7 @@ import {
 } from "@/lib/services/finalize";
 import { sendOpsAlert } from "@/lib/monitoring/alerts";
 import { deriveTxnRefs } from "@/lib/recon/refs";
+import { recoverRefsFromApiLog } from "@/lib/recon/recover";
 import { logger } from "@/lib/logger";
 
 const log = logger.child({ module: "recon/rechargekit" });
@@ -194,11 +195,19 @@ export async function runRechargekitReconciliation(): Promise<RechargekitReconSu
   for (const row of inflight) {
     try {
       const { request, response, ...txn } = row;
-      const { outcome } = await pollAndFinalize(
+      let { outcome } = await pollAndFinalize(
         txn,
         "recon",
         deriveTxnRefs({ partnerTxnId: txn.partnerTxnId, request, response })
       );
+      // Crash-proof fallback: RechargeKit has NO client-side correlation key,
+      // so if the pay response was lost mid-crash the row is otherwise
+      // unpollable. Recover the provider ref (txn_id/request_id) from the
+      // durable PartnerApiLog and retry — auto-heals without a panel lookup.
+      if (outcome === "noop") {
+        const recovered = await recoverRefsFromApiLog(txn.refId);
+        if (recovered.length) ({ outcome } = await pollAndFinalize(txn, "recon", recovered));
+      }
       if (outcome === "settled") settled++;
       else if (outcome === "refunded") refunded++;
       else if (outcome === "pending") {
@@ -218,17 +227,26 @@ export async function runRechargekitReconciliation(): Promise<RechargekitReconSu
       partner: RK_PARTNER,
       createdAt: { lt: new Date(now - STUCK_THRESHOLD_MS) },
     },
-    select: { refId: true, createdAt: true },
+    select: { refId: true, amount: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });
   if (stuckRows.length > 0) {
+    // Enrich for zero-diagnostics resolution: amount + age let ops locate the
+    // txn in the RechargeKit panel (no mobile/card — no PII in alerts).
+    const items = stuckRows
+      .slice(0, 10)
+      .map((r) => {
+        const ageMin = Math.floor((now - r.createdAt.getTime()) / 60_000);
+        return `${r.refId} Rs.${r.amount.toNumber()} age=${ageMin}m`;
+      })
+      .join(" ; ");
     await sendOpsAlert({
       title: "RechargeKit payments stuck in PROCESSING",
       severity: "warning",
       details: {
         count: stuckRows.length,
         oldest: stuckRows[0].createdAt.toISOString(),
-        refIds: stuckRows.slice(0, 10).map((r) => r.refId).join(", "),
+        stuck: items,
       },
     });
   }

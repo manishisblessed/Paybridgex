@@ -1286,6 +1286,47 @@ model ServiceRoute {
 // Guards non-ledger operations (e.g. "submit payout request") against
 // duplicate submissions. Money-movement idempotency lives on WalletTxn.idempotencyKey.
 
+// ---------- Durable partner API call log (crash-proof reconciliation) ----------
+// Append-only record of every MONEY-MOVING partner API call. Written by the
+// shared transport (samedayRequest): a row is inserted with the `request`
+// BEFORE the HTTP call, then patched with the `response` + mined `providerRef`
+// the instant the call returns — decoupled from the heavy settlement write in
+// runTransaction.
+//
+// Why this exists: runTransaction reserves funds + persists `request` in one
+// committed DB txn, THEN calls the partner, THEN writes `response`+partnerTxnId.
+// If the process dies in that window (deploy/restart/OOM mid-call) the
+// Transaction is left PROCESSING with a BLANK partnerTxnId and NULL response.
+// For rails whose only durable poll key (request_id/order_id/txn_id) lives in
+// the RESPONSE (RechargeKit has NO client-side key at all; Pay2New's status
+// endpoint won't resolve the bill_fetch_ref), that reference would be lost
+// forever and the money stranded. Capturing it HERE — correlated to the
+// Transaction by refId via an async call context — lets recon recover the
+// reference and finalize idempotently through finalizeServiceTransaction.
+model PartnerApiLog {
+  id          String   @id @default(cuid())
+  // Transaction.refId of the money movement this call belongs to, captured via
+  // the async partner-call context. Null for calls made outside a transaction.
+  txnRefId    String?
+  provider    String   @default("SAMEDAY") // rail family
+  method      String // GET | POST | DELETE
+  path        String // e.g. /api/partner/pay2new/bill/pay
+  // The durable provider poll key mined from the response (request_id first,
+  // then order_id / txn_id). This is the value we must never lose.
+  providerRef String?
+  request     Json?
+  response    Json?
+  httpStatus  Int?
+  ok          Boolean? // provider-level success (false = business/transport error)
+  code        String? // error code when !ok
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([txnRefId])
+  @@index([providerRef])
+  @@index([createdAt])
+}
+
 model IdempotencyKey {
   id        String    @id @default(cuid())
   key       String    @unique
