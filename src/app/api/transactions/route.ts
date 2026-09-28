@@ -8,6 +8,12 @@ import { toNumber } from "@/lib/money";
 import { formatISTDateTime } from "@/lib/utils";
 import { isAdminRole } from "@/lib/security/ownership";
 import { txnCategoryWhere } from "@/lib/services/txnCategories";
+import {
+  payoutDisplayStatus,
+  payoutServiceLabel,
+  payoutCustomerLabel,
+  PAYOUT_STATUS_GROUPS,
+} from "@/lib/payout/display";
 
 const CreateBody = z.object({
   service: z.string().trim().min(1).max(64).optional(),
@@ -64,8 +70,20 @@ export async function GET(req: Request) {
     if (map[statusFilter]) where.status = { in: map[statusFilter] };
   }
 
-  // Service-category filter (POS / QR / Payout / BBPS / Credit Card / CC-2).
-  const categoryWhere = txnCategoryWhere(serviceFilter);
+  // Payouts live on PayoutRequest, NOT the Transaction table — so the "Payout"
+  // service category is served by folding PayoutRequest rows into the feed.
+  //  - service = "PAYOUT"        → payouts ONLY
+  //  - service = another category → transactions ONLY (no payouts)
+  //  - service = "All"/unset      → both, merged and sorted by date
+  const isPayoutCategory = serviceFilter === "PAYOUT";
+  const isOtherCategory =
+    !!serviceFilter && serviceFilter !== "All" && !isPayoutCategory;
+  const wantTxns = !isPayoutCategory;
+  const wantPayouts = !isOtherCategory;
+
+  // Service-category filter (POS / QR / BBPS / Credit Card / CC-2). PAYOUT is
+  // handled via the PayoutRequest branch below, not as a Transaction constraint.
+  const categoryWhere = isPayoutCategory ? null : txnCategoryWhere(serviceFilter);
   if (categoryWhere) and.push(categoryWhere);
 
   // Exact user match (admins only) — used by the Role → User dropdown so a
@@ -115,14 +133,80 @@ export async function GET(req: Request) {
 
   if (and.length) where.AND = and;
 
-  const rows = await prisma.transaction.findMany({
-    where: where as any,
-    orderBy: { createdAt: "desc" },
-    take: limit,
-    include: isAdmin
-      ? { user: { select: { name: true, userCode: true } } }
-      : undefined,
-  });
+  // ── PayoutRequest where clause — mirrors the transaction filters above so a
+  //    payout is subject to the same status / user / search constraints. ──────
+  const payoutWhere: Record<string, unknown> = isAdmin
+    ? {}
+    : { userId: user.id };
+  const payoutAnd: Record<string, unknown>[] = [];
+
+  if (statusFilter && statusFilter !== "All") {
+    const grp = PAYOUT_STATUS_GROUPS[statusFilter];
+    if (grp) payoutWhere.status = { in: grp };
+  }
+
+  if (isAdmin && userIdFilter) payoutAnd.push({ userId: userIdFilter });
+
+  if (isAdmin && userFilter) {
+    payoutAnd.push({
+      user: {
+        is: {
+          OR: [
+            { name: { contains: userFilter, mode: "insensitive" } },
+            { userCode: { contains: userFilter, mode: "insensitive" } },
+            { phone: { contains: userFilter, mode: "insensitive" } },
+          ],
+        },
+      },
+    });
+  }
+
+  if (q) {
+    const por: Record<string, unknown>[] = [
+      { beneficiaryName: { contains: q, mode: "insensitive" } },
+      { accountLast4: { contains: q, mode: "insensitive" } },
+      { utr: { contains: q, mode: "insensitive" } },
+      { providerReferenceId: { contains: q, mode: "insensitive" } },
+    ];
+    if (isAdmin) {
+      por.push({
+        user: {
+          is: {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { userCode: { contains: q, mode: "insensitive" } },
+            ],
+          },
+        },
+      });
+    }
+    payoutAnd.push({ OR: por });
+  }
+
+  if (payoutAnd.length) payoutWhere.AND = payoutAnd;
+
+  const [txnRows, payoutRows] = await Promise.all([
+    wantTxns
+      ? prisma.transaction.findMany({
+          where: where as any,
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          include: isAdmin
+            ? { user: { select: { name: true, userCode: true } } }
+            : undefined,
+        })
+      : Promise.resolve([]),
+    wantPayouts
+      ? prisma.payoutRequest.findMany({
+          where: payoutWhere as any,
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          include: isAdmin
+            ? { user: { select: { name: true, userCode: true } } }
+            : undefined,
+        })
+      : Promise.resolve([]),
+  ]);
 
   // Retailers do not see commission on the transaction feed: on settlement rails
   // (POS/QR/PG) the `commission` on their bridge txn is the UPLINE's distributed
@@ -131,7 +215,22 @@ export async function GET(req: Request) {
   // (sourced from CommissionCredit). Zero it out so it isn't even sent client-side.
   const hideCommission = user.role === "RETAILER";
 
-  const data = rows.map((t) => {
+  // Merge both sources into one shape, carrying a hidden sort timestamp so the
+  // combined feed stays newest-first before we trim to `limit`.
+  type FeedRow = {
+    id: string;
+    service: string;
+    amount: number;
+    status: "Success" | "Pending" | "Failed";
+    date: string;
+    customer: string;
+    commission: number;
+    user?: string;
+    userCode?: string;
+    _ts: number;
+  };
+
+  const txnData: FeedRow[] = txnRows.map((t) => {
     const u = (t as { user?: { name: string; userCode: string | null } }).user;
     return {
       id: t.refId,
@@ -144,8 +243,34 @@ export async function GET(req: Request) {
       ...(isAdmin && u
         ? { user: u.name, userCode: u.userCode ?? undefined }
         : {}),
+      _ts: t.createdAt.getTime(),
     };
   });
+
+  const payoutData: FeedRow[] = payoutRows.map((p) => {
+    const u = (p as { user?: { name: string; userCode: string | null } }).user;
+    return {
+      // The payout's own id — the receipt route falls back to PayoutRequest on
+      // this id so the Receipt button works for payout rows too.
+      id: p.id,
+      service: payoutServiceLabel(p.mode),
+      amount: toNumber(p.amount),
+      status: payoutDisplayStatus(p.status),
+      date: formatISTDateTime(p.createdAt),
+      customer: payoutCustomerLabel(p.beneficiaryName, p.accountLast4),
+      // Payouts never distribute a per-txn commission (see commission cascade).
+      commission: 0,
+      ...(isAdmin && u
+        ? { user: u.name, userCode: u.userCode ?? undefined }
+        : {}),
+      _ts: p.createdAt.getTime(),
+    };
+  });
+
+  const data = [...txnData, ...payoutData]
+    .sort((a, b) => b._ts - a._ts)
+    .slice(0, limit)
+    .map(({ _ts, ...row }) => row);
 
   return NextResponse.json({ ok: true, data });
 }
