@@ -3,6 +3,7 @@ import { buildHoldingPeriods, resolveHolderFromPeriods } from "@/lib/pos/holder"
 import { applyAssignment, AssignmentError } from "@/lib/pos/assignments";
 import { classifyT1Due } from "@/lib/settlement/pos";
 import { classifyMirrorReversal } from "@/lib/pos/mirror";
+import { classifyPosSettlementFinding } from "@/lib/recon/posSettlement";
 
 /**
  * Locks in the money-critical POS attribution rule: a capture belongs to
@@ -240,5 +241,40 @@ describe("classifyMirrorReversal — failed-swipe payout guard", () => {
   it("is case-insensitive / whitespace tolerant on partner status strings", () => {
     expect(classifyMirrorReversal(" failed ", " captured ")).toBe("FAILED");
     expect(classifyMirrorReversal("refunded", "captured")).toBe("REFUNDED");
+  });
+});
+
+/**
+ * Locks in the nightly POS settlement tripwire: no money-active entry
+ * (SETTLED/PENDING) may sit on a non-captured or missing mirror row.
+ */
+describe("classifyPosSettlementFinding — nightly settlement tripwire", () => {
+  it("flags a money-active entry on a non-captured mirror", () => {
+    expect(classifyPosSettlementFinding("SETTLED", "FAILED")).toBe("NON_CAPTURED");
+    expect(classifyPosSettlementFinding("PENDING", "VOIDED")).toBe("NON_CAPTURED");
+    expect(classifyPosSettlementFinding("SETTLED", "REFUNDED")).toBe("NON_CAPTURED");
+    expect(classifyPosSettlementFinding("PENDING", "AUTHORIZED")).toBe("NON_CAPTURED");
+  });
+
+  it("flags a money-active entry with no mirror row as an ORPHAN", () => {
+    expect(classifyPosSettlementFinding("SETTLED", null)).toBe("ORPHAN");
+    expect(classifyPosSettlementFinding("PENDING", "")).toBe("ORPHAN");
+    expect(classifyPosSettlementFinding("SETTLED", undefined)).toBe("ORPHAN");
+  });
+
+  it("does NOT flag a healthy settled/pending entry on a captured mirror", () => {
+    expect(classifyPosSettlementFinding("SETTLED", "CAPTURED")).toBeNull();
+    expect(classifyPosSettlementFinding("PENDING", "CAPTURED")).toBeNull();
+  });
+
+  it("does NOT flag a REVERSED entry — that is the correct resolved state", () => {
+    expect(classifyPosSettlementFinding("REVERSED", "FAILED")).toBeNull();
+    expect(classifyPosSettlementFinding("REVERSED", null)).toBeNull();
+    expect(classifyPosSettlementFinding("FAILED", "FAILED")).toBeNull();
+  });
+
+  it("is case-insensitive / whitespace tolerant", () => {
+    expect(classifyPosSettlementFinding(" settled ", " failed ")).toBe("NON_CAPTURED");
+    expect(classifyPosSettlementFinding("pending", "captured")).toBeNull();
   });
 });

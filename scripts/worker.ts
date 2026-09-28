@@ -32,6 +32,7 @@ import {
 import { runMonthlyReKycSweep } from "@/lib/rekyc/sweep";
 import { processKycVideoBaseline } from "@/lib/kyc/video/service";
 import { runLedgerIntegrityAudit } from "@/lib/recon/integrity";
+import { runPosSettlementIntegrityAudit } from "@/lib/recon/posSettlement";
 import { runDailyPayoutReconciliation } from "@/lib/recon/payouts";
 import { runBbpsReconciliation } from "@/lib/recon/bbps";
 import { runRechargekitReconciliation } from "@/lib/recon/rechargekit";
@@ -219,6 +220,19 @@ async function main() {
       );
     } catch (e) {
       await captureError(e, { where: "recon.daily/ledger-audit", severity: "critical" });
+    }
+
+    // POS settlement tripwire — no SETTLED/PENDING entry may sit on a
+    // non-captured (FAILED/VOIDED/REFUNDED) or missing mirror row. Catches the
+    // "paid for a failed swipe" class of bug the morning after, not weeks later.
+    try {
+      const pos = await runPosSettlementIntegrityAudit();
+      log(
+        `recon.daily: pos settlement audit checked ${pos.entriesChecked} money-active entry(ies), ` +
+          `${pos.findings.length} on non-captured txn(s)`
+      );
+    } catch (e) {
+      await captureError(e, { where: "recon.daily/pos-settlement-audit", severity: "critical" });
     }
 
     try {
