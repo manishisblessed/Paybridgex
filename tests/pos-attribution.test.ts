@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildHoldingPeriods, resolveHolderFromPeriods } from "@/lib/pos/holder";
 import { applyAssignment, AssignmentError } from "@/lib/pos/assignments";
 import { classifyT1Due } from "@/lib/settlement/pos";
+import { classifyMirrorReversal } from "@/lib/pos/mirror";
 
 /**
  * Locks in the money-critical POS attribution rule: a capture belongs to
@@ -198,5 +199,46 @@ describe("classifyT1Due — cron settles only what's due for this run", () => {
     // A yesterday capture AFTER cutoff is not yet due — held for its T+2 run.
     const heldAfterCutoff = new Date(dueBoundary.getTime() + 60 * 60 * 1000);
     expect(classifyT1Due(heldAfterCutoff, dueBoundary, 0)).toBe("HELD");
+  });
+});
+
+/**
+ * Locks in the failed-swipe payout guard: a capture that briefly read CAPTURED
+ * (so it queued a T+1 entry) but was then DECLINED must be reconciled, or the
+ * cron pays the retailer for a failed transaction. Regression for the 28-Sep
+ * ROHIT SONI ₹1,19,989 overpayment.
+ */
+describe("classifyMirrorReversal — failed-swipe payout guard", () => {
+  it("reconciles a CAPTURED→FAILED downgrade (the bug)", () => {
+    expect(classifyMirrorReversal("FAILED", "CAPTURED")).toBe("FAILED");
+  });
+
+  it("ignores a swipe that was FAILED from first sight (no entry ever queued)", () => {
+    // No prior mirror row, or a prior non-captured state → nothing to cancel.
+    expect(classifyMirrorReversal("FAILED", undefined)).toBeNull();
+    expect(classifyMirrorReversal("FAILED", "AUTHORIZED")).toBeNull();
+    expect(classifyMirrorReversal("FAILED", "FAILED")).toBeNull(); // re-sweep, already flipped
+  });
+
+  it("reconciles VOIDED/REFUNDED on any change into that state (incl. first sight)", () => {
+    expect(classifyMirrorReversal("VOIDED", "CAPTURED")).toBe("VOIDED");
+    expect(classifyMirrorReversal("REFUNDED", "CAPTURED")).toBe("REFUNDED");
+    expect(classifyMirrorReversal("VOIDED", undefined)).toBe("VOIDED");
+  });
+
+  it("is idempotent — a re-sweep of an already-reversed row is a no-op", () => {
+    expect(classifyMirrorReversal("VOIDED", "VOIDED")).toBeNull();
+    expect(classifyMirrorReversal("REFUNDED", "REFUNDED")).toBeNull();
+  });
+
+  it("never treats a normal capture (or re-capture) as a reversal", () => {
+    expect(classifyMirrorReversal("CAPTURED", undefined)).toBeNull();
+    expect(classifyMirrorReversal("CAPTURED", "CAPTURED")).toBeNull();
+    expect(classifyMirrorReversal("CAPTURED", "AUTHORIZED")).toBeNull();
+  });
+
+  it("is case-insensitive / whitespace tolerant on partner status strings", () => {
+    expect(classifyMirrorReversal(" failed ", " captured ")).toBe("FAILED");
+    expect(classifyMirrorReversal("refunded", "captured")).toBe("REFUNDED");
   });
 });

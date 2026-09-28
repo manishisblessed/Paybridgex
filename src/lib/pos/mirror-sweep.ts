@@ -31,7 +31,8 @@ export type PosMirrorSweepResult = {
   scanned: number;
   written: number;
   skippedRows: number;
-  /** Captures that flipped to VOIDED/REFUNDED and were reconciled this run. */
+  /** Captures that flipped to VOIDED/REFUNDED, or CAPTURED→FAILED, and were
+   *  reconciled (pending cancelled / settled flagged) this run. */
   reversed: number;
 };
 
@@ -92,8 +93,10 @@ export async function runPosMirrorSweep(opts?: {
     base.written += written;
     base.skippedRows += skipped;
 
-    // Reconcile any capture that flipped to VOIDED/REFUNDED this page: cancel a
-    // still-PENDING settlement, or flag an already-settled one for clawback.
+    // Reconcile any capture that flipped to VOIDED/REFUNDED — or downgraded
+    // CAPTURED→FAILED — this page: cancel a still-PENDING settlement, or flag an
+    // already-settled one for clawback. This is the guard that stops a failed
+    // swipe (briefly seen as captured) from paying out at the next T+1 run.
     // Serialized + best-effort so one bad row never aborts the sweep.
     for (const r of reversals) {
       try {

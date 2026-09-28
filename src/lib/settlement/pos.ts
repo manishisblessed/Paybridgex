@@ -405,8 +405,14 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
 export type PosReversalInput = {
   /** Canonical capture ref (SDPOS:<tid>:<rrn>) shared by capture + reversal. */
   transactionRef: string;
-  /** New terminal state reported by Same Day. */
-  status: "VOIDED" | "REFUNDED";
+  /**
+   * New terminal state reported by Same Day. VOIDED/REFUNDED are true upstream
+   * reversals of a settled capture. FAILED is a capture that momentarily read as
+   * CAPTURED (so it may have queued a T+1 entry) but was then declined by the
+   * acquirer — it must cancel the pending entry / flag a settled one exactly the
+   * same way, or the retailer gets paid for a failed swipe.
+   */
+  status: "VOIDED" | "REFUNDED" | "FAILED";
   reason?: string | null;
   reversedAt?: Date | string | null;
   /** Where the reversal was learned — audit only. MANUAL = an admin-initiated
@@ -426,9 +432,11 @@ export type PosReversalResult = {
 };
 
 /**
- * Reconcile a POS capture that was later VOIDED / REFUNDED upstream (Same Day
- * POS API v2). Invoked by BOTH the real-time reversal webhook and the mirror
- * reconciliation sweep, so it must be fully idempotent.
+ * Reconcile a POS capture that was later VOIDED / REFUNDED / FAILED upstream
+ * (Same Day POS API v2). Invoked by BOTH the real-time reversal webhook and the
+ * mirror reconciliation sweep, so it must be fully idempotent. FAILED enters
+ * here only on a CAPTURED→FAILED downgrade (a swipe that briefly read as
+ * captured, queued a T+1 entry, then declined) — same money-safety as a void.
  *
  * It NEVER silently debits a wallet:
  *   • No settlement entry  → the swipe never queued/settled; just flip the

@@ -155,16 +155,46 @@ async function recordPosPayinForCaptures(
   }
 }
 
-/** A capture that flipped to VOIDED/REFUNDED in THIS sweep — the caller
+/** A capture that flipped to a non-success state in THIS sweep — the caller
  *  reconciles each (cancel a PENDING settlement / flag a settled one). */
 export type MirrorReversal = {
   transactionRef: string;
-  status: "VOIDED" | "REFUNDED";
+  status: "VOIDED" | "REFUNDED" | "FAILED";
   reversedAt: Date | null;
   reason: string | null;
 };
 
+/** Upstream reversals of a real capture — always reconcile the settlement side,
+ *  even on first sight (a void/refund we never captured is a safe no-op). */
 const REVERSAL_STATUSES = new Set(["VOIDED", "REFUNDED"]);
+
+/**
+ * Decide whether a mirror status transition is a settlement-affecting reversal
+ * that must cancel a PENDING entry / flag a SETTLED one. Pure + exported so the
+ * money rule is unit-tested in isolation.
+ *
+ *   • VOIDED / REFUNDED — a true upstream reversal of a capture. Fire whenever
+ *     the NEW status differs from the prior mirror status (also on first sight;
+ *     a reversal with no settlement entry is a safe no-op downstream).
+ *   • CAPTURED → FAILED — a swipe that briefly read as CAPTURED (so the sweep
+ *     already queued a T+1 settlement entry) but was then DECLINED by the
+ *     acquirer. This MUST reconcile or the T+1 cron pays the retailer for a
+ *     failed transaction. Fire ONLY on this exact downgrade: a swipe that was
+ *     FAILED from first sight never queued an entry, so treating every fresh
+ *     decline as a reversal would just create audit noise.
+ *
+ * Returns the reversal status to reconcile, or null for a no-op transition.
+ */
+export function classifyMirrorReversal(
+  newStatus: string | null | undefined,
+  priorStatus: string | null | undefined
+): "VOIDED" | "REFUNDED" | "FAILED" | null {
+  const next = (newStatus ?? "").trim().toUpperCase();
+  const prior = (priorStatus ?? "").trim().toUpperCase() || undefined;
+  if (REVERSAL_STATUSES.has(next) && prior !== next) return next as "VOIDED" | "REFUNDED";
+  if (next === "FAILED" && prior === "CAPTURED") return "FAILED";
+  return null;
+}
 
 /**
  * Upsert a batch of partner feed rows into the mirror. Feed data is
@@ -221,17 +251,16 @@ export async function upsertMirrorFromFeed(
     priorStatus
   );
 
-  // Detect reversals: a row whose NEW status is VOIDED/REFUNDED and whose prior
-  // mirror status was NOT already that. `prior` is undefined for a row landing
-  // reversed for the first time, so it still fires exactly once.
+  // Detect reversals so the caller can cancel/flag the settlement side exactly
+  // once per flip. `classifyMirrorReversal` owns the money rule (VOIDED/REFUNDED
+  // on any change; CAPTURED→FAILED downgrade — the failed-swipe payout guard).
   const reversals: MirrorReversal[] = [];
   for (const { transactionRef, data } of mapped) {
-    const status = String(data.status ?? "").toUpperCase();
-    if (!REVERSAL_STATUSES.has(status)) continue;
-    if (priorStatus.get(transactionRef) === status) continue; // already reconciled
+    const kind = classifyMirrorReversal(String(data.status ?? ""), priorStatus.get(transactionRef));
+    if (!kind) continue;
     reversals.push({
       transactionRef,
-      status: status as "VOIDED" | "REFUNDED",
+      status: kind,
       reversedAt: (data.reversedAt as Date | null | undefined) ?? null,
       reason: (data.reversalReason as string | null | undefined) ?? null,
     });
