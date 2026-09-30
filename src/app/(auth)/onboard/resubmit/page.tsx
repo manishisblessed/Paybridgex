@@ -17,6 +17,11 @@ import { GpsPhotoCapture } from "@/components/kyc/GpsPhotoCapture";
 import { SelfieCapture } from "@/components/kyc/SelfieCapture";
 import { LivenessVideoCapture } from "@/components/kyc/LivenessVideoCapture";
 import { InAppBrowserWarning } from "@/components/kyc/InAppBrowserWarning";
+import { prepareUploadFile } from "@/lib/imageCompression";
+import {
+  requestUploadSignature,
+  uploadToCloudinaryDirect,
+} from "@/lib/cloudinaryUpload";
 
 type ResubmitDoc = { type: string; label: string; reason: string | null; done?: boolean };
 
@@ -139,28 +144,25 @@ function ResubmitInner() {
       setUploading(type);
       setUploadError(null);
       try {
-        const signRes = await fetch(`/api/onboard/${token}/documents/sign`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type }),
-        });
-        if (!signRes.ok) throw new Error("Failed to get upload signature");
-        const params = await signRes.json();
+        // Compress/resize large images (and reject oversized PDFs) before upload
+        // so we never hit Cloudinary's size cap. GPS arrives separately in opts.
+        let uploadFile: File;
+        try {
+          uploadFile = await prepareUploadFile(file);
+        } catch (prepErr) {
+          setUploadError(
+            prepErr instanceof Error
+              ? prepErr.message
+              : "This file can't be uploaded. Please try a different one."
+          );
+          setUploading(null);
+          return;
+        }
 
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("api_key", params.apiKey);
-        formData.append("timestamp", String(params.timestamp));
-        formData.append("signature", params.signature);
-        formData.append("folder", params.folder);
-        formData.append("type", params.type);
-
-        const uploadRes = await fetch(
-          `https://api.cloudinary.com/v1_1/${params.cloudName}/auto/upload`,
-          { method: "POST", body: formData }
-        );
-        if (!uploadRes.ok) throw new Error("Upload failed");
-        const cloudResult = await uploadRes.json();
+        // Signed params + the Cloudinary upload both auto-retry transient faults
+        // (network drops, timeouts, 5xx/429) with backoff.
+        const params = await requestUploadSignature(token, type);
+        const cloudResult = await uploadToCloudinaryDirect(params, uploadFile);
 
         const docRes = await fetch(`/api/onboard/${token}/documents`, {
           method: "POST",

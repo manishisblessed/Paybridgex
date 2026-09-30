@@ -59,6 +59,20 @@ export async function POST(
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
+  if (
+    !process.env.CLOUDINARY_CLOUD_NAME ||
+    !process.env.CLOUDINARY_API_KEY ||
+    !process.env.CLOUDINARY_API_SECRET
+  ) {
+    console.error(
+      "[onboard/documents/sign] Cloudinary env vars are not configured"
+    );
+    return NextResponse.json(
+      { error: "Document uploads are not configured. Please contact support." },
+      { status: 503 }
+    );
+  }
+
   const uploadParams = getSignedUploadParams({
     userId: `onboard_${invite.id}`,
     type: parsed.data.type,

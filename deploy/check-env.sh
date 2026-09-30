@@ -72,6 +72,12 @@ ALWAYS_REQUIRED=(
   DATABASE_URL
   DIRECT_URL
   APP_ENCRYPTION_KEY
+  # Cloudinary — powers onboarding document uploads (KYC docs, GPS photos,
+  # signed declarations). Missing/empty values make the signing route return
+  # 503 and every document upload fail, so treat them as hard requirements.
+  CLOUDINARY_CLOUD_NAME
+  CLOUDINARY_API_KEY
+  CLOUDINARY_API_SECRET
   # Sentry error monitoring. NEXT_PUBLIC_SENTRY_DSN is inlined into the client
   # bundle at build time, so it MUST be present before `next build`; SENTRY_DSN
   # is read at runtime by the Node + Edge server and the worker.
