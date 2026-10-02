@@ -315,7 +315,9 @@ export async function captureHold(m: WalletMovement, tx?: Tx): Promise<WalletTxn
  * repeatedly — it only ever moves outstanding, currently-available money.
  */
 export async function sweepLiensForUser(tx: Tx, userId: string): Promise<void> {
-  const suspenseId = await getSuspenseAccountId();
+  // Use the TRANSACTION client — never the global one — so we don't deadlock
+  // trying to borrow a second pooled connection from inside this transaction.
+  const suspenseId = await getSuspenseAccountId(tx);
   if (suspenseId === userId) return; // never sweep the suspense account itself
 
   const liens = await tx.walletLien.findMany({
