@@ -7,7 +7,7 @@ import { toErrorResponse } from "@/lib/security/apiErrors";
 import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { bbpsServiceKey } from "@/lib/services/bbpsKey";
-import { friendlyPartnerError } from "@/lib/partners/friendlyError";
+import { friendlyPartnerError, isNoBillDue, NO_BILL_DUE_MESSAGE } from "@/lib/partners/friendlyError";
 import { AuthError } from "@/lib/auth-server";
 
 const Body = z.object({
@@ -44,10 +44,21 @@ export async function POST(req: Request) {
 
   const bbps = getPartner("bbps");
   const r = await bbps.fetchBill({ userId: user.id, ...parsed.data });
-  return r.ok
-    ? NextResponse.json(r.data)
-    : NextResponse.json(
-        { error: friendlyPartnerError(r.code, r.message, "fetch"), code: r.code },
-        { status: 502 }
-      );
+  if (r.ok) return NextResponse.json(r.data);
+
+  // "No bill due" is a legitimate outcome, NOT an error — tag it so the client
+  // shows a friendly notice (not a red error) and return 200 so it isn't
+  // treated as a transport failure. The `noBillDue` flag is the discriminator;
+  // `error` is kept for older clients that only read that field.
+  if (isNoBillDue(r.message)) {
+    return NextResponse.json(
+      { noBillDue: true, message: NO_BILL_DUE_MESSAGE, error: NO_BILL_DUE_MESSAGE },
+      { status: 200 }
+    );
+  }
+
+  return NextResponse.json(
+    { error: friendlyPartnerError(r.code, r.message, "fetch"), code: r.code },
+    { status: 502 }
+  );
 }

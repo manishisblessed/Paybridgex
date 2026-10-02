@@ -185,6 +185,18 @@ export async function samedayRequest<T extends { success?: boolean }>(
     // safe even if the caller dies immediately after this returns.
     await auditPatch(auditId, { response: json, httpStatus: res.status, ok, code });
     if (!ok) {
+      // Surface the RAW provider failure in server logs for EVERY call (fetch,
+      // billers, pay, …) — not just audited money calls — so a fetch/preview
+      // failure (which creates no PartnerApiLog row) is still diagnosable from
+      // pm2 logs. User-facing text stays sanitized via friendlyPartnerError.
+      log.warn({
+        action: "sameday_request_failed",
+        method,
+        path,
+        httpStatus: res.status,
+        code,
+        message: json.error?.message ?? res.statusText ?? null,
+      });
       return {
         ok: false,
         code: code!,
@@ -201,6 +213,12 @@ export async function samedayRequest<T extends { success?: boolean }>(
     return { ok: true, data: json, raw: json };
   } catch (e) {
     await auditPatch(auditId, { response: null, httpStatus: null, ok: false, code: "NETWORK" });
+    log.warn({
+      action: "sameday_request_error",
+      method,
+      path,
+      err: (e as Error).name === "AbortError" ? "timeout" : String((e as Error).message),
+    });
     // A thrown fetch (socket drop, DNS, TLS, abort/timeout) means we got NO
     // answer at all — always indeterminate; the provider may have charged.
     return {

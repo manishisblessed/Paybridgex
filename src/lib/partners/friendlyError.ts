@@ -61,6 +61,15 @@ export function isSensitivePartnerCode(code?: string | null): boolean {
 
 /** Known partner/internal codes → specific, user-actionable messages. */
 const CODE_MESSAGES: Record<string, string> = {
+  // Pay2New: the bill-fetch reference is single-use. Once a pay against it
+  // failed and was refunded, every replay returns this — the retailer MUST
+  // fetch a fresh bill, so say exactly that instead of "try again shortly".
+  PAYMENT_REFUNDED:
+    "This bill session expired after a previous failed attempt. Please fetch the bill again to retry.",
+  // Pay2New definitive decline (biller/issuer temporarily down). Funds are
+  // auto-refunded; retrying the same ref won't help until the biller is back.
+  PAYMENT_FAILED:
+    "This biller is temporarily unavailable. Any amount debited is automatically refunded to your wallet — please fetch the bill again and retry in a little while.",
   RATE_LIMITED: "We're a bit busy right now. Please wait a moment and try again.",
   NETWORK:
     "We couldn't reach the payment network. Please check your connection and try again.",
@@ -80,12 +89,49 @@ const CODE_MESSAGES: Record<string, string> = {
 };
 
 /**
+ * "No dues" — a legitimate, common bill-FETCH outcome: the bill for this period
+ * is already paid, so the biller returns no bill. Same Day wraps this as
+ * FETCH_BILL_ERROR: "Payment received for the billing period - no bill due".
+ * Detected centrally so the API can tag it and the UI can show a friendly
+ * "no bill due" notice instead of a red error.
+ */
+const NO_BILL_DUE_RE =
+  /\b(no\s+bill\s+due|no\s+dues?\b|no\s+outstanding|already\s+paid|payment\s+received|nothing\s+(is\s+)?due|no\s+amount\s+due)\b/;
+
+/** True when a bill-fetch failure actually means "this card has no bill due". */
+export function isNoBillDue(message?: string | null): boolean {
+  return !!message && NO_BILL_DUE_RE.test(message.toLowerCase());
+}
+
+/** The user-facing "no bill due" notice (shared by web + mobile). */
+export const NO_BILL_DUE_MESSAGE =
+  "No bill is currently due for this card — it looks like this billing period has already been paid.";
+
+/**
  * Light, conservative heuristics on the raw message for genuinely useful,
  * non-sensitive operator feedback. Anything not matched falls through to the
  * context default — we never return the raw text itself.
  */
 function heuristicFromMessage(raw: string): string | null {
   const m = raw.toLowerCase();
+
+  // "No dues" — surface it plainly instead of a scary generic error, otherwise
+  // retailers keep retrying a card that has nothing to pay.
+  if (NO_BILL_DUE_RE.test(m)) {
+    return NO_BILL_DUE_MESSAGE;
+  }
+
+  // Biller / rail temporarily unavailable (provider "service is down" style).
+  if (
+    /\b(temporarily\s+(down|unavailable)|service\s+(is\s+)?(down|unavailable)|try\s+again\s+later)\b/.test(m)
+  ) {
+    return "This biller is temporarily unavailable. Please try again in a little while.";
+  }
+
+  // No record for the supplied identifiers (wrong card last-4 / mobile).
+  if (/\b(no\s+record|not\s+registered|no\s+bill\s+found|invalid\s+customer)\b/.test(m)) {
+    return "No bill found for these details. Please re-check the card's last 4 digits and the registered mobile number.";
+  }
 
   if (
     /\b(restrict|not allowed|not permitted|declin|reject)/.test(m) &&

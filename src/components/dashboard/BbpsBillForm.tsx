@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, CheckCircle2, RefreshCw } from "lucide-react";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import {
@@ -73,6 +73,8 @@ export function BbpsBillForm({
   const [fetching, setFetching] = useState(false);
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Friendly, non-error notice — e.g. "no bill due" (already paid). */
+  const [notice, setNotice] = useState<string | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [result, setResult] = useState<TxnResult>(null);
 
@@ -148,6 +150,7 @@ export function BbpsBillForm({
     setAmount("");
     setQuote(null);
     setError(null);
+    setNotice(null);
   }
 
   function selectBiller(code: string) {
@@ -170,6 +173,7 @@ export function BbpsBillForm({
     if (!requiredFilled || !billerCode) return;
     setFetching(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch("/api/services/bbps/fetch", {
         method: "POST",
@@ -182,6 +186,12 @@ export function BbpsBillForm({
         }),
       });
       const data = await res.json();
+      // Legitimate "no bill due" — show a friendly notice, not a red error.
+      if (res.ok && data?.noBillDue) {
+        setBill(null);
+        setNotice(typeof data.message === "string" ? data.message : "No bill is currently due.");
+        return;
+      }
       if (!res.ok) {
         setError(
           typeof data.error === "string"
@@ -224,10 +234,15 @@ export function BbpsBillForm({
       if (data.status === "FAILED" || (res.status >= 400 && res.status !== 402)) {
         if (data.txnPin) return typeof data.error === "string" ? data.error : "PIN verification failed";
         setPinOpen(false);
+        // A bill_fetch_ref is single-use at the provider: once a pay against it
+        // fails and is refunded, re-paying the SAME ref only ever returns
+        // PAYMENT_REFUNDED ("fetch a new bill to retry"). Drop the stale bill so
+        // the retailer is forced to fetch a fresh one before any retry.
+        resetBill();
         setError(
           typeof data.error === "string"
             ? data.error
-            : "Payment failed — any debited amount is auto-refunded to your wallet"
+            : "Payment failed — any debited amount is auto-refunded to your wallet. Please fetch the bill again to retry."
         );
         return null;
       }
@@ -249,7 +264,10 @@ export function BbpsBillForm({
       return null;
     } catch {
       setPinOpen(false);
-      setError("Network error — check the transaction history before retrying to avoid a duplicate payment");
+      // Response lost — the pay may or may not have reached the provider. Clear
+      // the (now unreliable) bill ref so a retry starts from a fresh fetch.
+      resetBill();
+      setError("Network error — check your transaction history before retrying. If the payment isn't there, fetch the bill again to pay.");
       return null;
     } finally {
       setPaying(false);
@@ -344,6 +362,15 @@ export function BbpsBillForm({
           <div className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{error}</span>
+          </div>
+        )}
+
+        {notice && (
+          <div className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              <span className="font-semibold">No bill due.</span> {notice}
+            </span>
           </div>
         )}
 

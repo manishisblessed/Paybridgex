@@ -148,12 +148,23 @@ export default function BillsScreen() {
   async function fetchBill() {
     setLoading(true);
     try {
-      const res = await api.post<FetchedBill>("/api/services/bbps/fetch", {
-        billerCode,
-        category,
-        customerParams: customerParams(),
-        idempotencyKey: generateRefId(`${m.refPrefix}F`),
-      });
+      const res = await api.post<FetchedBill & { noBillDue?: boolean; message?: string }>(
+        "/api/services/bbps/fetch",
+        {
+          billerCode,
+          category,
+          customerParams: customerParams(),
+          idempotencyKey: generateRefId(`${m.refPrefix}F`),
+        }
+      );
+      // Legitimate "no bill due" — show a friendly notice, not a broken bill.
+      if (res?.noBillDue) {
+        setFetched(null);
+        setResultStatus("Success");
+        setResultMsg(res.message ?? "No bill is currently due for this card.");
+        setShowResult(true);
+        return;
+      }
       setFetched(res);
       setAmount("");
     } catch (e) {
