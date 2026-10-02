@@ -64,7 +64,7 @@ export async function GET(req: Request) {
   if (statusFilter && statusFilter !== "All") {
     const map: Record<string, TxnStatus[]> = {
       Success: ["SUCCESS"],
-      Pending: ["INITIATED", "PROCESSING"],
+      Pending: ["INITIATED", "PROCESSING", "NEEDS_REVIEW"],
       Failed: ["FAILED", "REFUNDED"],
     };
     if (map[statusFilter]) where.status = { in: map[statusFilter] };

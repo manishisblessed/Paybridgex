@@ -67,8 +67,12 @@ type PayResponse = {
 
 type StatusResponse = {
   success: boolean;
+  bill_fetch_ref?: string | null;
   order_id?: string | null;
+  request_id?: string | null;
   status?: string;
+  amount?: number;
+  charge?: number;
   operator_reference?: string | null;
 };
 
@@ -236,9 +240,16 @@ export const samedayBbps: BbpsProvider = {
   },
 
   async status(ref) {
-    const body = ref.orderId ? { order_id: ref.orderId } : { request_id: ref.requestId };
-    if (!body.order_id && !body.request_id) {
-      return { ok: false, code: "BAD_PARAMS", message: "status() needs orderId or requestId" };
+    // Pay2New's bill/status accepts the pay-step order_id, the request_id, OR —
+    // since the Oct-2026 release — the bill-fetch reference we always retain
+    // (`bill_fetch_ref`). The last one is what lets us recover a payment whose
+    // pay response was lost without ever needing the pay-step id.
+    const body: Record<string, string> = {};
+    if (ref.orderId) body.order_id = ref.orderId;
+    else if (ref.requestId) body.request_id = ref.requestId;
+    else if (ref.billFetchRef) body.bill_fetch_ref = ref.billFetchRef;
+    else {
+      return { ok: false, code: "BAD_PARAMS", message: "status() needs orderId, requestId or billFetchRef" };
     }
     const r = await samedayRequest<StatusResponse>(creds(), "POST", `${P}/bill/status`, body);
     if (!r.ok) return r;
@@ -247,6 +258,10 @@ export const samedayBbps: BbpsProvider = {
       data: {
         status: mapPay2NewStatus(r.data.status),
         operatorRef: r.data.operator_reference ?? undefined,
+        // Echo the authoritative pay-step references so callers stamp the real
+        // partnerTxnId (not the bill_fetch_ref we may have queried with).
+        orderId: r.data.order_id ?? undefined,
+        requestId: r.data.request_id ?? undefined,
       },
       raw: r.raw,
     };

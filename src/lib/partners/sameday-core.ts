@@ -26,6 +26,19 @@ import type { PartnerResult } from "./types";
 
 const log = logger.child({ module: "partners/sameday-core" });
 
+/** Hard ceiling for a single Same Day request before we abort it (ms). */
+const SAMEDAY_REQUEST_TIMEOUT_MS = 45_000;
+
+/**
+ * An HTTP failure is INDETERMINATE (outcome unknown — the provider may have
+ * processed it) for 5xx (gateway/upstream error after possible completion), 408
+ * (request timeout) and 429 (rate limited). Everything else (4xx auth/validation,
+ * explicit business declines) is a DEFINITIVE failure that did not move money.
+ */
+function isIndeterminateHttp(status: number): boolean {
+  return status >= 500 || status === 408 || status === 429;
+}
+
 export type SamedayCredentials = {
   baseUrl: string;
   apiKey: string;
@@ -150,12 +163,19 @@ export async function samedayRequest<T extends { success?: boolean }>(
   // a trace (and, once patched, the provider poll key) for reconciliation.
   const auditId = opts?.audit ? await auditCreate(method, path, body) : null;
 
+  // Bound the request so a hung socket fails fast (→ NETWORK, indeterminate)
+  // instead of blocking a money-moving call indefinitely. We NEVER blind-retry a
+  // pay on timeout — the caller holds and resolves via the status API.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SAMEDAY_REQUEST_TIMEOUT_MS);
+
   try {
     const res = await fetch(url, {
       method,
       headers,
       body: bodyString || undefined,
       cache: "no-store",
+      signal: controller.signal,
     });
     const json = (await res.json().catch(() => ({}))) as T & SamedayError;
     const ok = res.ok && json.success !== false;
@@ -170,12 +190,27 @@ export async function samedayRequest<T extends { success?: boolean }>(
         code: code!,
         message: json.error?.message || res.statusText || "Same Day request failed",
         raw: json,
+        // INDETERMINATE when the transport/gateway never gave a definitive
+        // business answer: HTTP 5xx (upstream may have completed), 408 (request
+        // timeout) or 429 (rate limited → may be retried by provider). An
+        // explicit decline (HTTP 200 success:false, 4xx auth/validation) is
+        // DEFINITIVE — the provider did not process it, safe to fail + refund.
+        indeterminate: isIndeterminateHttp(res.status),
       };
     }
     return { ok: true, data: json, raw: json };
   } catch (e) {
     await auditPatch(auditId, { response: null, httpStatus: null, ok: false, code: "NETWORK" });
-    return { ok: false, code: "NETWORK", message: (e as Error).message };
+    // A thrown fetch (socket drop, DNS, TLS, abort/timeout) means we got NO
+    // answer at all — always indeterminate; the provider may have charged.
+    return {
+      ok: false,
+      code: "NETWORK",
+      message: (e as Error).name === "AbortError" ? "Same Day request timed out" : (e as Error).message,
+      indeterminate: true,
+    };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

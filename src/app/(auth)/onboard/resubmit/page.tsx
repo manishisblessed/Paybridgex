@@ -20,6 +20,7 @@ import { InAppBrowserWarning } from "@/components/kyc/InAppBrowserWarning";
 import { prepareUploadFile } from "@/lib/imageCompression";
 import {
   requestUploadSignature,
+  saveDocumentMetadata,
   uploadToCloudinaryDirect,
 } from "@/lib/cloudinaryUpload";
 
@@ -164,29 +165,23 @@ function ResubmitInner() {
         const params = await requestUploadSignature(token, type);
         const cloudResult = await uploadToCloudinaryDirect(params, uploadFile);
 
-        const docRes = await fetch(`/api/onboard/${token}/documents`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type,
-            publicId: cloudResult.public_id,
-            url: cloudResult.secure_url,
-            resourceType: cloudResult.resource_type,
-            format: cloudResult.format,
-            bytes: cloudResult.bytes,
-            width: cloudResult.width,
-            height: cloudResult.height,
-            gpsLatitude: opts?.gps?.latitude,
-            gpsLongitude: opts?.gps?.longitude,
-            gpsAccuracy: opts?.gps?.accuracy,
-            gpsCapturedAt: opts?.gps?.capturedAt,
-            gpsSource: opts?.gps?.source,
-          }),
+        // Idempotent + auto-retried, so a lost response or flaky network won't
+        // fail the save or create a duplicate record.
+        await saveDocumentMetadata(token, {
+          type,
+          publicId: cloudResult.public_id,
+          url: cloudResult.secure_url,
+          resourceType: cloudResult.resource_type,
+          format: cloudResult.format,
+          bytes: cloudResult.bytes,
+          width: cloudResult.width,
+          height: cloudResult.height,
+          gpsLatitude: opts?.gps?.latitude,
+          gpsLongitude: opts?.gps?.longitude,
+          gpsAccuracy: opts?.gps?.accuracy,
+          gpsCapturedAt: opts?.gps?.capturedAt,
+          gpsSource: opts?.gps?.source,
         });
-        if (!docRes.ok) {
-          const j = await docRes.json().catch(() => ({}));
-          throw new Error(j.error ?? "Failed to save document");
-        }
         markDone(type);
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : "Upload failed");

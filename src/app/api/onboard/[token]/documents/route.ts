@@ -93,6 +93,21 @@ export async function POST(
     );
   }
 
+  // Idempotency: a client retry (after a lost response / flaky network) resends
+  // the SAME Cloudinary publicId. If we already recorded it, return the existing
+  // row instead of creating a duplicate — so the save step is safe to retry.
+  const existing = await prisma.verificationResult.findFirst({
+    where: {
+      inviteId: invite.id,
+      type: `DOCUMENT_${parsed.data.type}`,
+      requestPayload: { path: ["publicId"], equals: parsed.data.publicId },
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    return NextResponse.json({ ok: true, id: existing.id, deduped: true });
+  }
+
   const doc = await prisma.verificationResult.create({
     data: {
       inviteId: invite.id,

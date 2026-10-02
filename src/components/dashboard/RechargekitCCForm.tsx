@@ -293,6 +293,26 @@ export function RechargekitCCForm() {
         return null;
       }
 
+      // Indeterminate pay response (lost / HTTP 5xx / timeout): the provider may
+      // have charged. Funds are HELD for review — show pending, NEVER a failure
+      // (which would wrongly invite a retry → double payment). Do NOT poll: the
+      // pay-step reference is lost, so the status call cannot resolve it.
+      if (data.status === "NEEDS_REVIEW" || res.status === 202) {
+        setPinOpen(false);
+        setResult({
+          refId: data.refId,
+          service: `Credit Card Bill Payment-2 — ${bankName}`,
+          amount: Number(amount),
+          customer: beneficiaryName,
+          meta: {
+            "Card ending": cardNumber.slice(-4),
+            Status: "Verifying with provider — funds held until confirmed; do NOT retry",
+          },
+        });
+        resetForm();
+        return null;
+      }
+
       if (!res.ok || data.status !== "SUCCESS") {
         setPinOpen(false);
         const msg =

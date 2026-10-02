@@ -241,7 +241,9 @@ export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<vo
         where: {
           userId: opts.userId,
           createdAt: { gte: since24h },
-          status: { in: ["INITIATED", "PROCESSING", "SUCCESS"] },
+          // Held NEEDS_REVIEW reserves are real committed spend until resolved,
+          // so they count toward velocity/daily caps alongside in-flight + success.
+          status: { in: ["INITIATED", "PROCESSING", "NEEDS_REVIEW", "SUCCESS"] },
           // Exclude synthetic acquirer-settlement anchors (POS/PG/QR): those are
           // INBOUND settlement volume, not user-initiated outbound movement.
           isSettlement: false,
@@ -275,7 +277,7 @@ export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<vo
             where: {
               userId: opts.userId,
               createdAt: { gte: since24h },
-              status: { in: ["INITIATED", "PROCESSING", "SUCCESS"] },
+              status: { in: ["INITIATED", "PROCESSING", "NEEDS_REVIEW", "SUCCESS"] },
               isSettlement: false,
               service: opts.service as ServiceCode,
             },

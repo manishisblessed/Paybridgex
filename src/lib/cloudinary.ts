@@ -1,10 +1,17 @@
 import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 import crypto from "crypto";
 
+// Trim env values defensively: a stray trailing space or newline in the .env
+// (very common when values are pasted) silently breaks signature generation and
+// surfaces as Cloudinary "Invalid Signature".
+const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME?.trim();
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY?.trim();
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET?.trim();
+
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
+  cloud_name: CLOUDINARY_CLOUD_NAME,
+  api_key: CLOUDINARY_API_KEY,
+  api_secret: CLOUDINARY_API_SECRET,
   secure: true
 });
 
@@ -99,11 +106,11 @@ export function getSignedUploadParams(opts: { userId: string; type: string; isSe
     type: opts.isSensitive ? "private" : "upload"
   };
 
-  const signature = cloudinary.utils.api_sign_request(paramsToSign, process.env.CLOUDINARY_API_SECRET!);
+  const signature = cloudinary.utils.api_sign_request(paramsToSign, CLOUDINARY_API_SECRET!);
 
   return {
-    cloudName: process.env.CLOUDINARY_CLOUD_NAME!,
-    apiKey: process.env.CLOUDINARY_API_KEY!,
+    cloudName: CLOUDINARY_CLOUD_NAME!,
+    apiKey: CLOUDINARY_API_KEY!,
     timestamp,
     signature,
     folder,

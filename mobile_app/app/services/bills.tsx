@@ -189,7 +189,11 @@ export default function BillsScreen() {
       });
       setRefId(res.refId);
       setResultStatus(
-        res.status === "FAILED" ? "Failed" : res.status === "PROCESSING" ? "Pending" : "Success"
+        res.status === "FAILED"
+          ? "Failed"
+          : res.status === "PROCESSING" || res.status === "NEEDS_REVIEW"
+            ? "Pending"
+            : "Success"
       );
       setResultMsg(`${biller?.name ?? billerCode} · ${Object.values(paramValues)[0]?.slice(-4) || "—"}`);
     } catch (e) {

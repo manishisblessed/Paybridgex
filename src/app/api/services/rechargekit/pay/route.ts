@@ -150,7 +150,7 @@ export async function POST(req: Request) {
     const httpStatus =
       result.status === "SUCCESS"
         ? 200
-        : result.status === "PROCESSING"
+        : result.status === "PROCESSING" || result.status === "NEEDS_REVIEW"
           ? 202
           : 502;
 

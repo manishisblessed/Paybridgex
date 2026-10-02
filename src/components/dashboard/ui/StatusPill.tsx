@@ -30,7 +30,7 @@ const dotClass: Record<PillTone, string> = {
 const SUCCESS_RE =
   /^(success|succeeded|approved|active|completed|complete|verified|paid|settled|credit|credited|enabled|resolved|online|done|live|accepted|granted|ok)$/i;
 const WARNING_RE =
-  /^(pending|processing|awaiting.*|in.?progress|review|under.?review|hold|on.?hold|initiated|partial|queued|submitted|requested|open)$/i;
+  /^(pending|processing|awaiting.*|in.?progress|review|under.?review|needs.?review|hold|on.?hold|initiated|partial|queued|submitted|requested|open)$/i;
 const DANGER_RE =
   /^(failed|failure|rejected|blocked|suspended|disabled|expired|overdue|chargeback|cancelled|canceled|declined|debit|debited|inactive|error|reversed)$/i;
 

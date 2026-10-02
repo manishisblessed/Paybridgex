@@ -197,7 +197,11 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
         }),
       });
       const data = await res.json();
-      if (!res.ok || data.status !== "SUCCESS") {
+      // Only a DEFINITIVE failure (status FAILED, or a non-PIN HTTP error) is an
+      // error. NEEDS_REVIEW (indeterminate — funds HELD, provider may have
+      // charged) and PROCESSING must NOT be shown as failed: telling the retailer
+      // it failed/was refunded would wrongly prompt a retry → double payment.
+      if (data.status === "FAILED" || (res.status >= 400 && res.status !== 402)) {
         // PIN problems stay inside the dialog; other failures surface on the form.
         if (data.txnPin) return typeof data.error === "string" ? data.error : "PIN verification failed";
         setPinOpen(false);
@@ -209,6 +213,10 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
         return null;
       }
       setPinOpen(false);
+      // Held/processing both resolve out-of-band — show a pending state, never a
+      // green "success" (false confidence) and never a failure.
+      const isPending =
+        data.status === "PROCESSING" || data.status === "NEEDS_REVIEW" || res.status === 202;
       setResult({
         refId: data.refId,
         service: `Credit Card Bill — ${billers.find((b) => b.code === billerCode)?.name ?? billerCode}`,
@@ -217,6 +225,9 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
         meta: {
           "Card ending": cardLast4,
           ...(data.data?.receipt ? { "Operator ref": data.data.receipt } : {}),
+          ...(isPending
+            ? { Status: "Verifying with provider — funds held until confirmed; do NOT retry" }
+            : {}),
         },
       });
       resetBill();

@@ -29,6 +29,23 @@ import type { PartnerResult } from "../partners/types";
  * Use this for ALL money-moving services. Read-only calls (search, plans,
  * fetch bill) can hit the partner directly.
  */
+/**
+ * Service rails that (a) have a provider status() API and (b) are drained by a
+ * reconciliation sweep — i.e. rails where an INDETERMINATE pay outcome can be
+ * safely HELD (NEEDS_REVIEW) and resolved out-of-band instead of blind-refunded.
+ * Kept in sync with the recon coverage in src/lib/recon/bbps.ts + rechargekit.ts.
+ */
+const RECON_CAPABLE_BBPS_SERVICES: ServiceCode[] = [
+  "BILL_ELECTRICITY", "BILL_WATER", "BILL_GAS",
+  "BILL_CREDIT_CARD", "BILL_EDUCATION", "BILL_INSURANCE",
+  "RECHARGE_BROADBAND",
+];
+
+function railSupportsHoldAndRecon(partner: string, service: ServiceCode): boolean {
+  if (partner === "SAMEDAY_RECHARGEKIT") return true; // RechargeKit CC-2
+  return RECON_CAPABLE_BBPS_SERVICES.includes(service); // BBPS / Pay2New
+}
+
 export type RunTxnInput<TIn, TOut> = {
   userId: string;
   service: ServiceCode;
@@ -179,7 +196,9 @@ export async function runTransaction<TIn, TOut>(
   try {
     result = await partnerCallContext.run({ txnRefId: refId }, () => input.call());
   } catch (e) {
-    result = { ok: false, code: "EXCEPTION", message: (e as Error).message };
+    // An uncaught throw during the partner call is INDETERMINATE — we have no
+    // answer and the provider may have acted. Never auto-refund on this.
+    result = { ok: false, code: "EXCEPTION", message: (e as Error).message, indeterminate: true };
   }
 
   // 4a. Pending path — partner accepted but hasn't confirmed yet. Keep the
@@ -272,6 +291,47 @@ export async function runTransaction<TIn, TOut>(
       operator: input.operator ?? null,
     });
     return { status: "SUCCESS", refId, data: result.data };
+  }
+
+  // 4b. INDETERMINATE path — a transport/gateway failure (NETWORK / HTTP 5xx /
+  // timeout / exception) where we got NO definitive answer and the provider MAY
+  // have charged. For rails we can reconcile (BBPS/Pay2New, RechargeKit CC-2) we
+  // HOLD the reserve (NO refund) and park the txn in NEEDS_REVIEW. The provider
+  // status API / recon sweep / admin resolver settles or refunds it once the
+  // authoritative outcome is known — so a payment that actually succeeded is
+  // never wrongly refunded (the exact direct-loss bug this prevents).
+  if (!result.ok && result.indeterminate && railSupportsHoldAndRecon(input.partner, input.service)) {
+    await prisma.transaction.update({
+      where: { id: txn.id },
+      data: {
+        status: "NEEDS_REVIEW",
+        errorCode: result.code,
+        errorMessage:
+          "Payment is being verified with the provider. Your funds are safe and held until it is confirmed — no action needed.",
+        response: (result.raw ?? null) as Prisma.InputJsonValue,
+      },
+    });
+    void sendOpsAlert({
+      title: "Indeterminate payment HELD for review (funds NOT refunded)",
+      severity: "critical",
+      details: {
+        refId,
+        service: input.service,
+        partner: input.partner,
+        code: result.code ?? null,
+        amount: input.amount,
+      },
+    });
+    await prisma.auditLog.create({
+      data: {
+        userId: input.userId,
+        action: "txn.held_for_review",
+        entity: "Transaction",
+        entityId: txn.id,
+        meta: { refId, code: result.code, reason: "indeterminate_partner_result" },
+      },
+    });
+    return { status: "NEEDS_REVIEW" as const, refId, error: "Payment under verification" };
   }
 
   // Failure path — refund the reserved money via the ledger (REVERSAL credit).

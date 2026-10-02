@@ -13,7 +13,7 @@ import { toNumber } from "@/lib/money";
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
 
-const STATUSES = new Set(["INITIATED", "PROCESSING", "SUCCESS", "FAILED", "REFUNDED"]);
+const STATUSES = new Set(["INITIATED", "PROCESSING", "SUCCESS", "FAILED", "REFUNDED", "HOLD", "NEEDS_REVIEW"]);
 
 export async function GET(req: Request) {
   try {

@@ -184,6 +184,55 @@ export async function uploadToCloudinaryDirect(
   throw lastError ?? new Error("Upload failed after multiple attempts.");
 }
 
+/**
+ * Persist the uploaded document's metadata to our server, retrying transient
+ * faults. Safe to retry because the endpoint is idempotent on the Cloudinary
+ * `publicId` (a resent save is a no-op, not a duplicate row).
+ */
+export async function saveDocumentMetadata(
+  token: string | null | undefined,
+  payload: Record<string, unknown>
+): Promise<void> {
+  if (!token) {
+    throw new NonRetryableError(
+      "Your session link is missing or expired. Please reopen your registration link."
+    );
+  }
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+    try {
+      const res = await fetch(`/api/onboard/${token}/documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (res.ok) return;
+
+      const detail = await extractResponseError(res);
+      const message = detail
+        ? `Couldn't save document: ${detail}`
+        : "Couldn't save the document. Please try again.";
+      if (!isRetryableStatus(res.status)) throw new NonRetryableError(message);
+      lastError = new Error(message);
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof NonRetryableError) throw err;
+      lastError = normalizeNetworkError(err);
+    }
+
+    if (attempt < MAX_ATTEMPTS) await sleep(backoffDelay(attempt));
+  }
+
+  throw lastError ?? new Error("Couldn't save the document. Please try again.");
+}
+
 function normalizeNetworkError(err: unknown): Error {
   if (err instanceof DOMException && err.name === "AbortError") {
     return new Error(

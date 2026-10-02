@@ -87,7 +87,7 @@ function humanize(code: string): string {
 const opts = (values: string[]): FilterOption[] =>
   values.map((v) => ({ value: v, label: humanize(v) }));
 
-const TXN_STATUS = ["INITIATED", "PROCESSING", "SUCCESS", "FAILED", "REFUNDED", "HOLD"];
+const TXN_STATUS = ["INITIATED", "PROCESSING", "SUCCESS", "FAILED", "REFUNDED", "HOLD", "NEEDS_REVIEW"];
 const PAYOUT_STATUS = [
   "DRAFT", "PENDING_APPROVAL", "APPROVED", "PROCESSING", "SUCCESS", "FAILED", "REJECTED", "REVERSED",
 ];

@@ -11,7 +11,21 @@ export type Money = number; // paise? rupees? — we use rupees with 2-decimal D
 
 export type PartnerResult<T> =
   | { ok: true; data: T; partnerTxnId?: string; raw?: unknown; pending?: boolean }
-  | { ok: false; code: string; message: string; raw?: unknown };
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      raw?: unknown;
+      /**
+       * TRUE when the failure is INDETERMINATE — a transport-level error (network
+       * drop, timeout, HTTP 5xx/408/429, uncaught exception) where we never got a
+       * definitive answer and the provider MAY have processed the payment. Callers
+       * that move money MUST NOT auto-refund on an indeterminate result; they
+       * should HOLD the funds and resolve via the status API. Absent/false means a
+       * DEFINITIVE business decline (safe to fail + refund).
+       */
+      indeterminate?: boolean;
+    };
 
 export interface IdempotencyContext {
   /** Caller-generated idempotency key, persisted with the Transaction row. */
@@ -168,8 +182,14 @@ export interface BbpsProvider {
    * Optional: poll a payment's terminal state by provider order id or request
    * id — used after timeouts (never blind-retry pay) and by reconciliation.
    */
-  status?(ref: { orderId?: string; requestId?: string }): Promise<
-    PartnerResult<{ status: "SUCCESS" | "PENDING" | "FAILED" | "REFUNDED"; operatorRef?: string }>
+  status?(ref: { orderId?: string; requestId?: string; billFetchRef?: string }): Promise<
+    PartnerResult<{
+      status: "SUCCESS" | "PENDING" | "FAILED" | "REFUNDED";
+      operatorRef?: string;
+      /** Pay-step references echoed by the provider — stamp these as partnerTxnId. */
+      orderId?: string;
+      requestId?: string;
+    }>
   >;
 }
 

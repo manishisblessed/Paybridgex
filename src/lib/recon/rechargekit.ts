@@ -128,7 +128,8 @@ export async function reconcileRechargekitFromWebhook(
   if (!row) return { matched: false };
 
   // Already terminal → nothing to do (still a match, so the dispatcher acks).
-  if (row.status !== "INITIATED" && row.status !== "PROCESSING") {
+  // NEEDS_REVIEW is NON-terminal (held), so it stays resolvable here.
+  if (row.status !== "INITIATED" && row.status !== "PROCESSING" && row.status !== "NEEDS_REVIEW") {
     return { matched: true, outcome: "noop", refId: row.refId };
   }
 
@@ -149,6 +150,7 @@ export type RechargekitReconSummary = {
   refunded: number;
   pending: number;
   stuck: number;
+  heldEscalated: number;
   skipped: boolean;
 };
 
@@ -163,7 +165,7 @@ export type RechargekitReconSummary = {
 export async function runRechargekitReconciliation(): Promise<RechargekitReconSummary> {
   const ranAt = new Date().toISOString();
   const empty: RechargekitReconSummary = {
-    ranAt, drained: 0, settled: 0, refunded: 0, pending: 0, stuck: 0, skipped: true,
+    ranAt, drained: 0, settled: 0, refunded: 0, pending: 0, stuck: 0, heldEscalated: 0, skipped: true,
   };
 
   if (!flags.rechargekit || !rechargekitConfigured()) {
@@ -179,7 +181,9 @@ export async function runRechargekitReconciliation(): Promise<RechargekitReconSu
   // the stored pay `response`, so such rows can finally be settled/refunded.
   const inflight = await prisma.transaction.findMany({
     where: {
-      status: "PROCESSING",
+      // PROCESSING (pending at pay) + NEEDS_REVIEW (indeterminate, held) are both
+      // non-terminal and must be polled for resolution.
+      status: { in: ["PROCESSING", "NEEDS_REVIEW"] },
       partner: RK_PARTNER,
       createdAt: { lt: new Date(now - DRAIN_AGE_MS) },
     },
@@ -220,39 +224,78 @@ export async function runRechargekitReconciliation(): Promise<RechargekitReconSu
     }
   }
 
-  // Escalate anything still PROCESSING beyond the stuck threshold.
+  // Escalate anything still non-terminal beyond the stuck threshold.
   const stuckRows = await prisma.transaction.findMany({
     where: {
-      status: "PROCESSING",
+      status: { in: ["PROCESSING", "NEEDS_REVIEW"] },
       partner: RK_PARTNER,
       createdAt: { lt: new Date(now - STUCK_THRESHOLD_MS) },
     },
-    select: { refId: true, amount: true, createdAt: true },
+    select: { id: true, refId: true, amount: true, createdAt: true, status: true, userId: true },
     orderBy: { createdAt: "asc" },
   });
-  if (stuckRows.length > 0) {
-    // Enrich for zero-diagnostics resolution: amount + age let ops locate the
-    // txn in the RechargeKit panel (no mobile/card — no PII in alerts).
-    const items = stuckRows
-      .slice(0, 10)
-      .map((r) => {
-        const ageMin = Math.floor((now - r.createdAt.getTime()) / 60_000);
-        return `${r.refId} Rs.${r.amount.toNumber()} age=${ageMin}m`;
-      })
-      .join(" ; ");
+
+  // Plain PROCESSING rows → ordinary warning (amount + age let ops locate the
+  // txn in the RechargeKit panel; no mobile/card — no PII in alerts).
+  const processingStuck = stuckRows.filter((r) => r.status === "PROCESSING");
+  if (processingStuck.length > 0) {
     await sendOpsAlert({
       title: "RechargeKit payments stuck in PROCESSING",
       severity: "warning",
       details: {
-        count: stuckRows.length,
-        oldest: stuckRows[0].createdAt.toISOString(),
-        stuck: items,
+        count: processingStuck.length,
+        oldest: processingStuck[0].createdAt.toISOString(),
+        stuck: processingStuck
+          .slice(0, 10)
+          .map((r) => `${r.refId} Rs.${r.amount.toNumber()} age=${Math.floor((now - r.createdAt.getTime()) / 60_000)}m`)
+          .join(" ; "),
+      },
+    });
+  }
+
+  // NEEDS_REVIEW rows: INDETERMINATE pay response — provider may have charged
+  // while the reserve is HELD. RechargeKit has NO client-side correlation key,
+  // so a lost pay response is unrecoverable by status poll; escalate ONCE
+  // (deduped via an audit marker) with a queryable review-queue trail.
+  let heldEscalated = 0;
+  const heldStuck = stuckRows.filter((r) => r.status === "NEEDS_REVIEW");
+  const freshlyEscalated: typeof heldStuck = [];
+  for (const r of heldStuck) {
+    const already = await prisma.auditLog.findFirst({
+      where: { entityId: r.id, action: "recon.needs_review_escalated" },
+      select: { id: true },
+    });
+    if (already) continue;
+    await prisma.auditLog.create({
+      data: {
+        userId: r.userId,
+        action: "recon.needs_review_escalated",
+        entity: "Transaction",
+        entityId: r.id,
+        meta: { refId: r.refId, amount: r.amount.toNumber(), reason: "indeterminate_unresolvable_by_status_api", ranAt },
+      },
+    });
+    freshlyEscalated.push(r);
+    heldEscalated++;
+  }
+  if (freshlyEscalated.length > 0) {
+    await sendOpsAlert({
+      title: "RechargeKit payments HELD for review — funds NOT refunded (possible provider charge)",
+      severity: "critical",
+      details: {
+        count: freshlyEscalated.length,
+        exposure: freshlyEscalated.reduce((s, r) => s + r.amount.toNumber(), 0),
+        oldest: freshlyEscalated[0].createdAt.toISOString(),
+        held: freshlyEscalated
+          .slice(0, 10)
+          .map((r) => `${r.refId} Rs.${r.amount.toNumber()} age=${Math.floor((now - r.createdAt.getTime()) / 60_000)}m`)
+          .join(" ; "),
       },
     });
   }
 
   const summary: RechargekitReconSummary = {
-    ranAt, drained, settled, refunded, pending, stuck: stuckRows.length, skipped: false,
+    ranAt, drained, settled, refunded, pending, stuck: stuckRows.length, heldEscalated, skipped: false,
   };
   await prisma.auditLog.create({
     data: { action: "recon.rechargekit_recon", entity: "System", meta: { ...summary } },

@@ -44,8 +44,8 @@ import {
 import { extractGpsFromFile } from "@/lib/gps";
 import { prepareUploadFile } from "@/lib/imageCompression";
 import {
-  extractResponseError,
   requestUploadSignature,
+  saveDocumentMetadata,
   uploadToCloudinaryDirect,
 } from "@/lib/cloudinaryUpload";
 import { LivenessVideoCapture } from "@/components/kyc/LivenessVideoCapture";
@@ -868,29 +868,23 @@ function OnboardContent() {
       const params = await requestUploadSignature(token, type);
       const cloudResult = await uploadToCloudinaryDirect(params, uploadFile);
 
-      const docRes = await fetch(`/api/onboard/${token}/documents`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type,
-          publicId: cloudResult.public_id,
-          url: cloudResult.secure_url,
-          resourceType: cloudResult.resource_type,
-          format: cloudResult.format,
-          bytes: cloudResult.bytes,
-          width: cloudResult.width,
-          height: cloudResult.height,
-          gpsLatitude,
-          gpsLongitude,
-          gpsAccuracy,
-          gpsCapturedAt,
-          gpsSource,
-        }),
+      // Idempotent + auto-retried, so a lost response or flaky network won't
+      // fail the save or create a duplicate record.
+      await saveDocumentMetadata(token, {
+        type,
+        publicId: cloudResult.public_id,
+        url: cloudResult.secure_url,
+        resourceType: cloudResult.resource_type,
+        format: cloudResult.format,
+        bytes: cloudResult.bytes,
+        width: cloudResult.width,
+        height: cloudResult.height,
+        gpsLatitude,
+        gpsLongitude,
+        gpsAccuracy,
+        gpsCapturedAt,
+        gpsSource,
       });
-      if (!docRes.ok) {
-        const detail = await extractResponseError(docRes);
-        throw new Error(detail ? `Couldn't save document: ${detail}` : "Failed to save document");
-      }
 
       setUploadedDocs((prev) => ({ ...prev, [type]: true }));
       if (type === "SELFIE") setSelfieUploaded(true);

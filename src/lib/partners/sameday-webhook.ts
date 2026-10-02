@@ -13,6 +13,7 @@ import { isCardClassificationEnabled } from "@/lib/settings";
 import { upsertMirrorFromWebhook } from "@/lib/pos/mirror";
 import { reconcilePayoutFromWebhook } from "@/lib/payout/service";
 import { reconcileRechargekitFromWebhook } from "@/lib/recon/rechargekit";
+import { reconcileBbpsFromWebhook } from "@/lib/recon/bbps";
 
 /**
  * Unified inbound receiver for EVERY Same Day webhook channel
@@ -110,6 +111,22 @@ export async function handleSamedayWebhook(req: Request): Promise<Response> {
     return NextResponse.json({ ok: true, channel: "payout", ...payout });
   }
 
+  // BBPS-2 / Pay2New (Credit Card bill pay) — event `pay2new.cc.status`.
+  // Correlates by the bill_fetch_ref it carries (survives a lost pay response),
+  // then re-polls the provider status before finalising.
+  if (eventType === "pay2new.cc.status" || typeof body.bill_fetch_ref === "string") {
+    const billFetchRef =
+      typeof body.bill_fetch_ref === "string" ? body.bill_fetch_ref : undefined;
+    const bbps = await reconcileBbpsFromWebhook(refs, billFetchRef);
+    if (bbps.matched) {
+      await auditWebhook(
+        { channel: "bbps", eventType, outcome: bbps.outcome, verified, deliveryId },
+        "Transaction"
+      );
+      return NextResponse.json({ ok: true, channel: "bbps", ...bbps });
+    }
+  }
+
   // RechargeKit CC-2.
   const rk = await reconcileRechargekitFromWebhook(refs);
   if (rk.matched) {
@@ -148,6 +165,7 @@ function collectRefs(body: Record<string, unknown>): string[] {
     "txn_id", "txnId",
     "request_id", "requestId",
     "order_id", "orderId",
+    "bill_fetch_ref", "billFetchRef",
     "id",
   ];
   const out: string[] = [];

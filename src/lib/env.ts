@@ -46,6 +46,11 @@ const schema = z.object({
   PARTNER_SETTLEMENT_ENABLED: z.string().default("false"),
   PARTNER_RECHARGEKIT_ENABLED: z.string().default("false"),
   PARTNER_ESIGN_ENABLED: z.string().default("false"),
+  // DANGEROUS recovery toggle — leave OFF until SameDay confirms the pay endpoint
+  // is IDEMPOTENT on bill_fetch_ref / idempotencyKey (i.e. a re-call of a payment
+  // that already went through returns the SAME result and does NOT charge twice).
+  // Enabling it without that guarantee risks DOUBLE-charging a customer.
+  SAMEDAY_PAY_IDEMPOTENCY_RECOVERY_ENABLED: z.string().default("false"),
 
   // Same Day Solution — POS Partner API
   SAMEDAY_POS_BASE_URL: z.string().url().default("https://api.samedaysolution.in"),
@@ -244,6 +249,8 @@ export const flags = {
   settlementAutosweep: env.SETTLEMENT_AUTOSWEEP_ENABLED === "true",
   rechargekit: env.PARTNER_RECHARGEKIT_ENABLED === "true",
   esign: env.PARTNER_ESIGN_ENABLED === "true",
+  // OFF by default — see SAMEDAY_PAY_IDEMPOTENCY_RECOVERY_ENABLED above.
+  samedayPayIdempotencyRecovery: env.SAMEDAY_PAY_IDEMPOTENCY_RECOVERY_ENABLED === "true",
 
   // Security toggles
   captcha: env.SECURITY_CAPTCHA_ENABLED === "true",

@@ -245,7 +245,7 @@ function isTicketable(row: Row): boolean {
  * only genuinely in-flight rows. Terminal rows (SUCCESS/FAILED/REFUNDED) have
  * nothing left to reconcile.
  */
-const RECONCILABLE_STATUS = new Set(["PROCESSING", "INITIATED", "PENDING", "HOLD"]);
+const RECONCILABLE_STATUS = new Set(["PROCESSING", "INITIATED", "PENDING", "HOLD", "NEEDS_REVIEW"]);
 
 function isReconcilable(row: Row): boolean {
   const refId = row["refId"];
