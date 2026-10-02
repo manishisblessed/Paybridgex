@@ -62,6 +62,9 @@ export default function ReversalDeskPage() {
   });
   const [busy, setBusy] = useState(false);
   const [reconBusy, setReconBusy] = useState(false);
+  const [resolveBusy, setResolveBusy] = useState(false);
+  // When the provider can't confirm from stored refs, prompt for the pay-step ref.
+  const [resolveNeedRef, setResolveNeedRef] = useState<string | null>(null);
 
   // Pending approve/reject/cancel decision awaiting confirmation
   const [decision, setDecision] = useState<{ id: string; action: "APPROVE" | "REJECT" | "CANCEL" } | null>(null);
@@ -151,6 +154,58 @@ export default function ReversalDeskPage() {
       notify(e instanceof Error ? e.message : "Reconcile failed", false);
     } finally {
       setReconBusy(false);
+    }
+  };
+
+  // CORRECTIVE resolve — can also promote an already-FAILED/REFUNDED row to
+  // SUCCESS (with a lien clawback) when the provider confirms the money moved.
+  // Always provider-verified; never a blind manual flip. On a 422 (provider
+  // couldn't resolve from stored refs) it prompts for the pay-step reference.
+  const resolveTxn = async (providerRef?: string): Promise<boolean> => {
+    const ref = (resolveNeedRef ?? lookupRef).trim();
+    if (!ref) return false;
+    setResolveBusy(true);
+    try {
+      const res = await fetch("/api/admin/transactions/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refId: ref, ...(providerRef ? { providerRef } : {}) }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 422 || d?.outcome === "unresolved") {
+        toast.info(`${ref}: provider couldn't confirm — enter the pay-step reference from the panel.`);
+        setResolveNeedRef(ref);
+        return false;
+      }
+      if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Resolve failed");
+      switch (d.outcome) {
+        case "corrected":
+          notify(
+            d.clawback?.placed
+              ? `${ref}: confirmed SUCCESS — ${formatINR(d.clawback.refunded)} clawed back via lien.`
+              : `${ref}: confirmed SUCCESS and settled.`,
+            true
+          );
+          break;
+        case "settled":
+          notify(`${ref}: provider confirmed SUCCESS — settled.`, true);
+          break;
+        case "refunded":
+          notify(`${ref}: provider reported failure — reserve refunded to the wallet.`, true);
+          break;
+        case "noop":
+          notify(`${ref}: already consistent with the provider (${d.providerStatus ?? "—"}).`, true);
+          break;
+        default:
+          notify(`${ref}: ${d.outcome ?? "no change"}.`, true);
+      }
+      load();
+      return true;
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Resolve failed", false);
+      return false;
+    } finally {
+      setResolveBusy(false);
     }
   };
 
@@ -327,11 +382,22 @@ export default function ReversalDeskPage() {
           <Button variant="outline" onClick={reconcile} isLoading={reconBusy} disabled={reconBusy || !lookupRef.trim()}>
             Reconcile with provider
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => resolveTxn()}
+            isLoading={resolveBusy}
+            disabled={resolveBusy || !lookupRef.trim()}
+          >
+            Resolve / verify with provider
+          </Button>
         </div>
         <p className="mb-4 -mt-2 text-xs text-ink-500">
           For a payment stuck in <span className="font-medium">Processing</span> (BBPS / credit-card), try{" "}
           <span className="font-medium">Reconcile with provider</span> first — it re-polls the provider and
-          settles or auto-refunds safely, so you only raise a manual reversal if that can&apos;t resolve it.
+          settles or auto-refunds safely, so you only raise a manual reversal if that can&apos;t resolve it.{" "}
+          <span className="font-medium">Resolve / verify with provider</span> also corrects a row that was wrongly
+          marked FAILED/refunded — if the provider confirms the money moved, it settles and claws back the refund via a
+          lien (never a negative wallet).
         </p>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -479,6 +545,30 @@ export default function ReversalDeskPage() {
           if (!decision) return;
           await decide(decision.id, decision.action, decision.action === "REJECT" ? note || undefined : undefined);
           setDecision(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={resolveNeedRef !== null}
+        onClose={() => setResolveNeedRef(null)}
+        busy={resolveBusy}
+        tone="default"
+        title="Enter the pay-step reference"
+        description={
+          <>
+            The provider couldn&apos;t confirm <span className="font-mono text-xs">{resolveNeedRef}</span> from any stored
+            reference. Open it in the provider panel, copy its pay-step order_id / request_id, and paste it below to
+            verify and resolve.
+          </>
+        }
+        confirmLabel="Verify with this ref"
+        cancelLabel="Cancel"
+        input={{ label: "Pay-step order_id / request_id", placeholder: "P2N_PAY_… or SDS…", required: true }}
+        onConfirm={async (providerRef) => {
+          if (providerRef) {
+            const done = await resolveTxn(providerRef);
+            if (done) setResolveNeedRef(null);
+          }
         }}
       />
     </div>
