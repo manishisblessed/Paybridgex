@@ -10,6 +10,12 @@ import { logger } from "@/lib/logger";
 
 const log = logger.child({ module: "services/finalize" });
 
+// These finalizers run claim + ledger movements (which may trigger a lien sweep
+// touching several rows) in ONE interactive transaction. Prisma's 5s default is
+// too tight over a high-latency DB link (EC2 ↔ allow-listed Postgres), so give
+// the whole unit generous headroom — it's still a small, bounded amount of work.
+const TXN_OPTS = { timeout: 30_000, maxWait: 15_000 } as const;
+
 /**
  * Provider-agnostic terminal finalizer for a service `Transaction` left in a
  * non-terminal state (INITIATED/PROCESSING).
@@ -94,7 +100,7 @@ export async function finalizeServiceTransaction(opts: {
           meta: { refId: txn.refId, source, partner: txn.partner },
         },
       });
-    });
+    }, TXN_OPTS);
 
     if (finalized) {
       void emitWebhookEvent(txn.userId, "txn.success", {
@@ -152,7 +158,7 @@ export async function finalizeServiceTransaction(opts: {
         meta: { refId: txn.refId, source, providerStatus: status, partner: txn.partner },
       },
     });
-  });
+  }, TXN_OPTS);
 
   if (finalized) {
     void emitWebhookEvent(txn.userId, "txn.failed", {
@@ -291,7 +297,7 @@ export async function correctTerminalToSuccess(opts: {
         },
       },
     });
-  });
+  }, TXN_OPTS);
 
   if (corrected) {
     void emitWebhookEvent(txn.userId, "txn.success", {
