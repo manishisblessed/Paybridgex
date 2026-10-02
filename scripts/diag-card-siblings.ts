@@ -49,9 +49,18 @@ function identifiers(blob: unknown): { mobiles: string[]; last4s: string[] } {
   return { mobiles, last4s };
 }
 
-async function hasReversal(userId: string, refId: string): Promise<boolean> {
-  const r = await prisma.walletTxn.findUnique({
-    where: { idempotencyKey: `txn:${userId}:${refId}:reversal` },
+// True if ANY refund was returned for this txn — detected by the durable ledger
+// link (REVERSAL credit → this Transaction), so it also catches refunds written
+// by older code under non-standard idempotency keys.
+async function hasReversal(userId: string, txnInternalId: string): Promise<boolean> {
+  const r = await prisma.walletTxn.findFirst({
+    where: {
+      userId,
+      direction: "CREDIT",
+      reason: "REVERSAL",
+      refType: "Transaction",
+      refId: txnInternalId,
+    },
     select: { id: true },
   });
   return !!r;
@@ -85,7 +94,7 @@ async function main() {
   console.log(`created      : ${target.createdAt.toISOString()}`);
   console.log(`derived refs : ${JSON.stringify(tgtRefs)}`);
   console.log(`identifiers  : mobiles=${JSON.stringify(tgtIds.mobiles)} last4=${JSON.stringify(tgtIds.last4s)}`);
-  console.log(`refunded?    : ${(await hasReversal(target.userId, target.refId)) ? "YES (reversal booked)" : "no"}`);
+  console.log(`refunded?    : ${(await hasReversal(target.userId, target.id)) ? "YES (reversal booked)" : "no"}`);
 
   // Siblings: same retailer, same service, within the window — then match on
   // card last-4 / mobile so we only surface the SAME card's payments.
@@ -99,7 +108,7 @@ async function main() {
     },
     orderBy: { createdAt: "asc" },
     select: {
-      refId: true, status: true, amount: true, fee: true, partnerTxnId: true,
+      id: true, refId: true, status: true, amount: true, fee: true, partnerTxnId: true,
       request: true, response: true, createdAt: true, userId: true,
     },
   });
@@ -113,7 +122,7 @@ async function main() {
     if (!sameMobile && !sameCard && c.refId !== target.refId) continue;
     shown++;
     const refs = deriveTxnRefs({ partnerTxnId: c.partnerTxnId, request: c.request, response: c.response });
-    const refunded = await hasReversal(c.userId, c.refId);
+    const refunded = await hasReversal(c.userId, c.id);
     const flag = c.refId === target.refId ? "  <-- TARGET" : "";
     console.log(
       `\n  [${c.createdAt.toISOString()}] ${c.refId}${flag}\n` +

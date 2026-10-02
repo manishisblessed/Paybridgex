@@ -224,14 +224,26 @@ export async function correctTerminalToSuccess(opts: {
     if (claim.count === 0) return; // already corrected / not a terminal-failed row
     corrected = true;
 
-    // Only claw back money that was ACTUALLY returned. The refund (if any) was a
-    // REVERSAL credit written under this deterministic key.
-    const reversal = await tx.walletTxn.findUnique({
-      where: { idempotencyKey: `txn:${txn.userId}:${txn.refId}:reversal` },
-      select: { amount: true },
+    // Only claw back money that was ACTUALLY returned. Detect the refund via the
+    // DURABLE ledger link — a REVERSAL credit pointing at this Transaction —
+    // rather than a single deterministic key: rows failed by older code refunded
+    // under different (or no) idempotency keys, and missing that refund here would
+    // hand the retailer free money when we promote the row to SUCCESS. Summing is
+    // safe (a normal txn has exactly one reversal) and still bounded by the
+    // at-most-once status claim above.
+    const reversalAgg = await tx.walletTxn.aggregate({
+      where: {
+        userId: txn.userId,
+        direction: "CREDIT",
+        reason: "REVERSAL",
+        refType: "Transaction",
+        refId: txn.id,
+      },
+      _sum: { amount: true },
     });
-    if (reversal) {
-      refunded = reversal.amount.toNumber();
+    const refundedAmt = reversalAgg._sum.amount?.toNumber() ?? 0;
+    if (refundedAmt > 0) {
+      refunded = refundedAmt;
       // LIEN-based recovery → sweeps available funds now, recovers the rest from
       // future credits; floored at zero so the wallet never goes negative.
       const lien = await tx.walletLien.create({
