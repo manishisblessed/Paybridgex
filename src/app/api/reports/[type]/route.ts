@@ -19,6 +19,8 @@ const QuerySchema = z.object({
   status: z.string().trim().max(40).optional(),
   service: z.string().trim().max(40).optional(),
   mode: z.string().trim().max(40).optional(),
+  fromUser: z.string().trim().max(40).optional(),
+  toUser: z.string().trim().max(40).optional(),
   from: z.string().trim().max(40).optional(),
   to: z.string().trim().max(40).optional(),
   export: z.enum(["1", "true"]).optional(),
@@ -78,6 +80,8 @@ export async function GET(req: Request, { params }: { params: { type: string } }
     status: q.status ?? null,
     service: q.service ?? null,
     mode: q.mode ?? null,
+    fromUser: q.fromUser ?? null,
+    toUser: q.toUser ?? null,
     forExport: q.export === "1" || q.export === "true",
   };
 

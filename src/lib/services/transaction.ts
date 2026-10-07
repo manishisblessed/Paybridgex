@@ -2,7 +2,7 @@ import { Prisma, type ServiceCode, type TxnStatus } from "@prisma/client";
 import { nanoid } from "nanoid";
 import { prisma } from "../db";
 import { creditWallet, debitWallet, LedgerError } from "../ledger";
-import { add, sub, round } from "../money";
+import { add, sub, round, GST_RATE_PCT } from "../money";
 import { assertTransactionRisk } from "../risk/engine";
 import { assertAccountActive } from "../security/accountGate";
 import { requireActiveScheme } from "../scheme/gate";
@@ -152,6 +152,9 @@ export async function runTransaction<TIn, TOut>(
           fee: new Prisma.Decimal(round(input.fee ?? 0)),
           commission: new Prisma.Decimal(commissionAmount),
           gst: new Prisma.Decimal(gstAmount),
+          // Stamp the authoritative slab rate (18 standard; 0 when no GST) so the
+          // GST report groups by it instead of re-deriving from gst÷taxable.
+          gstRate: gstAmount.gt(0) ? GST_RATE_PCT : 0,
           vendorCharge: new Prisma.Decimal(vendorCharge),
           priceScope: input.priceScope ?? null,
           status: "PROCESSING",

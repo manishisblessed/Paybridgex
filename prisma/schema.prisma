@@ -628,6 +628,11 @@ model Transaction {
   fee          Decimal     @default(0) @db.Decimal(14, 2)
   commission   Decimal     @default(0) @db.Decimal(14, 2)
   gst          Decimal     @default(0) @db.Decimal(14, 2)
+  // Whole-number GST rate (%) actually applied to this supply, stamped at charge
+  // time (18 for the standard slab; 0 when no GST). The authoritative rate for
+  // GSTR filing — the rate-wise report groups by this instead of re-deriving the
+  // rate from gst÷taxable, which is unstable at sub-rupee paise rounding.
+  gstRate      Int         @default(0)
   // Upstream/vendor cost the company paid for this txn (charge-driven service
   // rails: BBPS/Payout). Company revenue per txn = (fee − gst) − vendorCharge.
   // 0 for acquiring rails (POS/PG/QR settle margin via MDR_MARGIN) and for any
@@ -1406,6 +1411,9 @@ model PayoutRequest {
   amount        Decimal @db.Decimal(14, 2)
   serviceCharge Decimal @db.Decimal(14, 2)
   gst           Decimal @db.Decimal(14, 2) // 18% of serviceCharge
+  // Whole-number GST rate (%) applied to the service charge, stamped at quote
+  // time (18 standard; 0 when no GST). Authoritative rate for GSTR filing.
+  gstRate       Int     @default(0)
   totalDebit    Decimal @db.Decimal(14, 2) // amount + serviceCharge + gst
   // Upstream/partner cost the company pays to disburse this payout, LOCKED from
   // the provider's approved PAYOUT rate card at quote time. Company revenue per

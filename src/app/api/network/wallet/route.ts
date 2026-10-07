@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
-import { creditWallet, debitWallet, LedgerError } from "@/lib/ledger";
+import { creditWallet, debitWallet, LedgerError, schedulePosRentalRetryIfNeeded } from "@/lib/ledger";
 import { toNumber } from "@/lib/money";
 import { enforceRateLimit, RATE_LIMITS, RateLimitError } from "@/lib/security/rateLimit";
 import { assertLivenessReady, LivenessRequiredError } from "@/lib/security/livenessGate";
@@ -115,6 +115,8 @@ export async function POST(req: Request) {
           data: { fromId: user.id, toId: childId, direction: "PUSH", amount, note },
         });
       });
+      // Child was credited → recover any outstanding POS rent for them now.
+      void schedulePosRentalRetryIfNeeded(childId);
     } else {
       await prisma.$transaction(async (tx) => {
         await debitWallet(
@@ -143,6 +145,8 @@ export async function POST(req: Request) {
           data: { fromId: user.id, toId: childId, direction: "PULL", amount, note },
         });
       });
+      // Parent was credited → recover any outstanding POS rent for them now.
+      void schedulePosRentalRetryIfNeeded(user.id);
     }
   } catch (e) {
     if (e instanceof LedgerError && e.code === "INSUFFICIENT_FUNDS")

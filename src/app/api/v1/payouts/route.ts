@@ -200,6 +200,7 @@ export async function POST(req: Request) {
               amount: quote.amount,
               serviceCharge: quote.serviceCharge,
               gst: quote.gst,
+              gstRate: quote.gstRate,
               totalDebit: quote.totalDebit,
               vendorCharge: quote.vendorCharge,
               status: autoApprove ? "APPROVED" : "PENDING_APPROVAL",

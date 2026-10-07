@@ -20,7 +20,7 @@ import { Prisma, type QrClaimStatus, type ServiceCode, type MdrServiceKind } fro
 import { createHash } from "crypto";
 import { prisma } from "../db";
 import { creditWallet, debitWallet } from "../ledger";
-import { round, toNumber } from "../money";
+import { round, toNumber, GST_RATE_PCT } from "../money";
 import { getSetting } from "../settings";
 import { priceSchemeSettlement, startOfTodayIst, SETTLED_VIA } from "../settlement/engine";
 import { railScopeKey } from "../mdr/floor";
@@ -546,6 +546,7 @@ async function distributeCommissionForQr(
         amount: new Prisma.Decimal(grossAmount),
         fee: marginFee, // company MDR margin (MDR − vendor, GST-inclusive)
         gst: gstFee, // GST carved from the margin (output-tax for GST filing)
+        gstRate: gstFee.gt(0) ? GST_RATE_PCT : 0,
         status: "SUCCESS",
         partner: "STATIC_QR",
         partnerTxnId: claimId,
@@ -560,7 +561,7 @@ async function distributeCommissionForQr(
     // consistent going forward.
     txn = await prisma.transaction.update({
       where: { id: txn.id },
-      data: { service: "QR" as ServiceCode, fee: marginFee, gst: gstFee, settlementType, isSettlement: true },
+      data: { service: "QR" as ServiceCode, fee: marginFee, gst: gstFee, gstRate: gstFee.gt(0) ? GST_RATE_PCT : 0, settlementType, isSettlement: true },
     });
   }
 

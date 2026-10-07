@@ -3,7 +3,7 @@ import { creditWallet } from "@/lib/ledger";
 import { distributeMdrCommission } from "@/lib/commission/distribute";
 import { getEffectiveMdr } from "@/lib/mdr/resolver";
 import { railScopeKey } from "@/lib/mdr/floor";
-import { dec, gte, gt, round, toNumber } from "@/lib/money";
+import { dec, gte, gt, round, toNumber, GST_RATE_PCT } from "@/lib/money";
 import { recordPayin } from "@/lib/wallet/payin";
 import { getSetting } from "@/lib/settings";
 import {
@@ -250,6 +250,7 @@ async function distributeCommissionForPg(
         amount: dec(grossAmount),
         fee: marginFee, // company MDR margin (MDR − vendor, GST-inclusive)
         gst: gstFee, // GST carved from the margin (output-tax for GST filing)
+        gstRate: gstFee.gt(0) ? GST_RATE_PCT : 0,
         status: "SUCCESS",
         partner: "PG",
         partnerTxnId: transactionRef,
@@ -262,7 +263,7 @@ async function distributeCommissionForPg(
     // so per-service revenue + GST reporting are consistent going forward.
     txn = await prisma.transaction.update({
       where: { id: txn.id },
-      data: { fee: marginFee, gst: gstFee },
+      data: { fee: marginFee, gst: gstFee, gstRate: gstFee.gt(0) ? GST_RATE_PCT : 0 },
     });
   }
 

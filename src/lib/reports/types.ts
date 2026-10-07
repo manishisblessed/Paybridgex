@@ -54,6 +54,13 @@ export type ReportParams = {
   status: string | null;
   service: string | null;
   mode: string | null;
+  /**
+   * Optional specific-user filters. Currently used by the Push/Pull report to
+   * pin the sender (`fromUser`) and/or recipient (`toUser`) to a single user id
+   * chosen from the role-scoped user picker. Null = no restriction.
+   */
+  fromUser: string | null;
+  toUser: string | null;
   /** When true, return the full (capped) dataset for CSV/PDF/XLSX export. */
   forExport: boolean;
 };

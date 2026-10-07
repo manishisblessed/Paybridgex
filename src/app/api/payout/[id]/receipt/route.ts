@@ -127,7 +127,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     gst: toNumber(gstDec),
     cgst: toNumber(cgst),
     sgst: toNumber(sgst),
-    gstRate: gstRate(gstDec, chargeDec),
+    gstRate: po.gstRate > 0 ? po.gstRate : gstRate(gstDec, chargeDec),
     totalDebit: toNumber(add(add(po.amount, chargeDec), gstDec)),
   };
 

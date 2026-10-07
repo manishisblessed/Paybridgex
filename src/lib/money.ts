@@ -17,6 +17,14 @@ export type Money = Prisma.Decimal;
 /** Number of decimal places we persist (matches @db.Decimal(14, 2)). */
 export const MONEY_SCALE = 2;
 
+/**
+ * Standard output GST rate (%) on every taxable supply on the platform (service
+ * fees + payout charges). Stamped onto each row's `gstRate` at charge time so
+ * the GST report groups by the authoritative slab rather than re-deriving it
+ * from gst÷taxable (which drifts on sub-rupee paise rounding).
+ */
+export const GST_RATE_PCT = 18;
+
 /** Coerce any supported input into an exact Decimal. */
 export function dec(value: Prisma.Decimal | string | number): Prisma.Decimal {
   if (value instanceof Prisma.Decimal) return value;

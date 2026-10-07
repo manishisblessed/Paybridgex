@@ -125,7 +125,7 @@ export async function GET(req: Request, { params }: { params: { refId: string } 
       gst: toNumber(gstDec),
       cgst: toNumber(cgst),
       sgst: toNumber(sgst),
-      gstRate: gstRate(gstDec, taxableDec),
+      gstRate: t.gstRate > 0 ? t.gstRate : gstRate(gstDec, taxableDec),
       total: toNumber(total),
       commission: hideCommission ? null : toNumber(t.commission),
       retailer: {
@@ -165,7 +165,7 @@ export async function GET(req: Request, { params }: { params: { refId: string } 
         gst: toNumber(gstDec),
         cgst: toNumber(cgst),
         sgst: toNumber(sgst),
-        gstRate: gstRate(gstDec, feeDec),
+        gstRate: p.gstRate > 0 ? p.gstRate : gstRate(gstDec, feeDec),
         total: toNumber(p.totalDebit),
         // Payouts carry no per-txn commission.
         commission: hideCommission ? null : 0,

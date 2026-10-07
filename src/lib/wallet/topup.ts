@@ -14,7 +14,7 @@
 import { nanoid } from "nanoid";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
-import { creditWallet } from "../ledger";
+import { creditWallet, schedulePosRentalRetryIfNeeded } from "../ledger";
 import { getPartner, assertRealMoneyProvider } from "../partners";
 import { friendlyPartnerError } from "../partners/friendlyError";
 import { round } from "../money";
@@ -184,6 +184,10 @@ export async function settleTopup(refId: string): Promise<{ refId: string; statu
     // NOTE: wallet top-ups are intentionally NOT mirrored into the company payin
     // monitor — a top-up is an agent loading their own wallet (a liability), not
     // company acquiring business. The payin wallet tracks POS / PG / QR only.
+
+    // Credit committed → recover any outstanding POS rent immediately (the
+    // creditWallet hook can't fire here because the credit ran inside a tx).
+    void schedulePosRentalRetryIfNeeded(txn.userId);
 
     // Partner webhook (best-effort; never blocks or fails the credit).
     void emitWebhookEvent(txn.userId, "topup.credited", {

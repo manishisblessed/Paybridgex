@@ -42,6 +42,9 @@ import type { ReportColumn } from "@/lib/reports";
 
 type Row = Record<string, unknown>;
 
+/** Minimal user shape returned by `/api/reports/users` for the dependent pickers. */
+type PickerUser = { id: string; name: string; userCode: string | null; role: string };
+
 const ACCENT_TEXT: Record<Accent, string> = {
   brand: "text-brand-700",
   accent: "text-accent-700",
@@ -276,6 +279,10 @@ export function ReportView({ type }: { type: ReportType }) {
   const config = REPORTS[type];
   const f = config.filters;
 
+  // Role selects that spawn a dependent "pick a specific user" dropdown.
+  const servicePicker = f.service?.userPicker ?? null;
+  const modePicker = f.mode?.userPicker ?? null;
+
   const today = useMemo(() => new Date(), []);
   const monthAgo = useMemo(() => new Date(today.getTime() - 30 * 86_400_000), [today]);
   const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -297,6 +304,11 @@ export function ReportView({ type }: { type: ReportType }) {
   const [status, setStatus] = useState("");
   const [service, setService] = useState("");
   const [mode, setMode] = useState("");
+  // Dependent user pickers: selected user id keyed by param ("fromUser"/"toUser").
+  const [pickedUser, setPickedUser] = useState<Record<string, string>>({});
+  // User options cached by role code (shared across pickers of the same role).
+  const [roleUsers, setRoleUsers] = useState<Record<string, PickerUser[]>>({});
+  const [roleUsersLoading, setRoleUsersLoading] = useState<Record<string, boolean>>({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
@@ -333,6 +345,22 @@ export function ReportView({ type }: { type: ReportType }) {
     return () => clearTimeout(t);
   }, [qInput]);
 
+  // Fetch the user list for any picker-enabled role that's currently selected.
+  useEffect(() => {
+    const roles: string[] = [];
+    if (servicePicker && service) roles.push(service);
+    if (modePicker && mode) roles.push(mode);
+    roles.forEach((role) => {
+      if (roleUsers[role] || roleUsersLoading[role]) return;
+      setRoleUsersLoading((s) => ({ ...s, [role]: true }));
+      fetch(`/api/reports/users?role=${encodeURIComponent(role)}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error("load failed"))))
+        .then((j) => setRoleUsers((s) => ({ ...s, [role]: (j.users ?? []) as PickerUser[] })))
+        .catch(() => setRoleUsers((s) => ({ ...s, [role]: [] })))
+        .finally(() => setRoleUsersLoading((s) => ({ ...s, [role]: false })));
+    });
+  }, [servicePicker, modePicker, service, mode, roleUsers, roleUsersLoading]);
+
   const baseQuery = useCallback(() => {
     const p = new URLSearchParams();
     if (f.dateRange) {
@@ -343,8 +371,12 @@ export function ReportView({ type }: { type: ReportType }) {
     if (status) p.set("status", status);
     if (service) p.set("service", service);
     if (mode) p.set("mode", mode);
+    if (servicePicker && pickedUser[servicePicker.param])
+      p.set(servicePicker.param, pickedUser[servicePicker.param]);
+    if (modePicker && pickedUser[modePicker.param])
+      p.set(modePicker.param, pickedUser[modePicker.param]);
     return p;
-  }, [f.dateRange, from, to, q, status, service, mode]);
+  }, [f.dateRange, from, to, q, status, service, mode, servicePicker, modePicker, pickedUser]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -453,6 +485,7 @@ export function ReportView({ type }: { type: ReportType }) {
     setStatus("");
     setService("");
     setMode("");
+    setPickedUser({});
     setPage(1);
   };
 
@@ -596,23 +629,79 @@ export function ReportView({ type }: { type: ReportType }) {
         )}
 
         {f.service && (
-          <FilterField>
-            <Label htmlFor="service">{f.service.label}</Label>
-            <Select id="service" value={service} onChange={(e) => { setService(e.target.value); setPage(1); }} className="w-48">
-              <option value="">All</option>
-              {f.service.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </Select>
-          </FilterField>
+          <>
+            <FilterField>
+              <Label htmlFor="service">{f.service.label}</Label>
+              <Select
+                id="service"
+                value={service}
+                onChange={(e) => {
+                  setService(e.target.value);
+                  if (servicePicker) setPickedUser((s) => ({ ...s, [servicePicker.param]: "" }));
+                  setPage(1);
+                }}
+                className="w-48"
+              >
+                <option value="">All</option>
+                {f.service.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </Select>
+            </FilterField>
+            {servicePicker && service && (
+              <FilterField>
+                <Label htmlFor={servicePicker.param}>{servicePicker.label}</Label>
+                <Select
+                  id={servicePicker.param}
+                  value={pickedUser[servicePicker.param] ?? ""}
+                  onChange={(e) => { setPickedUser((s) => ({ ...s, [servicePicker.param]: e.target.value })); setPage(1); }}
+                  className="w-56"
+                  disabled={!!roleUsersLoading[service]}
+                >
+                  <option value="">{roleUsersLoading[service] ? "Loading…" : (servicePicker.placeholder ?? "All")}</option>
+                  {(roleUsers[service] ?? []).map((u) => (
+                    <option key={u.id} value={u.id}>{u.name}{u.userCode ? ` (${u.userCode})` : ""}</option>
+                  ))}
+                </Select>
+              </FilterField>
+            )}
+          </>
         )}
 
         {f.mode && (
-          <FilterField>
-            <Label htmlFor="mode">{f.mode.label}</Label>
-            <Select id="mode" value={mode} onChange={(e) => { setMode(e.target.value); setPage(1); }} className="w-40">
-              <option value="">All</option>
-              {f.mode.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </Select>
-          </FilterField>
+          <>
+            <FilterField>
+              <Label htmlFor="mode">{f.mode.label}</Label>
+              <Select
+                id="mode"
+                value={mode}
+                onChange={(e) => {
+                  setMode(e.target.value);
+                  if (modePicker) setPickedUser((s) => ({ ...s, [modePicker.param]: "" }));
+                  setPage(1);
+                }}
+                className="w-40"
+              >
+                <option value="">All</option>
+                {f.mode.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </Select>
+            </FilterField>
+            {modePicker && mode && (
+              <FilterField>
+                <Label htmlFor={modePicker.param}>{modePicker.label}</Label>
+                <Select
+                  id={modePicker.param}
+                  value={pickedUser[modePicker.param] ?? ""}
+                  onChange={(e) => { setPickedUser((s) => ({ ...s, [modePicker.param]: e.target.value })); setPage(1); }}
+                  className="w-56"
+                  disabled={!!roleUsersLoading[mode]}
+                >
+                  <option value="">{roleUsersLoading[mode] ? "Loading…" : (modePicker.placeholder ?? "All")}</option>
+                  {(roleUsers[mode] ?? []).map((u) => (
+                    <option key={u.id} value={u.id}>{u.name}{u.userCode ? ` (${u.userCode})` : ""}</option>
+                  ))}
+                </Select>
+              </FilterField>
+            )}
+          </>
         )}
 
         {f.search && (

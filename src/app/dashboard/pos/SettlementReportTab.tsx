@@ -19,6 +19,7 @@ import {
   Zap,
   Clock,
   CalendarClock,
+  Search,
 } from "lucide-react";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import {
@@ -26,7 +27,9 @@ import {
   FilterBar,
   FilterField,
   SegmentedNav,
+  ModalShell,
 } from "@/components/dashboard/ui";
+import { AssignUserPicker, type PickerUser } from "@/components/ui/AssignUserPicker";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -220,10 +223,18 @@ type View = "transactions" | "rollup" | "today";
 export function SettlementReportTab({
   initialFrom,
   initialTo,
+  endpoint = "/api/pos/settlement-report",
+  allowUserSearch = false,
 }: {
   /** Optional deep-link range (YYYY-MM-DD), e.g. from the "POS Today" card. */
   initialFrom?: string | null;
   initialTo?: string | null;
+  /** API route backing the report. Defaults to the retailer/downline route;
+   *  the admin page passes the platform-wide `/api/admin/pos-settlement-report`. */
+  endpoint?: string;
+  /** Admin-only: show a "filter to any user" picker (the retailer/downline view
+   *  relies on the rollup drill-down instead). */
+  allowUserSearch?: boolean;
 } = {}) {
   const defaults = defaultDateRange();
   const [dateFrom, setDateFrom] = useState(initialFrom || defaults.from);
@@ -232,6 +243,7 @@ export function SettlementReportTab({
   const [modeFilter, setModeFilter] = useState("");
   const [retailerId, setRetailerId] = useState<string | null>(null);
   const [retailerLabel, setRetailerLabel] = useState<string | null>(null);
+  const [userPickerOpen, setUserPickerOpen] = useState(false);
   const [view, setView] = useState<View>("today");
   const [page, setPage] = useState(1);
 
@@ -249,7 +261,7 @@ export function SettlementReportTab({
   );
 
   const { data, error, isLoading, mutate } = useSWR<ReportResponse>(
-    ["/api/pos/settlement-report", body],
+    [endpoint, body],
     postFetcher,
     { revalidateOnFocus: false, keepPreviousData: true }
   );
@@ -275,9 +287,17 @@ export function SettlementReportTab({
     setPage(1);
   }, []);
 
+  const pickUser = useCallback((u: PickerUser) => {
+    setRetailerId(u.id);
+    setRetailerLabel(u.name || (u.shop !== "—" ? u.shop : u.userCode));
+    setUserPickerOpen(false);
+    setView("transactions");
+    setPage(1);
+  }, []);
+
   // Export: fetch every matching row (server-side, ownership scoped).
   const fetchAllRows = useCallback(async (): Promise<ReportRow[]> => {
-    const res = await fetch("/api/pos/settlement-report", {
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...body, export: true }),
@@ -294,7 +314,7 @@ export function SettlementReportTab({
       );
     }
     return (d.rows as ReportRow[]) ?? [];
-  }, [body, rows]);
+  }, [body, rows, endpoint]);
 
   const exportCols: ReportColumn<ReportRow>[] = [
     { key: "txnTime", header: "Time", render: (r) => formatIST(r.txnTime) },
@@ -565,6 +585,16 @@ export function SettlementReportTab({
             <option value="BHARATQR">BharatQR</option>
           </select>
         </FilterField>
+        {allowUserSearch && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setUserPickerOpen(true)}
+            title="Filter the report to a single user"
+          >
+            <Search className="h-4 w-4" /> {retailerLabel ? "Change user" : "Filter user"}
+          </Button>
+        )}
         <Button variant="outline" size="sm" onClick={() => mutate()} title="Refresh">
           <RefreshCw className="h-4 w-4" /> Refresh
         </Button>
@@ -711,6 +741,19 @@ export function SettlementReportTab({
             />
           </Reveal>
         </>
+      )}
+
+      {allowUserSearch && userPickerOpen && (
+        <ModalShell
+          open
+          onClose={() => setUserPickerOpen(false)}
+          size="md"
+          eyebrow="POS Settlement"
+          title="Filter report to a user"
+          subtitle="Pick any user to scope every tab (Today's Book, Per Transaction and By User) to just their POS settlements."
+        >
+          <AssignUserPicker autoFocus currentUserId={retailerId} onSelect={pickUser} />
+        </ModalShell>
       )}
     </>
   );

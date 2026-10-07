@@ -7,9 +7,10 @@ import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { formatINR, istDayRangeUtc, formatIST } from "@/lib/utils";
-import { RefreshCw, Clock, PlayCircle, DownloadCloud, Zap, Save, CheckCircle2, XCircle, Layers, Gauge } from "lucide-react";
-import { Panel, DarkPanel, StatTile } from "@/components/dashboard/ui";
+import { RefreshCw, Clock, PlayCircle, DownloadCloud, Zap, Save, CheckCircle2, XCircle, Layers, Gauge, Receipt, Settings2 } from "lucide-react";
+import { Panel, DarkPanel, StatTile, TabNav } from "@/components/dashboard/ui";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
+import { SettlementReportTab } from "@/app/dashboard/pos/SettlementReportTab";
 
 type PosT1 = { enabled: boolean; hour: number; paused: boolean; minAmount: number };
 type PosInstant = {
@@ -119,6 +120,7 @@ function ToggleRow({
 }
 
 export default function PosSettlementPage() {
+  const [tab, setTab] = useState<"ops" | "report">("report");
   const [data, setData] = useState<ApiData | null>(null);
   const [loading, setLoading] = useState(true);
   const [t1, setT1] = useState<PosT1>({ enabled: true, hour: 10, paused: false, minAmount: 50 });
@@ -335,6 +337,20 @@ export default function PosSettlementPage() {
           }
         />
       </Reveal>
+
+      <TabNav
+        tabs={[
+          { key: "report", label: "Per-User Settlement Report", icon: Receipt },
+          { key: "ops", label: "Engine & Operations", icon: Settings2 },
+        ]}
+        active={tab}
+        onChange={(k) => setTab(k as "ops" | "report")}
+      />
+
+      {tab === "report" ? (
+        <SettlementReportTab endpoint="/api/admin/pos-settlement-report" allowUserSearch />
+      ) : (
+      <>
 
       {/* Instant settlement — prominent, retailer-controlled control */}
       <Reveal distance={16} duration={0.45}>
@@ -703,6 +719,8 @@ export default function PosSettlementPage() {
           title="Recent settlement entries"
         />
       </Reveal>
+      </>
+      )}
     </div>
   );
 }

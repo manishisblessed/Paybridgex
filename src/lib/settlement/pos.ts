@@ -3,7 +3,7 @@ import { creditWallet } from "@/lib/ledger";
 import { getEffectiveMdr, type MdrDimensions } from "@/lib/mdr/resolver";
 import { distributeMdrCommission } from "@/lib/commission/distribute";
 import { isAboveMdrFloor } from "@/lib/mdr/floor";
-import { dec, sub, gte, toNumber, round, gt, eq } from "@/lib/money";
+import { dec, sub, gte, toNumber, round, gt, eq, GST_RATE_PCT } from "@/lib/money";
 import { getSetting } from "@/lib/settings";
 import { SETTLED_VIA, type SettledVia, isInstantButtonEnabled } from "@/lib/settlement/engine";
 import { resolvePosHolderAt, resolvePosHolderForMachine } from "@/lib/pos/holder";
@@ -572,7 +572,7 @@ async function distributeCommissionForPos(
     // per-service earnings / revenue reports attribute the settlement to POS.
     txn = await prisma.transaction.update({
       where: { id: txn.id },
-      data: { service: "POS" as ServiceCode, fee: marginFee, gst: gstFee, settlementType, isSettlement: true },
+      data: { service: "POS" as ServiceCode, fee: marginFee, gst: gstFee, gstRate: gstFee.gt(0) ? GST_RATE_PCT : 0, settlementType, isSettlement: true },
     });
   }
   if (!txn) {
@@ -585,6 +585,7 @@ async function distributeCommissionForPos(
           amount: dec(grossAmount),
           fee: marginFee,
           gst: gstFee,
+          gstRate: gstFee.gt(0) ? GST_RATE_PCT : 0,
           status: "SUCCESS",
           partner: "SAMEDAY_POS",
           partnerTxnId: transactionRef,

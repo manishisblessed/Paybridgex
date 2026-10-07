@@ -150,18 +150,21 @@ function currentIstPeriodKey(): string {
 }
 
 /**
- * After a standalone PRIMARY credit commits, check whether the credited user
- * has any FAILED POS rental invoices for the current billing period. If so,
- * enqueue a targeted retry job so the rent is collected the moment funds land —
- * rather than waiting for the next nightly billing window.
+ * After a PRIMARY credit commits, check whether the credited user has any
+ * FAILED POS rental invoices for the current billing period. If so, enqueue a
+ * targeted retry job so the rent is collected the moment funds land — rather
+ * than waiting for the next nightly billing window.
  *
  * Errors are swallowed: rent collection is a background concern and must never
  * fail or slow down a wallet credit.
  *
- * Only called when creditWallet owns its own transaction (tx === undefined) so
- * we know the balance update has committed before the job runs.
+ * `creditWallet` calls this automatically for STANDALONE PRIMARY credits (no
+ * external tx). Transaction-wrapped funding paths (wallet top-up, fund-request
+ * approval, parent network push) must call it themselves AFTER their
+ * transaction commits — exported for exactly that purpose. Safe to call more
+ * than once (the retry job is idempotent and de-duped per user+period).
  */
-async function schedulePosRentalRetryIfNeeded(userId: string): Promise<void> {
+export async function schedulePosRentalRetryIfNeeded(userId: string): Promise<void> {
   try {
     const periodKey = currentIstPeriodKey();
     const failed = await prisma.posRentalInvoice.findFirst({

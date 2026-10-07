@@ -38,12 +38,20 @@ export type ReportColumnDef = {
 
 export type FilterOption = { value: string; label: string };
 
+/**
+ * When attached to a role-style select, choosing a value reveals a dependent
+ * dropdown of the actual users holding that role (fetched from
+ * `/api/reports/users?role=…`). The picked user id is sent to the report API
+ * under `param`. Used by Push/Pull to pin a specific sender / recipient.
+ */
+export type UserPickerConfig = { param: "fromUser" | "toUser"; label: string; placeholder?: string };
+
 export type ReportFilterConfig = {
   search?: string; // placeholder; presence enables the search box
   dateRange?: boolean;
   status?: { label: string; options: FilterOption[] };
-  service?: { label: string; options: FilterOption[] };
-  mode?: { label: string; options: FilterOption[] };
+  service?: { label: string; options: FilterOption[]; userPicker?: UserPickerConfig };
+  mode?: { label: string; options: FilterOption[]; userPicker?: UserPickerConfig };
 };
 
 export type ReportConfig = {
@@ -220,8 +228,16 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       dateRange: true,
       search: "Search name / user ID / note…",
       status: { label: "Type", options: opts(["PUSH", "PULL"]) },
-      service: { label: "From Role", options: opts(PUSH_PULL_ROLES) },
-      mode: { label: "To Role", options: opts(PUSH_PULL_ROLES) },
+      service: {
+        label: "From Role",
+        options: opts(PUSH_PULL_ROLES),
+        userPicker: { param: "fromUser", label: "From User", placeholder: "All users" },
+      },
+      mode: {
+        label: "To Role",
+        options: opts(PUSH_PULL_ROLES),
+        userPicker: { param: "toUser", label: "To User", placeholder: "All users" },
+      },
     },
   },
 

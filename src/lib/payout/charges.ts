@@ -57,6 +57,8 @@ export type PayoutQuote = {
   amount: Money;
   serviceCharge: Money;
   gst: Money;
+  /** Whole-number GST rate (%) applied to the service charge (18 standard; 0 when no GST). */
+  gstRate: number;
   totalDebit: Money;
 };
 
@@ -82,7 +84,7 @@ export function quotePayout(amount: Money | string | number, mode: PayoutMode): 
   const serviceCharge = payoutServiceCharge(amt, mode);
   const gst = percentOf(serviceCharge, GST_PERCENT);
   const totalDebit = round(add(add(amt, serviceCharge), gst));
-  return { amount: amt, serviceCharge, gst, totalDebit };
+  return { amount: amt, serviceCharge, gst, gstRate: gt(gst, 0) ? GST_PERCENT : 0, totalDebit };
 }
 
 /**
@@ -144,5 +146,5 @@ export async function quotePayoutForUser(
   }
 
   const totalDebit = round(add(add(amt, serviceCharge), gst));
-  return { amount: amt, serviceCharge, gst, totalDebit, source, vendorCharge };
+  return { amount: amt, serviceCharge, gst, gstRate: gt(gst, 0) ? GST_PERCENT : 0, totalDebit, source, vendorCharge };
 }

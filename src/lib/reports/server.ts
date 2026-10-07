@@ -411,6 +411,8 @@ async function reportPushPull(user: SessionUser, params: ReportParams): Promise<
     // In a network transfer the sender is always `from`, the recipient `to`.
     if (fromRole) and.push({ from: { is: { role: fromRole } } });
     if (toRole) and.push({ to: { is: { role: toRole } } });
+    if (params.fromUser) and.push({ fromId: params.fromUser });
+    if (params.toUser) and.push({ toId: params.toUser });
 
     const base: Prisma.NetworkWalletTransferWhereInput = {
       ...(createdAt ? { createdAt } : {}),
@@ -449,6 +451,20 @@ async function reportPushPull(user: SessionUser, params: ReportParams): Promise<
         OR: [
           { type: "PUSH", targetUser: { is: { role: toRole } } },
           { type: "PULL", actor: { is: { role: toRole } } },
+        ],
+      });
+    if (params.fromUser)
+      and.push({
+        OR: [
+          { type: "PUSH", actorId: params.fromUser },
+          { type: "PULL", targetUserId: params.fromUser },
+        ],
+      });
+    if (params.toUser)
+      and.push({
+        OR: [
+          { type: "PUSH", targetUserId: params.toUser },
+          { type: "PULL", actorId: params.toUser },
         ],
       });
 
@@ -1945,7 +1961,9 @@ async function reportGst(user: SessionUser, params: ReportParams): Promise<Repor
       service: r.isSettlement && r.service === "WALLET_TOPUP" ? "PG" : humanize(r.service),
       customer: r.customer ?? "—",
       taxable: toNumber(taxable),
-      rate: gstRate(gst, taxable),
+      // Authoritative stamped slab rate; fall back to derivation only for any
+      // pre-migration row that never got a gstRate (should be none post-backfill).
+      rate: r.gstRate > 0 ? r.gstRate : gstRate(gst, taxable),
       gst: toNumber(gst),
       total: toNumber(fee),
       status: r.status,
@@ -1962,7 +1980,7 @@ async function reportGst(user: SessionUser, params: ReportParams): Promise<Repor
       service: `Payout · ${r.mode}`,
       customer: r.beneficiaryName,
       taxable: toNumber(taxable),
-      rate: gstRate(gst, taxable),
+      rate: r.gstRate > 0 ? r.gstRate : gstRate(gst, taxable),
       gst: toNumber(gst),
       total: toNumber(add(taxable, gst)),
       status: r.status,
@@ -2021,36 +2039,39 @@ async function reportGst(user: SessionUser, params: ReportParams): Promise<Repor
   );
 
   /* ── Rate-wise GST summary (GSTR-3B boxes) ────────────────────────────
-   * Exact SQL aggregates grouped by the derived GST rate, over the SAME
-   * filtered set as the totals row (date / owner / service / source, plus the
-   * free-text search incl. retailer userCode), so the summary always ties out to
-   * the register. CGST/SGST are shown as the intra-state 50/50 split of the tax.
+   * Exact SQL aggregates grouped by the AUTHORITATIVE stamped slab rate
+   * (`gstRate`, written at charge time) over the SAME filtered set as the totals
+   * row (date / owner / service / source, plus the free-text search incl.
+   * retailer userCode), so the summary always ties out to the register. We no
+   * longer re-derive the rate from gst÷taxable — that drifts to phantom 20%/25%
+   * buckets on sub-rupee charges where the 1-paise GST rounding dominates the
+   * tiny taxable base. CGST/SGST are shown as the intra-state 50/50 split.
    */
   type RateAgg = { rate: number; taxable: Prisma.Decimal; gst: Prisma.Decimal; cnt: bigint };
 
   const [txnRate, poRate] = await Promise.all([
     wantTxn
       ? prisma.$queryRaw<RateAgg[]>(Prisma.sql`
-          SELECT COALESCE(round("gst" / NULLIF("fee" - "gst", 0) * 100)::int, 0) AS rate,
+          SELECT "gstRate" AS rate,
                  COALESCE(SUM("fee" - "gst"), 0) AS taxable,
                  COALESCE(SUM("gst"), 0) AS gst,
                  COUNT(*)::bigint AS cnt
           FROM "Transaction"
           WHERE "status" = 'SUCCESS' AND "gst" > 0
             ${idCond} ${fromCond} ${toCond} ${svcCond} ${qTxnCond}
-          GROUP BY 1
+          GROUP BY "gstRate"
         `)
       : Promise.resolve([] as RateAgg[]),
     wantPayout
       ? prisma.$queryRaw<RateAgg[]>(Prisma.sql`
-          SELECT COALESCE(round("gst" / NULLIF("serviceCharge", 0) * 100)::int, 0) AS rate,
+          SELECT "gstRate" AS rate,
                  COALESCE(SUM("serviceCharge"), 0) AS taxable,
                  COALESCE(SUM("gst"), 0) AS gst,
                  COUNT(*)::bigint AS cnt
           FROM "PayoutRequest"
           WHERE "status" = 'SUCCESS' AND "gst" > 0
             ${idCond} ${fromCond} ${toCond} ${qPoCond}
-          GROUP BY 1
+          GROUP BY "gstRate"
         `)
       : Promise.resolve([] as RateAgg[]),
   ]);
