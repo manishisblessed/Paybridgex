@@ -15,6 +15,14 @@ import { isBbpsPriceScope } from "@/lib/services/priceScope";
 import { getSchemeLimit, resolveRequiredRate, withGst } from "@/lib/scheme/resolver";
 import { toNumber, dec, gt, sub, round } from "@/lib/money";
 import { AuthError } from "@/lib/auth-server";
+import { prisma } from "@/lib/db";
+
+// Debounce window for an IDENTICAL payment (same card + same amount). A repeat
+// of the exact same amount on the same card inside this window is almost always
+// an accidental double-submit, so we hold it off with a clear message; once the
+// window passes the same amount is allowed again. A DIFFERENT amount on the same
+// card is always allowed immediately. Env-tunable; defaults to 60 seconds.
+const DUP_GUARD_COOLDOWN_SEC = Number(process.env.BBPS_DUP_GUARD_COOLDOWN_SEC ?? 60);
 
 const Body = z.object({
   billerCode: z.string().min(2),
@@ -76,6 +84,47 @@ export async function POST(req: Request) {
     // Scheme-driven pricing: the user's assigned scheme slab
     // sets the charge (fee). BBPS does not earn commission.
     const service = SERVICE[parsed.data.category];
+
+    // --- Same-amount debounce guard ----------------------------------------
+    // A repeat of the EXACT same amount on the SAME card within a short window
+    // is almost always an accidental double-submit — and because the upstream
+    // provider returns the same bill_fetch_ref per card, a rapid re-tap can
+    // quietly settle twice. We hold off an identical repeat for a few seconds,
+    // then allow it. Paying a DIFFERENT amount on the same card is always
+    // allowed immediately (e.g. minimum due now, full due later).
+    const customerKey = Object.values(parsed.data.customerParams)[0];
+    if (customerKey) {
+      const since = new Date(Date.now() - DUP_GUARD_COOLDOWN_SEC * 1000);
+      const recent = await prisma.transaction.findFirst({
+        where: {
+          userId: user.id,
+          service,
+          customer: String(customerKey),
+          amount: dec(parsed.data.amount), // identical amount only
+          createdAt: { gte: since },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { refId: true, createdAt: true },
+      });
+      if (recent) {
+        const waitSec = Math.max(
+          1,
+          DUP_GUARD_COOLDOWN_SEC - Math.floor((Date.now() - recent.createdAt.getTime()) / 1000)
+        );
+        return NextResponse.json(
+          {
+            error:
+              `The same amount on this card was just submitted. To avoid paying twice, the same amount on the same card is allowed again after ${DUP_GUARD_COOLDOWN_SEC} seconds — please wait ${waitSec} more second${waitSec === 1 ? "" : "s"} and try again, or pay a different amount.`,
+            code: "DUPLICATE_COOLDOWN",
+            refId: recent.refId,
+            retryAfterSec: waitSec,
+          },
+          { status: 429 }
+        );
+      }
+    }
+    // -----------------------------------------------------------------------
+
     // Per-product pricing scope: the product route key (e.g. "bbps_sameday" vs
     // "bbps_credit_card") is the slab/rate-card scope. These keys are retained
     // for backward compatibility with existing scheme slabs. Falls back to the

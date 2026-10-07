@@ -255,6 +255,18 @@ export function BbpsBillForm({
         }),
       });
       const data = await res.json();
+      // Same-amount debounce (NOT a failure): keep the fetched bill so the user
+      // can wait out the short cooldown and retry — or pay a different amount,
+      // which is allowed immediately.
+      if (res.status === 429 && data?.code === "DUPLICATE_COOLDOWN") {
+        setPinOpen(false);
+        setError(
+          typeof data.error === "string"
+            ? data.error
+            : "Please wait a moment before repeating the same amount for this bill."
+        );
+        return null;
+      }
       if (data.status === "FAILED" || (res.status >= 400 && res.status !== 402)) {
         if (data.txnPin) return typeof data.error === "string" ? data.error : "PIN verification failed";
         setPinOpen(false);

@@ -29,6 +29,7 @@ import type {
   PartnerResult,
 } from "./types";
 import { samedayCredentials, samedayRequest } from "./sameday-core";
+import { sendOpsAlert } from "@/lib/monitoring/alerts";
 
 const P = "/api/partner/pay2new";
 const DEFAULT_PINCODE = "414002";
@@ -63,6 +64,12 @@ type PayResponse = {
   operator_reference?: string;
   request_id?: string;
   charge?: number;
+  // Set by the provider when this success is a REPLAY of a prior attempt on the
+  // same bill_fetch_ref — i.e. NO new money moved for THIS call. We surface it
+  // so a duplicate that slipped past the pre-pay guard is loudly visible to ops
+  // and recon instead of silently settling a second charge.
+  idempotent_replay?: boolean;
+  idempotent?: boolean;
 };
 
 type StatusResponse = {
@@ -228,6 +235,22 @@ export const samedayBbps: BbpsProvider = {
       pincode: cc.pincode,
     }, undefined, { audit: true });
     if (!r.ok) return r;
+    // Backstop to the pre-pay duplicate guard: if the provider says this
+    // success is a replay of an earlier attempt on the same bill_fetch_ref,
+    // flag it so recon/ops can confirm the customer was charged only once.
+    // Best-effort and non-blocking — we still return success (the bill IS paid).
+    if (r.data.idempotent_replay || r.data.idempotent) {
+      void sendOpsAlert({
+        title: "BBPS pay returned an idempotent replay",
+        severity: "warning",
+        details: {
+          billerCode: input.billerCode,
+          billFetchRef,
+          orderId: r.data.order_id ?? r.data.request_id ?? "(none)",
+          note: "Provider replayed a prior attempt — verify no double charge for this card.",
+        },
+      }).catch(() => {});
+    }
     return {
       ok: true,
       data: {

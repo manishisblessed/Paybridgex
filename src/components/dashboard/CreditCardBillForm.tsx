@@ -235,6 +235,19 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
         }),
       });
       const data = await res.json();
+      // Same-amount debounce (NOT a failure): the retailer just submitted this
+      // exact amount on this card. Keep the fetched bill so they can simply wait
+      // out the short cooldown and pay again — or change the amount, which is
+      // allowed immediately. Don't reset or flag a failed attempt.
+      if (res.status === 429 && data?.code === "DUPLICATE_COOLDOWN") {
+        setPinOpen(false);
+        setError(
+          typeof data.error === "string"
+            ? data.error
+            : "Please wait a moment before repeating the same amount on this card."
+        );
+        return null;
+      }
       // Only a DEFINITIVE failure (status FAILED, or a non-PIN HTTP error) is an
       // error. NEEDS_REVIEW (indeterminate — funds HELD, provider may have
       // charged) and PROCESSING must NOT be shown as failed: telling the retailer
