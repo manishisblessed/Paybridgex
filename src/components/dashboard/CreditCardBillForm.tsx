@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, CheckCircle2, ArrowLeft, RefreshCw } from "lucide-react";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import {
   TransactionResult,
   type TxnResult,
 } from "@/components/dashboard/TransactionResult";
+import { BbpsHealthBanner, useBbpsHealth } from "@/components/dashboard/BbpsHealthBanner";
 import { TxnPinDialog } from "@/components/security/TxnPinDialog";
 import { generateRefId, formatINR } from "@/lib/utils";
 
@@ -59,6 +61,14 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
   const [notice, setNotice] = useState<string | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [result, setResult] = useState<TxnResult>(null);
+  /** True after an upstream fetch/pay failure — shows the "choose another /
+   *  back" recovery actions so the retailer is never stuck on a dead biller. */
+  const [failedAttempt, setFailedAttempt] = useState(false);
+
+  const router = useRouter();
+  const { health, refresh: refreshHealth } = useBbpsHealth();
+  const apiDown = health.status === "API_DOWN";
+  const billerDown = !!billerCode && health.downBillers.includes(billerCode);
 
   const loadBillers = useCallback(async () => {
     try {
@@ -119,10 +129,21 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
     setQuote(null);
     setError(null);
     setNotice(null);
+    setFailedAttempt(false);
+  }
+
+  /** Full reset back to a clean biller selection — used by the "Done" / "Choose
+   *  another issuer" actions so the retailer lands ready to pick a new card. */
+  function resetAll() {
+    resetBill();
+    setCardLast4("");
+    setMobile("");
+    if (billers[0]) setBillerCode(billers[0].code);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function fetchBill() {
-    if (!inputsValid) return;
+    if (!inputsValid || apiDown || billerDown) return;
     setFetching(true);
     setError(null);
     setNotice(null);
@@ -146,12 +167,19 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
       }
       if (!res.ok) {
         setError(typeof data.error === "string" ? data.error : "Bill fetch failed — verify the card digits and registered mobile");
+        // A platform/biller failure (not the user's typo) → offer recovery and
+        // refresh the rail-health banner so the outage shows immediately.
+        if (data?.kind && data.kind !== "USER_ERROR") {
+          setFailedAttempt(true);
+          refreshHealth();
+        }
         return;
       }
       setBill(data as FetchedBill);
       setAmount("");
     } catch {
-      setError("Network error while fetching the bill");
+      setError("Network error while fetching the bill. Please check your connection and try again.");
+      setFailedAttempt(true);
     } finally {
       setFetching(false);
     }
@@ -225,6 +253,10 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
             ? data.error
             : "Payment failed — any debited amount is auto-refunded to your wallet. Please fetch the bill again to retry."
         );
+        // Upstream pay failure → show recovery actions + refresh the health
+        // banner so a sustained outage surfaces to the retailer right away.
+        setFailedAttempt(true);
+        refreshHealth();
         return null;
       }
       setPinOpen(false);
@@ -253,6 +285,8 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
       // the (now unreliable) bill ref so a retry starts from a fresh fetch.
       resetBill();
       setError("Network error — check your transaction history before retrying. If the payment isn't there, fetch the bill again to pay.");
+      setFailedAttempt(true);
+      refreshHealth();
       return null;
     } finally {
       setPaying(false);
@@ -265,6 +299,8 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
         onSubmit={pay}
         className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-5 shadow-sm sm:grid-cols-2 sm:p-6"
       >
+        <BbpsHealthBanner health={health} />
+
         <div className="sm:col-span-2">
           <Label htmlFor="biller">Card issuer</Label>
           <Select
@@ -286,6 +322,15 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
             <p className="mt-1 text-[11px] text-ink-400">
               Live biller list · {billers.length} issuers
             </p>
+          )}
+          {billerDown && !apiDown && (
+            <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                This card issuer is facing issues at the bank&apos;s end right now. Please choose a
+                different issuer, or try again in a little while.
+              </span>
+            </div>
           )}
         </div>
 
@@ -321,9 +366,29 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
         </div>
 
         {error && (
-          <div className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{error}</span>
+          <div className="sm:col-span-2 space-y-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+            {failedAttempt && (
+              <div className="flex flex-wrap gap-2 pl-6">
+                <button
+                  type="button"
+                  onClick={resetAll}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" /> Choose another issuer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.back()}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 transition-colors hover:bg-ink-50"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" /> Back
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -343,10 +408,10 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
               variant="outline"
               className="w-full"
               onClick={fetchBill}
-              disabled={fetching || !inputsValid}
+              disabled={fetching || !inputsValid || apiDown || billerDown}
               isLoading={fetching}
             >
-              Fetch bill
+              {apiDown ? "Payment service temporarily down" : billerDown ? "Issuer temporarily unavailable" : "Fetch bill"}
             </Button>
           ) : (
             <div className="relative overflow-hidden rounded-2xl border border-accent-200/70 bg-gradient-to-br from-brand-50 to-accent-50 p-4 text-sm shadow-sm">
@@ -451,10 +516,10 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
                 type="submit"
                 size="lg"
                 className="w-full"
-                disabled={paying || !amount || quote?.withinLimit === false}
+                disabled={paying || !amount || quote?.withinLimit === false || apiDown}
                 isLoading={paying}
               >
-                Pay {quote ? formatINR(quote.totalDebit) : amount ? formatINR(Number(amount)) : "bill"}
+                {apiDown ? "Payment service temporarily down" : `Pay ${quote ? formatINR(quote.totalDebit) : amount ? formatINR(Number(amount)) : "bill"}`}
               </Button>
               <p className="mt-2 text-center text-[11px] text-ink-400">
                 Confirmed with your transaction PIN. Debited from your wallet — failed payments are auto-refunded.
@@ -472,7 +537,15 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
         onConfirm={payWithPin}
         onCancel={() => !paying && setPinOpen(false)}
       />
-      <TransactionResult result={result} onClose={() => setResult(null)} />
+      <TransactionResult
+        result={result}
+        onClose={() => {
+          setResult(null);
+          // Return the retailer to a clean biller selection so they can pay
+          // another card / choose a different issuer right away.
+          resetAll();
+        }}
+      />
     </>
   );
 }

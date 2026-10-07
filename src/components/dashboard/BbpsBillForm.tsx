@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, RefreshCw } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertCircle, CheckCircle2, RefreshCw, ArrowLeft } from "lucide-react";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import {
   TransactionResult,
   type TxnResult,
 } from "@/components/dashboard/TransactionResult";
+import { BbpsHealthBanner, useBbpsHealth } from "@/components/dashboard/BbpsHealthBanner";
 import { TxnPinDialog } from "@/components/security/TxnPinDialog";
 import { generateRefId, formatINR } from "@/lib/utils";
 
@@ -77,6 +79,13 @@ export function BbpsBillForm({
   const [notice, setNotice] = useState<string | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [result, setResult] = useState<TxnResult>(null);
+  /** True after an upstream fetch/pay failure — reveals the recovery actions. */
+  const [failedAttempt, setFailedAttempt] = useState(false);
+
+  const router = useRouter();
+  const { health, refresh: refreshHealth } = useBbpsHealth();
+  const apiDown = health.status === "API_DOWN";
+  const billerDown = !!billerCode && health.downBillers.includes(billerCode);
 
   const loadBillers = useCallback(async () => {
     setLoadingBillers(true);
@@ -151,12 +160,22 @@ export function BbpsBillForm({
     setQuote(null);
     setError(null);
     setNotice(null);
+    setFailedAttempt(false);
   }
 
   function selectBiller(code: string) {
     setBillerCode(code);
     setParamValues({});
     resetBill();
+  }
+
+  /** Full reset back to a clean biller selection (first biller, inputs cleared)
+   *  so the retailer can immediately pick a different biller after a payment. */
+  function resetAll() {
+    resetBill();
+    setParamValues({});
+    if (billers[0]) setBillerCode(billers[0].code);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   /** customerParams sent to fetch/pay: only non-empty values. */
@@ -170,7 +189,7 @@ export function BbpsBillForm({
   }
 
   async function fetchBill() {
-    if (!requiredFilled || !billerCode) return;
+    if (!requiredFilled || !billerCode || apiDown || billerDown) return;
     setFetching(true);
     setError(null);
     setNotice(null);
@@ -198,12 +217,17 @@ export function BbpsBillForm({
             ? data.error
             : "Bill fetch failed — verify the details and try again"
         );
+        if (data?.kind && data.kind !== "USER_ERROR") {
+          setFailedAttempt(true);
+          refreshHealth();
+        }
         return;
       }
       setBill(data as FetchedBill);
       setAmount("");
     } catch {
-      setError("Network error while fetching the bill");
+      setError("Network error while fetching the bill. Please check your connection and try again.");
+      setFailedAttempt(true);
     } finally {
       setFetching(false);
     }
@@ -244,6 +268,8 @@ export function BbpsBillForm({
             ? data.error
             : "Payment failed — any debited amount is auto-refunded to your wallet. Please fetch the bill again to retry."
         );
+        setFailedAttempt(true);
+        refreshHealth();
         return null;
       }
       setPinOpen(false);
@@ -268,6 +294,8 @@ export function BbpsBillForm({
       // the (now unreliable) bill ref so a retry starts from a fresh fetch.
       resetBill();
       setError("Network error — check your transaction history before retrying. If the payment isn't there, fetch the bill again to pay.");
+      setFailedAttempt(true);
+      refreshHealth();
       return null;
     } finally {
       setPaying(false);
@@ -302,6 +330,8 @@ export function BbpsBillForm({
         }}
         className="grid gap-4 rounded-2xl border border-ink-100 bg-white p-5 shadow-sm sm:grid-cols-2 sm:p-6"
       >
+        <BbpsHealthBanner health={health} />
+
         <div className="sm:col-span-2">
           <Label htmlFor="biller">Biller / Operator</Label>
           <Select
@@ -335,6 +365,15 @@ export function BbpsBillForm({
               </button>
             </div>
           )}
+          {billerDown && !apiDown && (
+            <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                This biller is facing issues at the bank&apos;s end right now. Please choose a
+                different biller, or try again in a little while.
+              </span>
+            </div>
+          )}
         </div>
 
         {fields.map((f) => (
@@ -359,9 +398,29 @@ export function BbpsBillForm({
         ))}
 
         {error && (
-          <div className="sm:col-span-2 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{error}</span>
+          <div className="sm:col-span-2 space-y-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+            {failedAttempt && (
+              <div className="flex flex-wrap gap-2 pl-6">
+                <button
+                  type="button"
+                  onClick={resetAll}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" /> Choose another biller
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.back()}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 transition-colors hover:bg-ink-50"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" /> Back
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -381,10 +440,10 @@ export function BbpsBillForm({
               variant="outline"
               className="w-full"
               onClick={fetchBill}
-              disabled={fetching || !requiredFilled || !billerCode}
+              disabled={fetching || !requiredFilled || !billerCode || apiDown || billerDown}
               isLoading={fetching}
             >
-              Fetch bill
+              {apiDown ? "Payment service temporarily down" : billerDown ? "Biller temporarily unavailable" : "Fetch bill"}
             </Button>
           ) : (
             <div className="relative overflow-hidden rounded-2xl border border-accent-200/70 bg-gradient-to-br from-brand-50 to-accent-50 p-4 text-sm shadow-sm">
@@ -487,10 +546,10 @@ export function BbpsBillForm({
                 type="submit"
                 size="lg"
                 className="w-full"
-                disabled={paying || !amount || quote?.withinLimit === false}
+                disabled={paying || !amount || quote?.withinLimit === false || apiDown}
                 isLoading={paying}
               >
-                Pay {quote ? formatINR(quote.totalDebit) : amount ? formatINR(Number(amount)) : "bill"}
+                {apiDown ? "Payment service temporarily down" : `Pay ${quote ? formatINR(quote.totalDebit) : amount ? formatINR(Number(amount)) : "bill"}`}
               </Button>
               <p className="mt-2 text-center text-[11px] text-ink-400">
                 Confirmed with your transaction PIN. Debited from your wallet — failed payments are auto-refunded.
@@ -509,7 +568,13 @@ export function BbpsBillForm({
         onConfirm={payWithPin}
         onCancel={() => !paying && setPinOpen(false)}
       />
-      <TransactionResult result={result} onClose={() => setResult(null)} />
+      <TransactionResult
+        result={result}
+        onClose={() => {
+          setResult(null);
+          resetAll();
+        }}
+      />
     </>
   );
 }

@@ -8,6 +8,7 @@ import { assertServiceEnabled } from "@/lib/services/guard";
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { bbpsServiceKey } from "@/lib/services/bbpsKey";
 import { friendlyPartnerError, isNoBillDue, NO_BILL_DUE_MESSAGE } from "@/lib/partners/friendlyError";
+import { classifyBbpsFailure } from "@/lib/services/bbpsHealth";
 import { AuthError } from "@/lib/auth-server";
 
 const Body = z.object({
@@ -57,8 +58,14 @@ export async function POST(req: Request) {
     );
   }
 
+  // `kind` lets the client react instantly (show "service down" vs "choose
+  // another issuer") without waiting for the polled health banner to flip.
   return NextResponse.json(
-    { error: friendlyPartnerError(r.code, r.message, "fetch"), code: r.code },
+    {
+      error: friendlyPartnerError(r.code, r.message, "fetch"),
+      code: r.code,
+      kind: classifyBbpsFailure(r.code, r.message),
+    },
     { status: 502 }
   );
 }

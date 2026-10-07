@@ -21,6 +21,7 @@ import { env } from "@/lib/env";
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { deriveTxnRefs } from "@/lib/recon/refs";
+import { recordBbpsOutcome } from "@/lib/services/bbpsHealth";
 import { currentTxnRefId } from "./callContext";
 import type { PartnerResult } from "./types";
 
@@ -151,6 +152,23 @@ export async function samedayRequest<T extends { success?: boolean }>(
   );
   if (bodyString) headers["Content-Type"] = "application/json";
 
+  // Real-time rail-health signal: record ONLY user-facing Pay2New bill
+  // fetch/pay outcomes (not recon status polls or billers listing) so the UI
+  // banner + ops monitor reflect what retailers actually experience.
+  const bbpsStep: "fetch" | "pay" | null = path.endsWith("/pay2new/bill/fetch")
+    ? "fetch"
+    : path.endsWith("/pay2new/bill/pay")
+      ? "pay"
+      : null;
+  const bbpsBiller =
+    bbpsStep && body && typeof body === "object"
+      ? ((body as { product_code?: string }).product_code ?? null)
+      : null;
+  const noteHealth = (ok: boolean, code?: string | null, message?: string | null) => {
+    if (!bbpsStep) return;
+    recordBbpsOutcome({ ok, step: bbpsStep, billerCode: bbpsBiller, code, message });
+  };
+
   let url = `${creds.baseUrl.replace(/\/+$/, "")}${path}`;
   if (query) {
     const params = new URLSearchParams(
@@ -184,6 +202,7 @@ export async function samedayRequest<T extends { success?: boolean }>(
     // caller (runTransaction) does anything else — so the provider reference is
     // safe even if the caller dies immediately after this returns.
     await auditPatch(auditId, { response: json, httpStatus: res.status, ok, code });
+    noteHealth(ok, code, json.error?.message ?? res.statusText ?? null);
     if (!ok) {
       // Surface the RAW provider failure in server logs for EVERY call (fetch,
       // billers, pay, …) — not just audited money calls — so a fetch/preview
@@ -213,6 +232,7 @@ export async function samedayRequest<T extends { success?: boolean }>(
     return { ok: true, data: json, raw: json };
   } catch (e) {
     await auditPatch(auditId, { response: null, httpStatus: null, ok: false, code: "NETWORK" });
+    noteHealth(false, "NETWORK", (e as Error).message ?? null);
     log.warn({
       action: "sameday_request_error",
       method,

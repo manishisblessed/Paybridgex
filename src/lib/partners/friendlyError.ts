@@ -63,13 +63,14 @@ export function isSensitivePartnerCode(code?: string | null): boolean {
 const CODE_MESSAGES: Record<string, string> = {
   // Pay2New: the bill-fetch reference is single-use. Once a pay against it
   // failed and was refunded, every replay returns this — the retailer MUST
-  // fetch a fresh bill, so say exactly that instead of "try again shortly".
+  // fetch a fresh bill. Reassure (no money lost, not their fault) instead of the
+  // old "bill session expired" wording, which read like a bug on our side.
   PAYMENT_REFUNDED:
-    "This bill session expired after a previous failed attempt. Please fetch the bill again to retry.",
+    "The previous attempt didn't go through and any amount debited has been refunded to your wallet. Please tap “Fetch bill” again to retry.",
   // Pay2New definitive decline (biller/issuer temporarily down). Funds are
   // auto-refunded; retrying the same ref won't help until the biller is back.
   PAYMENT_FAILED:
-    "This biller is temporarily unavailable. Any amount debited is automatically refunded to your wallet — please fetch the bill again and retry in a little while.",
+    "This bank isn't responding right now, so the payment couldn't be completed. Any amount debited is auto-refunded to your wallet — please try again in a little while, or choose another card issuer.",
   RATE_LIMITED: "We're a bit busy right now. Please wait a moment and try again.",
   NETWORK:
     "We couldn't reach the payment network. Please check your connection and try again.",
@@ -121,11 +122,21 @@ function heuristicFromMessage(raw: string): string | null {
     return NO_BILL_DUE_MESSAGE;
   }
 
-  // Biller / rail temporarily unavailable (provider "service is down" style).
+  // Same Day platform / service down (their message literally points users at
+  // "support") — this is a payment-service outage, not the retailer's fault and
+  // not a specific bank. Say so plainly so there's no confusion.
   if (
-    /\b(temporarily\s+(down|unavailable)|service\s+(is\s+)?(down|unavailable)|try\s+again\s+later)\b/.test(m)
+    /\b(drop a message to.*support|gateway|internal server error)\b/.test(m) ||
+    /\bservice\s+(is\s+)?(temporarily\s+)?(down|unavailable)\b/.test(m)
   ) {
-    return "This biller is temporarily unavailable. Please try again in a little while.";
+    return "The bill payment service is temporarily down. Please try again in a little while — you won't be charged.";
+  }
+
+  // A specific biller/bank is temporarily unavailable on BBPS.
+  if (
+    /\b(temporarily\s+(down|unavailable)|try\s+again\s+later)\b/.test(m)
+  ) {
+    return "This bank isn't responding right now. Please try again shortly, or choose another card issuer.";
   }
 
   // No record for the supplied identifiers (wrong card last-4 / mobile).
@@ -159,7 +170,8 @@ const DEFAULTS: Record<FriendlyContext, string> = {
     "We couldn't complete this payment right now. Any amount debited is automatically refunded to your wallet — please try again shortly.",
   payout:
     "We couldn't process this payout right now. Your money is safe — please try again shortly or contact support if it persists.",
-  fetch: "We couldn't load this right now. Please try again in a moment.",
+  fetch:
+    "We couldn't fetch this bill right now — the bank or payment service didn't respond. Please try again in a little while. You haven't been charged.",
   generic: "Something went wrong. Please try again shortly, or contact support if it persists.",
 };
 

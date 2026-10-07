@@ -2,6 +2,7 @@ import { Prisma, type WalletReason, type WalletTxn, type WalletType } from "@pri
 import { prisma } from "./db";
 import { add, sub, gte, gt, lt, dec, type Money } from "./money";
 import { getSuspenseAccountId } from "./wallet/suspense";
+import { enqueue, QUEUES } from "./queue";
 
 /**
  * Canonical wallet ledger.
@@ -135,17 +136,73 @@ export type WalletMovement = {
 };
 
 /**
+ * IST billing period key (YYYY-MM). Duplicated inline from pos/rental.ts to
+ * avoid a circular import (rental.ts → ledger.ts → rental.ts).
+ */
+function currentIstPeriodKey(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+  })
+    .format(new Date())
+    .slice(0, 7);
+}
+
+/**
+ * After a standalone PRIMARY credit commits, check whether the credited user
+ * has any FAILED POS rental invoices for the current billing period. If so,
+ * enqueue a targeted retry job so the rent is collected the moment funds land —
+ * rather than waiting for the next nightly billing window.
+ *
+ * Errors are swallowed: rent collection is a background concern and must never
+ * fail or slow down a wallet credit.
+ *
+ * Only called when creditWallet owns its own transaction (tx === undefined) so
+ * we know the balance update has committed before the job runs.
+ */
+async function schedulePosRentalRetryIfNeeded(userId: string): Promise<void> {
+  try {
+    const periodKey = currentIstPeriodKey();
+    const failed = await prisma.posRentalInvoice.findFirst({
+      where: {
+        periodKey,
+        status: "FAILED",
+        subscription: { userId, status: "ACTIVE" },
+      },
+      select: { id: true },
+    });
+    if (!failed) return;
+    // singletonKey dedupes rapid consecutive credits: only one pending retry
+    // job per (user, period) at a time. Once the job completes (or fails),
+    // the next credit will enqueue a fresh one if rent is still outstanding.
+    await enqueue(
+      QUEUES.POS_RENTAL_BILLING_RETRY,
+      { userId },
+      { singletonKey: `rental-retry:${userId}:${periodKey}` }
+    );
+  } catch (e) {
+    console.error("[ledger] failed to schedule POS rental retry:", e);
+  }
+}
+
+/**
  * Credit (add) funds to a user's wallet (PRIMARY / AEPS / REVENUE book).
  *
  * If the credit lands on the PRIMARY book and the user has an active lien, the
  * newly-credited funds are immediately swept toward recovery (see
  * `sweepLiensForUser`) inside the same transaction — so money owed under a lien
  * never becomes spendable, no matter which rail credited it.
+ *
+ * After the transaction commits (standalone credits only — when no external `tx`
+ * is provided), a background check enqueues a POS rental retry job for the user
+ * if they have any FAILED invoices this period. This ensures rent is collected
+ * the moment the wallet has sufficient funds.
  */
 export async function creditWallet(m: WalletMovement, tx?: Tx): Promise<WalletTxn> {
   assertPositive(m.amount);
   const walletType: WalletType = m.walletType ?? "PRIMARY";
-  return withTx(tx, async (t) => {
+  const txn = await withTx(tx, async (t) => {
     if (m.idempotencyKey) {
       const existing = await findByIdempotencyKey(t, m.idempotencyKey);
       if (existing) return existing; // already applied — do not re-sweep
@@ -157,7 +214,7 @@ export async function creditWallet(m: WalletMovement, tx?: Tx): Promise<WalletTx
       where: { id: m.userId },
       data: bookUpdate(walletType, newBalance),
     });
-    const txn = await t.walletTxn.create({
+    const walletTxn = await t.walletTxn.create({
       data: {
         userId: m.userId,
         walletType,
@@ -176,8 +233,16 @@ export async function creditWallet(m: WalletMovement, tx?: Tx): Promise<WalletTx
     if (walletType === "PRIMARY" && user.lienBalance && gt(user.lienBalance, 0)) {
       await sweepLiensForUser(t, m.userId);
     }
-    return txn;
+    return walletTxn;
   });
+  // Demand-driven POS rental retry: if this was a standalone PRIMARY credit
+  // (we owned the transaction, so the balance is committed), check whether the
+  // user has FAILED rent invoices this period and enqueue a targeted retry.
+  // Fire-and-forget — errors are logged but never propagate to the caller.
+  if (!tx && walletType === "PRIMARY") {
+    void schedulePosRentalRetryIfNeeded(m.userId);
+  }
+  return txn;
 }
 
 /** Debit (remove) funds from a user's spendable balance (PRIMARY or AEPS book). */

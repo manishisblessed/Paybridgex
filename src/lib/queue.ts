@@ -72,6 +72,12 @@ export const QUEUES = {
   // and settles them. The BBPS rail has no webhooks, so this sweep is the
   // only way to finalize PENDING payments. Runs every 5 minutes.
   BBPS_RECONCILE: "bbps.reconcile",
+  // BBPS rail failure-rate monitor (every 5 min). Reads the Transaction ledger
+  // over a short rolling window and pages ops the moment credit-card / bill-pay
+  // failures spike (Same Day platform outage vs biller-side declines), so an
+  // upstream degradation is caught in minutes instead of from user screenshots.
+  // See src/lib/recon/bbpsHealthMonitor.ts.
+  BBPS_HEALTH_MONITOR: "bbps.health_monitor",
   // RechargeKit CC-2 reconciliation — safety net behind the inbound Same Day
   // webhook. Polls PROCESSING RechargeKit payments via the partner status API
   // and settles/refunds them (idempotent, shares finalizeServiceTransaction with
@@ -106,6 +112,13 @@ export const QUEUES = {
   // reconcile guard). Scheduled every 10 min so the fleet stays current without
   // a manual Sync button. Fully idempotent; assignment data is preserved.
   POS_MACHINE_SYNC: "pos.machines.sync",
+  // POS rental billing retry — demand-driven (no cron schedule). Enqueued by
+  // creditWallet() whenever a PRIMARY credit lands for a user who has FAILED
+  // POS rental invoices in the current period. Retries only that user's
+  // outstanding invoices so the rent is recovered the moment the wallet has
+  // enough funds rather than waiting for the nightly billing window.
+  // Idempotent per (subscription, YYYY-MM) via the same ledger keys.
+  POS_RENTAL_BILLING_RETRY: "pos.rental.billing.retry",
   // POS transaction mirror sync — pulls the Same Day transaction feed (ALL
   // statuses, tenant-wide) into the local `PosTransactionMirror` read-model that
   // the dashboard feed + exports serve from. This is the reconciliation net

@@ -136,7 +136,17 @@ export function computeRentalAmounts(baseRent: number | string, includeGst: bool
   return { rent, gst, total };
 }
 
-export async function runPosRentalBilling(now = new Date()): Promise<{
+export async function runPosRentalBilling(
+  now = new Date(),
+  /**
+   * When provided, only processes subscriptions belonging to this user.
+   * Used by the demand-driven retry path (POS_RENTAL_BILLING_RETRY queue)
+   * that fires immediately after a PRIMARY wallet credit lands for a user
+   * who has FAILED invoices in the current period. The full billing run
+   * (no userId) continues to own the initial deduction each month.
+   */
+  userId?: string
+): Promise<{
   processed: number;
   billed: number;
   failed: number;
@@ -152,7 +162,11 @@ export async function runPosRentalBilling(now = new Date()): Promise<{
   const today = istDayOfMonth(now);
 
   const subs = await prisma.posSubscription.findMany({
-    where: { status: "ACTIVE", billingDay: { lte: today } },
+    where: {
+      status: "ACTIVE",
+      billingDay: { lte: today },
+      ...(userId ? { userId } : {}),
+    },
     include: { plan: true },
   });
 

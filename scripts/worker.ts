@@ -35,6 +35,7 @@ import { runLedgerIntegrityAudit } from "@/lib/recon/integrity";
 import { runPosSettlementIntegrityAudit } from "@/lib/recon/posSettlement";
 import { runDailyPayoutReconciliation } from "@/lib/recon/payouts";
 import { runBbpsReconciliation } from "@/lib/recon/bbps";
+import { runBbpsFailureRateMonitor } from "@/lib/recon/bbpsHealthMonitor";
 import { runRechargekitReconciliation } from "@/lib/recon/rechargekit";
 import { runReconPreflight, runReconConnectivityMonitor } from "@/lib/recon/preflight";
 import { runReconHeartbeat } from "@/lib/recon/heartbeat";
@@ -142,6 +143,22 @@ async function main() {
     }
   });
   await boss.schedule(QUEUES.BBPS_RECONCILE, "*/5 * * * *");
+
+  // QUEUES.BBPS_HEALTH_MONITOR — rolling failure-rate tripwire for the BBPS
+  // rail. Pages ops the moment credit-card / bill-pay failures spike so an
+  // upstream Same Day / biller outage is caught in minutes, not from user
+  // screenshots. Internally rate-limited (cooldown) so a persistent outage
+  // pages once per window, with a recovery notice when it clears.
+  await boss.work(QUEUES.BBPS_HEALTH_MONITOR, async () => {
+    const r = await runBbpsFailureRateMonitor();
+    if (!r.skipped && (r.alerted || r.failRate >= 0.4)) {
+      log(
+        `bbps.health_monitor: sample=${r.sample} failRate=${r.failRate} ` +
+          `apiShare=${r.apiShare} alerted=${r.alerted}`
+      );
+    }
+  });
+  await boss.schedule(QUEUES.BBPS_HEALTH_MONITOR, "*/5 * * * *");
 
   // QUEUES.RECHARGEKIT_RECONCILE — safety net behind the inbound Same Day
   // webhook: polls PROCESSING RechargeKit CC-2 payments and settles/refunds
@@ -471,6 +488,22 @@ async function main() {
   });
   await boss.schedule(QUEUES.POS_RENTAL_BILLING, "0 * * * *", {}, { tz: "Asia/Kolkata" });
 
+  // QUEUES.POS_RENTAL_BILLING_RETRY — demand-driven (no cron schedule).
+  // Enqueued by creditWallet() the moment a PRIMARY wallet credit commits for a
+  // user who has FAILED POS rental invoices in the current period. Retries only
+  // that user's outstanding invoices so rent is collected as soon as the wallet
+  // has sufficient funds — rather than waiting for the nightly billing window.
+  // Idempotent per (subscription, YYYY-MM) via the same invoice/ledger keys as
+  // the main billing run; rapid consecutive credits are de-duped by singletonKey.
+  await boss.work(QUEUES.POS_RENTAL_BILLING_RETRY, async (job) => {
+    const { userId } = job!.data as { userId: string };
+    const r = await runPosRentalBilling(new Date(), userId);
+    if (r.processed > 0)
+      log(
+        `pos.rental.billing.retry: user=${userId} billed=${r.billed} failed=${r.failed} skipped=${r.skipped}`
+      );
+  });
+
   // QUEUES.POS_MACHINE_SYNC — pull the Same Day terminal inventory into the
   // local mirror so the fleet page stays current without a manual Sync button.
   // The sync unions across machine_type partitions + repeated passes to defeat
@@ -592,7 +625,7 @@ async function main() {
   }
 
   log(
-    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), rechargekit.reconcile (*/5 * * * *), recon.heartbeat (*/15 * * * *), recon.connectivity (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.settle.sweep (*/10 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), pos.mirror.sync (*/2 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
+    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), bbps.health_monitor (*/5 * * * *), rechargekit.reconcile (*/5 * * * *), recon.heartbeat (*/15 * * * *), recon.connectivity (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.settle.sweep (*/10 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), pos.mirror.sync (*/2 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
   );
 }
 
