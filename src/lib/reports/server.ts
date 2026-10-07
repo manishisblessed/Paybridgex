@@ -14,6 +14,7 @@
  */
 import {
   Prisma,
+  type Role,
   type ServiceCode,
   type TxnStatus,
   type PayoutStatus,
@@ -387,48 +388,69 @@ async function reportPushPull(user: SessionUser, params: ReportParams): Promise<
   const ids = await allowedUserIds(user);
   const createdAt = dateFilter(params);
 
+  // Role filters: `service` = sender (From Role), `mode` = recipient (To Role).
+  const fromRole = (params.service || null) as Role | null;
+  const toRole = (params.mode || null) as Role | null;
+
   /* ── 1. NetworkWalletTransfer (parent→child) ─────────────────────── */
 
   const nwtWhere: Prisma.NetworkWalletTransferWhereInput = (() => {
-    const ownershipOr = ids
-      ? [{ fromId: { in: ids } }, { toId: { in: ids } }]
-      : null;
-    const searchOr = params.q
-      ? [
+    const and: Prisma.NetworkWalletTransferWhereInput[] = [];
+
+    if (ids) and.push({ OR: [{ fromId: { in: ids } }, { toId: { in: ids } }] });
+    if (params.q)
+      and.push({
+        OR: [
           { from: { name: { contains: params.q, mode: "insensitive" as const } } },
           { from: { userCode: { contains: params.q, mode: "insensitive" as const } } },
           { to: { name: { contains: params.q, mode: "insensitive" as const } } },
           { to: { userCode: { contains: params.q, mode: "insensitive" as const } } },
           { note: { contains: params.q, mode: "insensitive" as const } },
-        ]
-      : null;
+        ],
+      });
+    // In a network transfer the sender is always `from`, the recipient `to`.
+    if (fromRole) and.push({ from: { is: { role: fromRole } } });
+    if (toRole) and.push({ to: { is: { role: toRole } } });
 
     const base: Prisma.NetworkWalletTransferWhereInput = {
       ...(createdAt ? { createdAt } : {}),
       ...(params.status ? { direction: params.status } : {}),
     };
 
-    if (ownershipOr && searchOr) return { ...base, AND: [{ OR: ownershipOr }, { OR: searchOr }] };
-    if (ownershipOr) return { ...base, OR: ownershipOr };
-    if (searchOr) return { ...base, OR: searchOr };
-    return base;
+    return and.length ? { ...base, AND: and } : base;
   })();
 
   /* ── 2. WalletOperation (admin push/pull) ────────────────────────── */
 
   const woWhere: Prisma.WalletOperationWhereInput = (() => {
-    const ownershipOr = ids
-      ? [{ targetUserId: { in: ids } }, { actorId: { in: ids } }]
-      : null;
-    const searchOr = params.q
-      ? [
+    const and: Prisma.WalletOperationWhereInput[] = [];
+
+    if (ids) and.push({ OR: [{ targetUserId: { in: ids } }, { actorId: { in: ids } }] });
+    if (params.q)
+      and.push({
+        OR: [
           { targetUser: { name: { contains: params.q, mode: "insensitive" as const } } },
           { targetUser: { userCode: { contains: params.q, mode: "insensitive" as const } } },
           { actor: { name: { contains: params.q, mode: "insensitive" as const } } },
           { actor: { userCode: { contains: params.q, mode: "insensitive" as const } } },
           { remarks: { contains: params.q, mode: "insensitive" as const } },
-        ]
-      : null;
+        ],
+      });
+    // Admin ops flip sender/recipient by type: PUSH = actor→target, PULL = target→actor.
+    if (fromRole)
+      and.push({
+        OR: [
+          { type: "PUSH", actor: { is: { role: fromRole } } },
+          { type: "PULL", targetUser: { is: { role: fromRole } } },
+        ],
+      });
+    if (toRole)
+      and.push({
+        OR: [
+          { type: "PUSH", targetUser: { is: { role: toRole } } },
+          { type: "PULL", actor: { is: { role: toRole } } },
+        ],
+      });
 
     const base: Prisma.WalletOperationWhereInput = {
       status: "COMPLETED",
@@ -436,10 +458,7 @@ async function reportPushPull(user: SessionUser, params: ReportParams): Promise<
       ...(params.status ? { type: params.status as "PUSH" | "PULL" } : {}),
     };
 
-    if (ownershipOr && searchOr) return { ...base, AND: [{ OR: ownershipOr }, { OR: searchOr }] };
-    if (ownershipOr) return { ...base, OR: ownershipOr };
-    if (searchOr) return { ...base, OR: searchOr };
-    return base;
+    return and.length ? { ...base, AND: and } : base;
   })();
 
   /* ── Parallel queries ────────────────────────────────────────────── */
@@ -1715,10 +1734,12 @@ async function reportDailyUser(user: SessionUser, params: ReportParams): Promise
       name: r.name,
       role: r.role,
       opening: r.opening,
-      // Credits / Debits are surfaced NET of push/pull so those admin/parent
-      // wallet movements read as their own columns and the closing spells out
-      // as opening + credits + push − debits − pull.
-      creditsTotal: Math.max(0, r.credits.total - r.push),
+      // Credits / Debits are surfaced NET of push/pull (and refunds) so those
+      // admin/parent wallet movements and reversals read as their own columns,
+      // and the closing spells out as
+      // opening + credits + refunds + push − debits − pull.
+      creditsTotal: Math.max(0, r.credits.total - r.push - r.credits.reversal),
+      refunds: r.credits.reversal,
       push: r.push,
       topup: r.credits.topup,
       commissionEarned: r.totalCommission,
@@ -1737,7 +1758,8 @@ async function reportDailyUser(user: SessionUser, params: ReportParams): Promise
     totals: {
       code: "Total",
       opening: report.totals.opening,
-      creditsTotal: Math.max(0, report.totals.creditsTotal - report.totals.push),
+      creditsTotal: Math.max(0, report.totals.creditsTotal - report.totals.push - report.totals.refundsTotal),
+      refunds: report.totals.refundsTotal,
       push: report.totals.push,
       topup: 0,
       commissionEarned: report.totals.commissionNet,
@@ -1748,7 +1770,8 @@ async function reportDailyUser(user: SessionUser, params: ReportParams): Promise
     },
     summary: [
       money("Opening (day)", report.totals.opening, "brand"),
-      money("Credits (day)", Math.max(0, report.totals.creditsTotal - report.totals.push), "emerald"),
+      money("Credits (day)", Math.max(0, report.totals.creditsTotal - report.totals.push - report.totals.refundsTotal), "emerald"),
+      money("Refunds (day)", report.totals.refundsTotal, "emerald"),
       money("Push in (day)", report.totals.push, "emerald"),
       money("Debits (day)", Math.max(0, report.totals.debitsTotal - report.totals.pull), "accent"),
       money("Pull out (day)", report.totals.pull, "accent"),

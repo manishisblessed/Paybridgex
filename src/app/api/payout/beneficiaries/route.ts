@@ -100,8 +100,15 @@ function toPublic(b: {
 
 const NETWORK_ROLES = new Set(["RETAILER", "DISTRIBUTOR", "MASTER_DISTRIBUTOR", "SUPER_DISTRIBUTOR"]);
 
-// ---------- GET: list current user's saved beneficiaries ----------
-export async function GET() {
+// ---------- GET: list / search current user's saved beneficiaries ----------
+//
+// Optional query params:
+//   q            free-text search — matches holder/verified name, the FULL
+//                account number (decrypted in-memory, never returned), the
+//                last-4 digits, and the IFSC.
+//   verifiedOnly "1" to return only bank-verified accounts (used by the
+//                transfer flow so a payout can only target a verified account).
+export async function GET(req: Request) {
   let user;
   try {
     user = await requireAuth();
@@ -111,12 +118,19 @@ export async function GET() {
     throw e;
   }
 
+  const url = new URL(req.url);
+  const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
+  const verifiedOnly = url.searchParams.get("verifiedOnly") === "1";
+  // Collapse spaces so "SBIN 0001234" or "1234 5678" match the stored value.
+  const compact = q.replace(/\s+/g, "");
+
   const rows = await prisma.payoutBeneficiary.findMany({
-    where: { userId: user.id },
+    where: { userId: user.id, ...(verifiedOnly ? { isVerified: true } : {}) },
     orderBy: [{ isVerified: "desc" }, { createdAt: "desc" }],
     select: {
       id: true,
       ifsc: true,
+      accountNumber: true,
       accountLast4: true,
       holderName: true,
       verifiedName: true,
@@ -129,7 +143,23 @@ export async function GET() {
     },
   });
 
-  const decrypted = rows.map((r) => toPublic({ ...r, ifsc: safeDecrypt(r.ifsc) }));
+  const matched = rows.filter((r) => {
+    if (!q) return true;
+    const ifscPlain = safeDecrypt(r.ifsc).toLowerCase();
+    const accPlain = safeDecrypt(r.accountNumber).toLowerCase();
+    const name = (r.verifiedName || r.holderName || "").toLowerCase();
+    return (
+      name.includes(q) ||
+      accPlain.includes(compact) ||
+      r.accountLast4.includes(compact) ||
+      ifscPlain.includes(compact)
+    );
+  });
+
+  // Strip the encrypted accountNumber before shaping the public payload.
+  const decrypted = matched.map(({ accountNumber: _enc, ...r }) =>
+    toPublic({ ...r, ifsc: safeDecrypt(r.ifsc) })
+  );
 
   return NextResponse.json({
     fee: {

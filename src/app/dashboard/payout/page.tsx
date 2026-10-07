@@ -124,7 +124,7 @@ type Quote = {
 };
 
 type View = "home" | "process-payout" | "add-beneficiary" | "history";
-type WizardStep = "select-account" | "enter-amount" | "confirm" | "result";
+type WizardStep = "select-account" | "verify-account" | "enter-amount" | "confirm" | "result";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants + helpers
@@ -698,6 +698,41 @@ function BeneficiaryList({
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Debounced server-side search (matches name, full account number, last-4,
+  // IFSC). No `verifiedOnly` here — this list also surfaces pending/failed ones.
+  const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<Beneficiary[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    const q = search.trim();
+    if (!q) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    let active = true;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/payout/beneficiaries?q=${encodeURIComponent(q)}`);
+        if (!res.ok) throw new Error();
+        const json = (await res.json()) as { beneficiaries: Beneficiary[] };
+        if (active) setSearchResults(json.beneficiaries ?? []);
+      } catch {
+        if (active) setSearchResults([]);
+      } finally {
+        if (active) setSearching(false);
+      }
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [search]);
+
+  const displayed = searchResults ?? beneficiaries;
+
   if (loading && beneficiaries.length === 0) {
     return (
       <Panel flush className="p-8 text-center text-sm text-ink-500">
@@ -733,8 +768,53 @@ function BeneficiaryList({
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
+
+      {/* Search bar — matches name, full account number, last-4, or IFSC */}
+      <div className="border-b border-ink-100 px-5 py-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+          <Input
+            className="pl-10 pr-9"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, account number, or IFSC"
+            aria-label="Search bank accounts"
+          />
+          {searching ? (
+            <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-ink-400" />
+          ) : (
+            search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+                className="absolute right-2.5 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+              >
+                <XCircle className="h-4 w-4" />
+              </button>
+            )
+          )}
+        </div>
+        {search.trim() && !searching && (
+          <p className="mt-2 text-[11px] text-ink-500">
+            {displayed.length} match{displayed.length === 1 ? "" : "es"} for &ldquo;{search.trim()}&rdquo;
+          </p>
+        )}
+      </div>
+
+      {displayed.length === 0 ? (
+        <div className="px-5 py-10 text-center">
+          <div className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-full bg-ink-50 text-ink-400">
+            <Search className="h-5 w-5" />
+          </div>
+          <p className="text-sm font-semibold text-ink-700">No matching accounts</p>
+          <p className="mt-0.5 text-xs text-ink-500">
+            No account matches &ldquo;{search.trim()}&rdquo;. Try a different name, account number, or IFSC.
+          </p>
+        </div>
+      ) : (
       <ul className="divide-y divide-ink-100">
-        {beneficiaries.map((b) => (
+        {displayed.map((b) => (
           <li key={b.id} className="flex items-center justify-between gap-3 px-5 py-4 hover:bg-ink-50/50">
             <div className="flex items-center gap-3">
               <div
@@ -795,6 +875,7 @@ function BeneficiaryList({
           </li>
         ))}
       </ul>
+      )}
     </Panel>
   );
 }
@@ -830,15 +911,79 @@ function ProcessPayoutWizard({
 }) {
   const [step, setStep] = useState<WizardStep>("select-account");
   const [selected, setSelected] = useState<Beneficiary | null>(null);
+  const [search, setSearch] = useState("");
   const [amount, setAmount] = useState("1000");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [pinOpen, setPinOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<PayoutResult | null>(null);
+  const [reverifying, setReverifying] = useState(false);
   const idemKey = useRef<string>(crypto.randomUUID());
 
+  // Re-confirm the account is still verified at the bank right before paying.
+  async function recheckSelected() {
+    if (!selected) return;
+    setReverifying(true);
+    try {
+      const res = await fetch("/api/payout/beneficiaries", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selected.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.beneficiary) {
+        setSelected(data.beneficiary as Beneficiary);
+      } else if (!res.ok) {
+        onError(typeof data.error === "string" ? data.error : "Could not re-verify this account.");
+      }
+    } catch {
+      onError("Could not re-verify this account. Please try again.");
+    } finally {
+      setReverifying(false);
+    }
+  }
+
   const amountNum = Number(amount) || 0;
+
+  // Server-side search over the user's verified accounts. The full account
+  // number lives (encrypted) on the server, so matching by full number happens
+  // there; an empty query just shows the already-loaded verified list.
+  const [searchResults, setSearchResults] = useState<Beneficiary[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    const q = search.trim();
+    if (!q) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    let active = true;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/payout/beneficiaries?verifiedOnly=1&q=${encodeURIComponent(q)}`
+        );
+        if (!res.ok) throw new Error();
+        const json = (await res.json()) as { beneficiaries: Beneficiary[] };
+        if (active) setSearchResults(json.beneficiaries ?? []);
+      } catch {
+        if (active) setSearchResults([]);
+      } finally {
+        if (active) setSearching(false);
+      }
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [search]);
+
+  // What the select-account list renders: live search results when searching,
+  // otherwise the full verified list passed in from the page.
+  const displayedBenes = searchResults ?? beneficiaries;
 
   useEffect(() => {
     if (step !== "enter-amount") return;
@@ -938,30 +1083,167 @@ function ProcessPayoutWizard({
           </h3>
           <p className="mt-0.5 text-xs text-ink-500">Choose a verified beneficiary to send the payout to.</p>
         </div>
-        <ul className="divide-y divide-ink-100">
-          {beneficiaries.map((b) => (
-            <li key={b.id}>
-              <button
-                onClick={() => {
-                  setSelected(b);
-                  setStep("enter-amount");
-                }}
-                className="flex w-full items-center justify-between px-5 py-4 text-left hover:bg-brand-50/50"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-700">
-                    <Building2 className="h-5 w-5" />
+
+        {/* Search bar — matches name, full account number, last-4, or IFSC */}
+        <div className="border-b border-ink-100 px-5 py-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+            <Input
+              className="pl-10 pr-9"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name, account number, or IFSC"
+              aria-label="Search bank accounts"
+              autoFocus
+            />
+            {searching ? (
+              <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-ink-400" />
+            ) : (
+              search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  aria-label="Clear search"
+                  className="absolute right-2.5 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+                >
+                  <XCircle className="h-4 w-4" />
+                </button>
+              )
+            )}
+          </div>
+          {search.trim() && !searching && (
+            <p className="mt-2 text-[11px] text-ink-500">
+              {displayedBenes.length} match{displayedBenes.length === 1 ? "" : "es"} for &ldquo;{search.trim()}&rdquo;
+            </p>
+          )}
+        </div>
+
+        {displayedBenes.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <div className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-full bg-ink-50 text-ink-400">
+              <Search className="h-5 w-5" />
+            </div>
+            <p className="text-sm font-semibold text-ink-700">No matching accounts</p>
+            <p className="mt-0.5 text-xs text-ink-500">
+              No verified account matches &ldquo;{search.trim()}&rdquo;. Try a different name, account number, or IFSC.
+            </p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-ink-100">
+            {displayedBenes.map((b) => (
+              <li key={b.id}>
+                <button
+                  onClick={() => {
+                    setSelected(b);
+                    setStep("verify-account");
+                  }}
+                  className="flex w-full items-center justify-between px-5 py-4 text-left hover:bg-brand-50/50"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-700">
+                      <Building2 className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="flex items-center gap-1.5 text-sm font-semibold text-ink-900">
+                        {b.verifiedName || b.holderName}
+                        {b.isVerified && <BadgeCheck className="h-4 w-4 text-emerald-500" />}
+                      </p>
+                      <p className="font-mono text-xs text-ink-500">****{b.accountLast4} · {b.ifsc}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold text-ink-900">{b.verifiedName || b.holderName}</p>
-                    <p className="font-mono text-xs text-ink-500">****{b.accountLast4} · {b.ifsc}</p>
-                  </div>
-                </div>
-                <ArrowRight className="h-5 w-5 text-ink-400" />
-              </button>
-            </li>
-          ))}
-        </ul>
+                  <ArrowRight className="h-5 w-5 text-ink-400" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+    );
+  }
+
+  if (step === "verify-account" && selected) {
+    const verified = selected.isVerified && selected.verificationStatus === "SUCCESS";
+    return (
+      <Panel flush className="overflow-hidden">
+        <div className="border-b border-ink-100 px-5 py-4">
+          <h3 className="inline-flex items-center gap-2 font-display text-base font-semibold text-ink-900">
+            <ShieldCheck className="h-5 w-5 text-brand-700" />
+            Verify account
+          </h3>
+          <p className="mt-0.5 text-xs text-ink-500">
+            Confirm these are the right account details before you transfer.
+          </p>
+        </div>
+        <div className="space-y-4 p-5">
+          {/* Bank-verified identity card */}
+          <div
+            className={`rounded-2xl border p-4 ${
+              verified
+                ? "border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50"
+                : "border-amber-200 bg-amber-50"
+            }`}
+          >
+            <div className="mb-2 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest">
+              {verified ? (
+                <span className="inline-flex items-center gap-1 text-emerald-700">
+                  <BadgeCheck className="h-3.5 w-3.5" /> Verified by bank
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-amber-700">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Not verified
+                </span>
+              )}
+            </div>
+            <p className="font-display text-xl font-bold text-ink-900">
+              {selected.verifiedName || selected.holderName}
+            </p>
+            {selected.verifiedName && selected.verifiedName !== selected.holderName && (
+              <p className="mt-0.5 text-xs text-ink-500">
+                Entered as &ldquo;{selected.holderName}&rdquo;
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <InfoTile label="Account" value={`****${selected.accountLast4}`} mono />
+            <InfoTile label="IFSC" value={selected.ifsc} mono />
+            {selected.contactMobile && (
+              <InfoTile label="Contact" value={selected.contactMobile} mono />
+            )}
+            <InfoTile label="Transfer mode" value="IMPS (instant)" />
+          </div>
+
+          <p className="rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-2 text-[11px] text-ink-500">
+            Money sent via IMPS cannot be recalled. Make sure the name above matches the
+            person you intend to pay.
+          </p>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <button
+              type="button"
+              onClick={recheckSelected}
+              disabled={reverifying}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-3 py-2 text-xs font-semibold text-ink-700 transition-colors hover:border-brand-300 hover:text-brand-700 disabled:opacity-50"
+            >
+              {reverifying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Re-check with bank
+            </button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setStep("select-account")}>
+                Back
+              </Button>
+              <Button onClick={() => setStep("enter-amount")} disabled={!verified}>
+                <ShieldCheck className="h-4 w-4" />
+                Confirm &amp; continue
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
       </Panel>
     );
   }
@@ -1053,7 +1335,7 @@ function ProcessPayoutWizard({
           )}
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setStep("select-account")}>
+            <Button variant="outline" onClick={() => setStep("verify-account")}>
               Back
             </Button>
             <Button

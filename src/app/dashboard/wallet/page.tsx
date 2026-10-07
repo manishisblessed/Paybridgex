@@ -36,6 +36,8 @@ type WalletTxn = {
   id: string;
   direction: "CREDIT" | "DEBIT";
   reason: string;
+  txnAmount: number | null;
+  charges: number | null;
   amount: number;
   balanceAfter: number;
   note: string | null;
@@ -485,6 +487,8 @@ export default function WalletPage() {
               <tr>
                 <th>Type</th>
                 <th>Description</th>
+                <th className="text-right">Txn amount</th>
+                <th className="text-right">Charges</th>
                 <th className="text-right">Amount</th>
                 <th className="text-right">Balance after</th>
                 <th>Date</th>
@@ -493,10 +497,10 @@ export default function WalletPage() {
             <tbody>
               {!data?.recentTxns.length ? (
                 fetching ? (
-                  <TableSkeletonRows rows={6} cols={5} />
+                  <TableSkeletonRows rows={6} cols={7} />
                 ) : (
                   <TableEmptyRow
-                    colSpan={5}
+                    colSpan={7}
                     icon={Wallet}
                     message="No wallet transactions yet. Your transaction history will appear here."
                   />
@@ -524,6 +528,20 @@ export default function WalletPage() {
                       </div>
                       {t.note && (
                         <div className="text-xs text-ink-500">{t.note}</div>
+                      )}
+                    </td>
+                    <td className="text-right text-ink-700">
+                      {t.txnAmount == null ? (
+                        <span className="text-ink-400">—</span>
+                      ) : (
+                        formatINR(t.txnAmount)
+                      )}
+                    </td>
+                    <td className="text-right">
+                      {t.charges == null ? (
+                        <span className="text-ink-400">—</span>
+                      ) : (
+                        <span className="text-amber-700">{formatINR(t.charges)}</span>
                       )}
                     </td>
                     <td

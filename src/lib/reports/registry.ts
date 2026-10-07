@@ -114,6 +114,10 @@ export const BILL_SERVICE_CODES = [
 const NETWORK_ROLES = [
   "RETAILER", "DISTRIBUTOR", "MASTER_DISTRIBUTOR", "SUPER_DISTRIBUTOR",
 ];
+/** Roles that can appear on either side of a push/pull transfer (network + admin). */
+const PUSH_PULL_ROLES = [
+  "RETAILER", "DISTRIBUTOR", "MASTER_DISTRIBUTOR", "SUPER_DISTRIBUTOR", "ADMIN", "MASTER_ADMIN",
+];
 
 /* ------- registry ---------------------------------------------------- */
 
@@ -132,6 +136,7 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       { key: "role", header: "Role", format: "badge" },
       { key: "opening", header: "Opening", format: "money", align: "right" },
       { key: "creditsTotal", header: "Credits", format: "money", align: "right" },
+      { key: "refunds", header: "Refunds", format: "money", align: "right" },
       { key: "push", header: "Push", format: "money", align: "right" },
       { key: "topup", header: "Top-up", format: "money", align: "right" },
       { key: "commissionEarned", header: "Commission", format: "money", align: "right" },
@@ -215,6 +220,8 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       dateRange: true,
       search: "Search name / user ID / note…",
       status: { label: "Type", options: opts(["PUSH", "PULL"]) },
+      service: { label: "From Role", options: opts(PUSH_PULL_ROLES) },
+      mode: { label: "To Role", options: opts(PUSH_PULL_ROLES) },
     },
   },
 

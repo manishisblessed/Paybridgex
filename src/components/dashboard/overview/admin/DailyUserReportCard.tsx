@@ -111,6 +111,7 @@ type ApiResp = {
   totals: {
     opening: number;
     creditsTotal: number;
+    refundsTotal: number;
     debitsTotal: number;
     push: number;
     pull: number;
@@ -232,8 +233,8 @@ export function DailyUserReportCard() {
       if (!res.ok) throw new Error("Export failed");
       const json = await res.json();
       const rows: Record<string, unknown>[] = json.rows ?? [];
-      const cols = ["code", "name", "role", "opening", "creditsTotal", "push", "topup", "commissionEarned", "debitsTotal", "pull", "servicesUsed", "closing"];
-      const header = ["User ID", "Name", "Role", "Opening", "Credits", "Push", "Top-up", "Commission", "Debits", "Pull", "Services used", "Closing"];
+      const cols = ["code", "name", "role", "opening", "creditsTotal", "refunds", "push", "topup", "commissionEarned", "debitsTotal", "pull", "servicesUsed", "closing"];
+      const header = ["User ID", "Name", "Role", "Opening", "Credits", "Refunds", "Push", "Top-up", "Commission", "Debits", "Pull", "Services used", "Closing"];
       const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
       const lines = [header.map(esc).join(",")];
       for (const r of rows) lines.push(cols.map((c) => esc(r[c])).join(","));
@@ -313,9 +314,10 @@ export function DailyUserReportCard() {
       {/* ── KPI row ─────────────────────────────────────────────── */}
       {/* Credits/Debits are shown NET of push/pull so the tiles read as a
           clean closing formula: Opening + Credits + Push − Debits − Pull. */}
-      <div className="relative mt-4 grid gap-3 grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
+      <div className="relative mt-4 grid gap-3 grid-cols-2 md:grid-cols-4 lg:grid-cols-8">
         <KpiTile label="Opening" value={data?.totals.opening ?? 0} loading={loading} tint="brand" />
-        <KpiTile label="Credits" value={(data?.totals.creditsTotal ?? 0) - (data?.totals.push ?? 0)} loading={loading} tint="emerald" up />
+        <KpiTile label="Credits" value={(data?.totals.creditsTotal ?? 0) - (data?.totals.push ?? 0) - (data?.totals.refundsTotal ?? 0)} loading={loading} tint="emerald" up />
+        <KpiTile label="Refunds" value={data?.totals.refundsTotal ?? 0} loading={loading} tint="teal" up />
         <KpiTile label="Push in" value={data?.totals.push ?? 0} loading={loading} tint="sky" up />
         <KpiTile label="Debits" value={(data?.totals.debitsTotal ?? 0) - (data?.totals.pull ?? 0)} loading={loading} tint="rose" down />
         <KpiTile label="Pull out" value={data?.totals.pull ?? 0} loading={loading} tint="pink" down />
@@ -367,6 +369,7 @@ export function DailyUserReportCard() {
                 <th className="px-3 py-3">User</th>
                 <th className="px-3 py-3 text-right">Opening</th>
                 <th className="px-3 py-3 text-right">Credits</th>
+                <th className="px-3 py-3 text-right">Refunds</th>
                 <th className="px-3 py-3 text-right">Push</th>
                 <th className="px-3 py-3 text-right">Debits</th>
                 <th className="px-3 py-3 text-right">Pull</th>
@@ -379,7 +382,7 @@ export function DailyUserReportCard() {
               {loading &&
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={`sk-${i}`} className="animate-pulse">
-                    {Array.from({ length: 10 }).map((__, j) => (
+                    {Array.from({ length: 11 }).map((__, j) => (
                       <td key={j} className="px-3 py-3.5">
                         <div className="h-3 rounded bg-white/10" />
                       </td>
@@ -389,7 +392,7 @@ export function DailyUserReportCard() {
 
               {!loading && data && data.rows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-14 text-center text-xs text-slate-500">
+                  <td colSpan={11} className="px-4 py-14 text-center text-xs text-slate-500">
                     No user activity for this filter on {prettyDate(data.date)}.
                   </td>
                 </tr>
@@ -415,7 +418,10 @@ export function DailyUserReportCard() {
                     {formatINRFull(data.totals.opening)}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-emerald-300">
-                    {formatINRFull(data.totals.creditsTotal - data.totals.push)}
+                    {formatINRFull(data.totals.creditsTotal - data.totals.push - data.totals.refundsTotal)}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums text-teal-300">
+                    {data.totals.refundsTotal > 0 ? formatINRFull(data.totals.refundsTotal) : "—"}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-sky-300">
                     {data.totals.push > 0 ? formatINRFull(data.totals.push) : "—"}
@@ -590,7 +596,7 @@ function KpiTile({
   label: string;
   value: number;
   loading: boolean;
-  tint: "brand" | "emerald" | "rose" | "amber" | "violet" | "sky" | "pink";
+  tint: "brand" | "emerald" | "rose" | "amber" | "violet" | "sky" | "pink" | "teal";
   up?: boolean;
   down?: boolean;
 }) {
@@ -602,6 +608,7 @@ function KpiTile({
     violet: "from-violet-400 to-fuchsia-600 shadow-violet-900/30",
     sky: "from-sky-400 to-cyan-600 shadow-sky-900/30",
     pink: "from-pink-400 to-rose-600 shadow-pink-900/30",
+    teal: "from-teal-400 to-emerald-600 shadow-teal-900/30",
   };
   const valueText: Record<typeof tint, string> = {
     brand: "text-white",
@@ -611,6 +618,7 @@ function KpiTile({
     violet: "text-violet-100",
     sky: "text-sky-200",
     pink: "text-pink-200",
+    teal: "text-teal-200",
   };
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3">
@@ -666,8 +674,11 @@ function RowGroup({
   const deltaOk = Math.abs(delta) < 0.01;
   // Push is a subset of credits and pull a subset of debits — show the generic
   // Credits/Debits columns net of them so push/pull stand alone (no double
-  // count) and closing reads as opening + credits + push − debits − pull.
-  const creditsExPush = Math.max(0, row.credits.total - row.push);
+  // count) and closing reads as opening + credits + refunds + push − debits − pull.
+  // Refunds (REVERSAL credits from failed/refunded txns) are also a subset of
+  // credits, split out into their own column so they don't inflate Credits.
+  const refunds = row.credits.reversal;
+  const creditsExPush = Math.max(0, row.credits.total - row.push - refunds);
   const debitsExPull = Math.max(0, row.totalDebits - row.pull);
   return (
     <>
@@ -703,6 +714,9 @@ function RowGroup({
         </td>
         <td className="px-3 py-3 text-right align-top tabular-nums text-emerald-300">
           {creditsExPush > 0 ? formatINRFull(creditsExPush) : "—"}
+        </td>
+        <td className="px-3 py-3 text-right align-top tabular-nums text-teal-300">
+          {refunds > 0 ? `+${formatINRFull(refunds)}` : "—"}
         </td>
         <td className="px-3 py-3 text-right align-top tabular-nums text-sky-300">
           {row.push > 0 ? `+${formatINRFull(row.push)}` : "—"}
@@ -745,7 +759,8 @@ function ExpandedDrawer({ row }: { row: DailyRow }) {
   // push/pull get their own dedicated block instead.
   const adminPush = Math.max(0, row.push - row.credits.parentPush);
   const adminPull = Math.max(0, row.pull - row.otherDebits.parentPull);
-  const creditsExPush = Math.max(0, row.credits.total - row.push);
+  const refunds = row.credits.reversal;
+  const creditsExPush = Math.max(0, row.credits.total - row.push - refunds);
   const debitsExPull = Math.max(0, row.totalDebits - row.pull);
 
   const pushPullRows: { label: string; value: number; sub?: string }[] = [];
@@ -756,14 +771,14 @@ function ExpandedDrawer({ row }: { row: DailyRow }) {
 
   return (
     <tr className="bg-black/30">
-      <td colSpan={10} className="p-4">
+      <td colSpan={11} className="p-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <BreakdownBlock
             title="Credits (by reason)"
             tint="emerald"
             rows={creditBreakdownRows(row.credits, adminPush)}
             emptyText="No credits today"
-            totalLabel="Credits (excl. push)"
+            totalLabel="Credits (excl. push & refunds)"
             total={creditsExPush}
           />
           <BreakdownBlock
@@ -815,6 +830,8 @@ function ExpandedDrawer({ row }: { row: DailyRow }) {
             <span className="text-slate-500">+</span>
             <b className="text-emerald-300">{formatINRFull(creditsExPush)}</b> credits
             <span className="text-slate-500">+</span>
+            <b className="text-teal-300">{formatINRFull(refunds)}</b> refunds
+            <span className="text-slate-500">+</span>
             <b className="text-sky-300">{formatINRFull(row.push)}</b> push
             <span className="text-slate-500">−</span>
             <b className="text-rose-300">{formatINRFull(debitsExPull)}</b> debits
@@ -838,13 +855,13 @@ function ExpandedDrawer({ row }: { row: DailyRow }) {
 // `adminPush` (admin wallet-op credits) is shown in the dedicated Push/Pull
 // block, so it is netted out of the "Admin adjustment" line here and the
 // parent-push line is dropped entirely — keeping this block's total equal to
-// credits excluding push.
+// credits excluding push. Reversals/refunds are surfaced in their own Refunds
+// column, so they're excluded here too.
 function creditBreakdownRows(c: CreditsBreakdown, adminPush: number) {
   const rows: { label: string; value: number; sub?: string }[] = [];
   const adjustExPush = Math.max(0, c.adjustment - adminPush);
   if (c.topup > 0) rows.push({ label: "Wallet top-up", value: c.topup });
   if (c.commission > 0) rows.push({ label: "Commission credit", value: c.commission });
-  if (c.reversal > 0) rows.push({ label: "Reversals / refunds", value: c.reversal });
   if (c.posSettle > 0) rows.push({ label: "POS settlement", value: c.posSettle });
   if (c.fundTransferIn > 0) rows.push({ label: "Fund transfer in", value: c.fundTransferIn });
   if (adjustExPush > 0) rows.push({ label: "Admin adjustment", value: adjustExPush });

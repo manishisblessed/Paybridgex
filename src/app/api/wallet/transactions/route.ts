@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
+import { buildBreakdowns } from "@/lib/wallet/breakdown";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -46,18 +47,25 @@ export async function GET(req: Request) {
     prisma.walletTxn.count({ where }),
   ]);
 
+  const breakdownOf = await buildBreakdowns(txns);
+
   return NextResponse.json({
-    txns: txns.map((t) => ({
-      id: t.id,
-      direction: t.direction,
-      reason: t.reason,
-      amount: Number(t.amount),
-      balanceAfter: Number(t.balanceAfter),
-      note: t.note,
-      refType: t.refType,
-      refId: t.refId,
-      createdAt: t.createdAt.toISOString(),
-    })),
+    txns: txns.map((t) => {
+      const b = breakdownOf(t);
+      return {
+        id: t.id,
+        direction: t.direction,
+        reason: t.reason,
+        txnAmount: b.txnAmount,
+        charges: b.charges,
+        amount: Number(t.amount),
+        balanceAfter: Number(t.balanceAfter),
+        note: t.note,
+        refType: t.refType,
+        refId: t.refId,
+        createdAt: t.createdAt.toISOString(),
+      };
+    }),
     total,
     page,
     pageSize,

@@ -497,7 +497,7 @@ async function main() {
   // the main billing run; rapid consecutive credits are de-duped by singletonKey.
   await boss.work(QUEUES.POS_RENTAL_BILLING_RETRY, async (job) => {
     const { userId } = job!.data as { userId: string };
-    const r = await runPosRentalBilling(new Date(), userId);
+    const r = await runPosRentalBilling(new Date(), { userId, retryOnly: true });
     if (r.processed > 0)
       log(
         `pos.rental.billing.retry: user=${userId} billed=${r.billed} failed=${r.failed} skipped=${r.skipped}`

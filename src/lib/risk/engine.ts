@@ -107,6 +107,14 @@ export type RiskInput = {
   txnCount24h?: number;
   /** Payouts only: beneficiary first seen inside the cooling window. */
   isNewBeneficiary?: boolean;
+  /**
+   * Base transfer amount (pre-fee) to compare against the new-beneficiary cap.
+   * Defaults to {@link RiskInput.amount} (the full debit) when omitted. Payouts
+   * pass the raw transfer amount here so the cap aligns with the scheme slab
+   * ceiling (which is also enforced on the pre-fee amount), avoiding a false
+   * block from the service charge + GST pushing the debit over the slab limit.
+   */
+  newBeneficiaryAmount?: number;
   limits: RiskLimits;
   /** Admin-assigned per-user overrides (UserLimit row). */
   userOverrides?: {
@@ -187,7 +195,8 @@ export function evaluateRisk(input: RiskInput): RiskViolation[] {
     });
   }
 
-  if (input.isNewBeneficiary && input.amount > input.limits.newBeneficiaryCap) {
+  const newBeneficiaryAmount = input.newBeneficiaryAmount ?? input.amount;
+  if (input.isNewBeneficiary && newBeneficiaryAmount > input.limits.newBeneficiaryCap) {
     violations.push({
       rule: "NEW_BENEFICIARY_CAP",
       message: `First payouts to a new beneficiary are capped at ₹${input.limits.newBeneficiaryCap.toLocaleString("en-IN")} for ${input.limits.newBeneficiaryCoolingHours} hours. Send a smaller amount or retry after the cooling period.`,
@@ -212,6 +221,18 @@ export type AssertRiskOptions = {
   amount: Money | number | string;
   /** Payouts only — enables the new-beneficiary rule. */
   beneficiary?: { accountLast4: string; mode: PayoutMode };
+  /**
+   * Raw transfer amount (pre-fee) used for the new-beneficiary comparison.
+   * Defaults to {@link AssertRiskOptions.amount} when omitted.
+   */
+  baseAmount?: Money | number | string;
+  /**
+   * Overrides the flat {@link RiskLimits.newBeneficiaryCap} for this check —
+   * payouts pass the user's assigned-scheme slab ceiling so the first-payout
+   * cap follows the scheme instead of the global ₹ default. Ignored when null /
+   * undefined / non-positive (falls back to the env-tuned default).
+   */
+  newBeneficiaryCapOverride?: number | null;
   ip?: string | null;
   userAgent?: string | null;
 };
@@ -317,6 +338,13 @@ export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<vo
       !earliest || now.getTime() - earliest.createdAt.getTime() < coolingMs;
   }
 
+  // The first-payout cap follows the caller-supplied scheme slab ceiling when
+  // provided (Option B); otherwise it falls back to the env-tuned default.
+  const newBeneficiaryCap =
+    opts.newBeneficiaryCapOverride != null && opts.newBeneficiaryCapOverride > 0
+      ? opts.newBeneficiaryCapOverride
+      : envLimits.newBeneficiaryCap;
+
   const violations = evaluateRisk({
     amount: toNumber(dec(opts.amount)),
     service: opts.service,
@@ -327,14 +355,20 @@ export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<vo
     txnCount1h: txnCount1h + payoutCount1h,
     txnCount24h: txnCount24h + payoutCount24h,
     isNewBeneficiary,
-    // The tier-resolved overall cap + night factor; velocity/new-beneficiary
-    // rules stay env-driven. The overall cap already folds in any UserLimit
-    // override, so no separate dailyTxnAmountCap override is passed here.
+    // Compare the new-beneficiary cap against the raw transfer amount (pre-fee)
+    // so it lines up with the scheme slab ceiling, which is also enforced on the
+    // pre-fee amount upstream. Falls back to the full debit when not supplied.
+    newBeneficiaryAmount:
+      opts.baseAmount != null ? toNumber(dec(opts.baseAmount)) : undefined,
+    // The tier-resolved overall cap + night factor; velocity rules stay
+    // env-driven. The overall cap already folds in any UserLimit override, so
+    // no separate dailyTxnAmountCap override is passed here. The new-beneficiary
+    // cap is resolved above (scheme slab override > env default).
     limits: {
       dailyAmountCap: effective.dailyAmountCap,
       hourlyTxnCap: envLimits.hourlyTxnCap,
       nightFactor: effective.nightFactor,
-      newBeneficiaryCap: envLimits.newBeneficiaryCap,
+      newBeneficiaryCap,
       newBeneficiaryCoolingHours: envLimits.newBeneficiaryCoolingHours,
     },
     userOverrides:
@@ -360,6 +394,7 @@ export async function assertTransactionRisk(opts: AssertRiskOptions): Promise<vo
       serviceCap: serviceCap ?? null,
       tier: effective.profileKey,
       dailyAmountCap: effective.dailyAmountCap,
+      newBeneficiaryCap,
       txnCount1h: txnCount1h + payoutCount1h,
       rules: violations.map((v) => v.rule),
     },

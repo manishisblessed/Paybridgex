@@ -23,7 +23,7 @@ import { assertServiceEnabled, ServiceDisabledError } from "@/lib/services/guard
 import { SERVICE_KEYS } from "@/lib/services/catalog";
 import { requireActiveScheme, NoSchemeError } from "@/lib/scheme/gate";
 import { getSchemeLimit, PAYOUT_MODE_SERVICE, PricingUnavailableError } from "@/lib/scheme/resolver";
-import { dec, gt } from "@/lib/money";
+import { dec, gt, type Money } from "@/lib/money";
 
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const ACCOUNT_RE = /^\d{9,18}$/;
@@ -215,11 +215,14 @@ export async function POST(req: Request) {
   }
 
   const payoutService = PAYOUT_MODE_SERVICE[body.mode];
+  // Resolved scheme slab ceiling for this (user, service) — reused below to
+  // drive the new-beneficiary risk cap so it follows the assigned scheme.
+  let schemeLimit: Money | null = null;
   if (payoutService) {
-    const limit = await getSchemeLimit(user.id, payoutService);
-    if (limit && gt(dec(body.amount), limit)) {
+    schemeLimit = await getSchemeLimit(user.id, payoutService);
+    if (schemeLimit && gt(dec(body.amount), schemeLimit)) {
       return NextResponse.json(
-        { error: `Amount exceeds the maximum allowed limit of ₹${limit.toNumber().toLocaleString("en-IN")}` },
+        { error: `Amount exceeds the maximum allowed limit of ₹${schemeLimit.toNumber().toLocaleString("en-IN")}` },
         { status: 400 }
       );
     }
@@ -245,6 +248,11 @@ export async function POST(req: Request) {
       userId: user.id,
       service: "PAYOUT",
       amount: quote.totalDebit,
+      // Compare the first-payout cap against the raw transfer amount, and let
+      // the assigned-scheme slab ceiling drive the cap (Option B). Falls back
+      // to the env default when the scheme defines no slab limit.
+      baseAmount: body.amount,
+      newBeneficiaryCapOverride: schemeLimit ? schemeLimit.toNumber() : null,
       beneficiary: {
         accountLast4: accountNumber.slice(-4),
         mode: body.mode,

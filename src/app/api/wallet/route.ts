@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
+import { buildBreakdowns } from "@/lib/wallet/breakdown";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -50,20 +51,27 @@ export async function GET(req: Request) {
     monthlyAgg.find((a) => a.direction === "DEBIT")?._sum.amount ?? 0
   );
 
+  const breakdownOf = await buildBreakdowns(recentTxns);
+
   return NextResponse.json({
     balance: Number(dbUser.walletBalance),
     monthlyIn,
     monthlyOut,
-    recentTxns: recentTxns.map((t) => ({
-      id: t.id,
-      direction: t.direction,
-      reason: t.reason,
-      amount: Number(t.amount),
-      balanceAfter: Number(t.balanceAfter),
-      note: t.note,
-      refType: t.refType,
-      refId: t.refId,
-      createdAt: t.createdAt.toISOString(),
-    })),
+    recentTxns: recentTxns.map((t) => {
+      const b = breakdownOf(t);
+      return {
+        id: t.id,
+        direction: t.direction,
+        reason: t.reason,
+        txnAmount: b.txnAmount,
+        charges: b.charges,
+        amount: Number(t.amount),
+        balanceAfter: Number(t.balanceAfter),
+        note: t.note,
+        refType: t.refType,
+        refId: t.refId,
+        createdAt: t.createdAt.toISOString(),
+      };
+    }),
   });
 }

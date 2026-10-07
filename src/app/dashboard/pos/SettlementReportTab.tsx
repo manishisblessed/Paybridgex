@@ -16,6 +16,9 @@ import {
   Users,
   Receipt,
   X,
+  Zap,
+  Clock,
+  CalendarClock,
 } from "lucide-react";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import {
@@ -73,6 +76,32 @@ type RollupRow = {
   mdrAmount: number;
   netSettled: number;
   myCommission: number | null;
+  // B — historical split within the selected range.
+  instantSettledNet: number;
+  instantSettledCount: number;
+  t1SettledNet: number;
+  t1SettledCount: number;
+  pendingNet: number;
+  pendingCount: number;
+};
+
+type TodayRow = {
+  userId: string;
+  name: string;
+  shopName: string | null;
+  userCode: string | null;
+  role: string;
+  instantNet: number;
+  instantCount: number;
+  t1Net: number;
+  t1Count: number;
+};
+
+type TodaySummary = {
+  instantNet: number;
+  instantCount: number;
+  t1Net: number;
+  t1Count: number;
 };
 
 type ReportSummary = {
@@ -84,12 +113,19 @@ type ReportSummary = {
   settledCount: number;
   pendingCount: number;
   failedCount: number;
+  // B — range net split by settlement leg.
+  instantSettledNet: number;
+  instantSettledCount: number;
+  t1SettledNet: number;
+  t1SettledCount: number;
+  pendingNet: number;
 };
 
 type ReportResponse = {
   rows: ReportRow[];
   rollup: RollupRow[];
   summary: ReportSummary;
+  today: { rows: TodayRow[]; summary: TodaySummary };
   pagination: {
     page: number;
     pageSize: number;
@@ -147,6 +183,22 @@ function settlementBadge(status: string) {
   return <Badge variant="warning">Pending · T+1</Badge>;
 }
 
+/** Human label for the audit `settledVia` enum (used in the export). */
+function settledViaLabel(via: string | null) {
+  switch (via) {
+    case "INSTANT_AUTO":
+      return "Instant (auto)";
+    case "INSTANT_BUTTON":
+      return "Instant (manual)";
+    case "T1_CRON":
+      return "T+1 sweep";
+    case "MANUAL_RECONCILE":
+      return "Manual reconcile";
+    default:
+      return "";
+  }
+}
+
 function retailerCell(r: { retailer: ReportRetailer | null }) {
   if (!r.retailer) return <span className="text-xs text-ink-400">—</span>;
   return (
@@ -163,7 +215,7 @@ function retailerCell(r: { retailer: ReportRetailer | null }) {
   );
 }
 
-type View = "transactions" | "rollup";
+type View = "transactions" | "rollup" | "today";
 
 export function SettlementReportTab({
   initialFrom,
@@ -180,7 +232,7 @@ export function SettlementReportTab({
   const [modeFilter, setModeFilter] = useState("");
   const [retailerId, setRetailerId] = useState<string | null>(null);
   const [retailerLabel, setRetailerLabel] = useState<string | null>(null);
-  const [view, setView] = useState<View>("transactions");
+  const [view, setView] = useState<View>("today");
   const [page, setPage] = useState(1);
 
   const body = useMemo(
@@ -206,6 +258,8 @@ export function SettlementReportTab({
   const pagination = data?.pagination;
   const rows = data?.rows ?? [];
   const rollup = data?.rollup ?? [];
+  const todayRows = data?.today?.rows ?? [];
+  const todaySummary = data?.today?.summary;
   const showCommission = data?.showCommission ?? false;
 
   const drillToUser = useCallback((r: RollupRow) => {
@@ -256,6 +310,7 @@ export function SettlementReportTab({
     { key: "netSettled", header: "Settled (INR)", format: "money", render: (r) => r.netSettled.toFixed(2) },
     { key: "settlementStatus", header: "Settlement", render: (r) => r.settlementStatus },
     { key: "settlementMode", header: "Mode (T0/T1)", render: (r) => r.settlementMode },
+    { key: "settledVia", header: "Settled Via", render: (r) => settledViaLabel(r.settledVia) },
     ...(showCommission
       ? [
           {
@@ -312,7 +367,49 @@ export function SettlementReportTab({
     { key: "txnCount", header: "Txns", align: "right", render: (r) => <span className="font-semibold">{r.txnCount.toLocaleString("en-IN")}</span> },
     { key: "grossAmount", header: "Volume", align: "right", render: (r) => <span className="font-semibold text-ink-900">{formatINR(r.grossAmount)}</span> },
     { key: "mdrAmount", header: "MDR", align: "right", render: (r) => <span className="text-rose-600">−{formatINR(r.mdrAmount)}</span> },
-    { key: "netSettled", header: "Settled", align: "right", render: (r) => <span className="font-semibold text-emerald-700">{formatINR(r.netSettled)}</span> },
+    {
+      key: "instantSettledNet",
+      header: "Instant settled",
+      align: "right",
+      render: (r) =>
+        r.instantSettledCount > 0 ? (
+          <div>
+            <div className="font-semibold text-emerald-700">{formatINR(r.instantSettledNet)}</div>
+            <div className="text-[10px] text-ink-500">{r.instantSettledCount.toLocaleString("en-IN")} txn</div>
+          </div>
+        ) : (
+          <span className="text-xs text-ink-400">—</span>
+        ),
+    },
+    {
+      key: "t1SettledNet",
+      header: "T+1 settled",
+      align: "right",
+      render: (r) =>
+        r.t1SettledCount > 0 ? (
+          <div>
+            <div className="font-semibold text-sky-700">{formatINR(r.t1SettledNet)}</div>
+            <div className="text-[10px] text-ink-500">{r.t1SettledCount.toLocaleString("en-IN")} txn</div>
+          </div>
+        ) : (
+          <span className="text-xs text-ink-400">—</span>
+        ),
+    },
+    {
+      key: "pendingNet",
+      header: "Pending",
+      align: "right",
+      render: (r) =>
+        r.pendingCount > 0 ? (
+          <div>
+            <div className="font-semibold text-amber-700">{formatINR(r.pendingNet)}</div>
+            <div className="text-[10px] text-ink-500">{r.pendingCount.toLocaleString("en-IN")} txn</div>
+          </div>
+        ) : (
+          <span className="text-xs text-ink-400">—</span>
+        ),
+    },
+    { key: "netSettled", header: "Net total", align: "right", render: (r) => <span className="font-semibold text-emerald-700">{formatINR(r.netSettled)}</span> },
     ...(showCommission
       ? [
           {
@@ -335,6 +432,57 @@ export function SettlementReportTab({
           <Receipt className="h-3 w-3" /> View txns
         </button>
       ),
+    },
+  ];
+
+  const todayCols: Column<TodayRow>[] = [
+    {
+      key: "name",
+      header: "Merchant",
+      render: (r) => (
+        <div className="flex flex-col">
+          <span className="max-w-[180px] truncate text-xs font-semibold text-ink-900">{r.shopName || r.name}</span>
+          <span className="text-[11px] text-ink-500">
+            {r.userCode ? <span className="font-medium text-brand-600">{r.userCode}</span> : null}
+            {r.userCode ? " · " : ""}
+            {ROLE_LABELS[r.role] ?? r.role}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "instantNet",
+      header: "Settling today (instant)",
+      align: "right",
+      render: (r) =>
+        r.instantCount > 0 ? (
+          <div>
+            <div className="font-semibold text-emerald-700">{formatINR(r.instantNet)}</div>
+            <div className="text-[10px] text-ink-500">{r.instantCount.toLocaleString("en-IN")} txn</div>
+          </div>
+        ) : (
+          <span className="text-xs text-ink-400">—</span>
+        ),
+    },
+    {
+      key: "t1Net",
+      header: "Settling T+1 (tomorrow)",
+      align: "right",
+      render: (r) =>
+        r.t1Count > 0 ? (
+          <div>
+            <div className="font-semibold text-sky-700">{formatINR(r.t1Net)}</div>
+            <div className="text-[10px] text-ink-500">{r.t1Count.toLocaleString("en-IN")} txn</div>
+          </div>
+        ) : (
+          <span className="text-xs text-ink-400">—</span>
+        ),
+    },
+    {
+      key: "total",
+      header: "Total today",
+      align: "right",
+      render: (r) => <span className="font-semibold text-ink-900">{formatINR(r.instantNet + r.t1Net)}</span>,
     },
   ];
 
@@ -448,6 +596,7 @@ export function SettlementReportTab({
       {/* View toggle */}
       <SegmentedNav
         tabs={[
+          { key: "today", label: "Today's Book", icon: CalendarClock },
           { key: "transactions", label: "Per Transaction", icon: Receipt },
           { key: "rollup", label: "By Merchant / Downline", icon: Users },
         ]}
@@ -489,7 +638,7 @@ export function SettlementReportTab({
             />
           )}
         </>
-      ) : (
+      ) : view === "rollup" ? (
         <Reveal distance={16} duration={0.45}>
           <DataTable
             title="Settlement rollup — by merchant / downline"
@@ -506,6 +655,62 @@ export function SettlementReportTab({
             empty="No POS activity in your network for the selected filters."
           />
         </Reveal>
+      ) : (
+        <>
+          {/* Today's forward-looking book — always the current IST day, regardless of the date range above. */}
+          <Stagger stagger={0.05} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Settling today (instant)"
+                value={todaySummary ? formatINR(todaySummary.instantNet) : "..."}
+                icon={Zap}
+                tone="emerald"
+                loading={!todaySummary}
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Settling T+1 (tomorrow)"
+                value={todaySummary ? formatINR(todaySummary.t1Net) : "..."}
+                icon={Clock}
+                tone="sky"
+                loading={!todaySummary}
+              />
+            </StaggerItem>
+            <StaggerItem distance={14} duration={0.35}>
+              <StatTile
+                label="Today's total book"
+                value={todaySummary ? formatINR(todaySummary.instantNet + todaySummary.t1Net) : "..."}
+                icon={Banknote}
+                tone="brand"
+                loading={!todaySummary}
+              />
+            </StaggerItem>
+          </Stagger>
+
+          <div className="rounded-xl border border-brand-100 bg-gradient-to-r from-brand-50/70 to-accent-50/50 p-3 text-xs text-ink-600">
+            A live view of <strong>today&apos;s</strong> captures across your network: how much is settling{" "}
+            <strong>instantly today</strong> versus what is queued for the <strong>next-day (T+1)</strong> sweep
+            tomorrow. The date filters above drive the Per Transaction and By Merchant tabs, not this view.
+          </div>
+
+          <Reveal distance={16} duration={0.45}>
+            <DataTable
+              title="Today's settlement book — by merchant / downline"
+              description={
+                todayRows.length
+                  ? `${todayRows.length} merchant${todayRows.length === 1 ? "" : "s"} with captures today`
+                  : isLoading
+                    ? "Loading..."
+                    : "No captures today yet"
+              }
+              columns={todayCols}
+              data={todayRows}
+              loading={isLoading}
+              empty="No POS captures in your network today yet."
+            />
+          </Reveal>
+        </>
       )}
     </>
   );

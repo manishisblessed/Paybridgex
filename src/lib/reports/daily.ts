@@ -158,6 +158,7 @@ export type DailyReport = {
   totals: {
     opening: number;
     creditsTotal: number;
+    refundsTotal: number;        // reversals/refunds of failed txns (⊆ creditsTotal)
     debitsTotal: number;
     push: number;
     pull: number;
@@ -251,6 +252,7 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
       totals: {
         opening: 0,
         creditsTotal: 0,
+        refundsTotal: 0,
         debitsTotal: 0,
         push: 0,
         pull: 0,
@@ -505,6 +507,7 @@ export async function getDailyUserReport(params: DailyReportParams): Promise<Dai
   const totals = {
     opening: sumRound(filtered.map((r) => r.opening)),
     creditsTotal: sumRound(filtered.map((r) => r.credits.total)),
+    refundsTotal: sumRound(filtered.map((r) => r.credits.reversal)),
     debitsTotal: sumRound(filtered.map((r) => r.totalDebits)),
     push: sumRound(filtered.map((r) => r.push)),
     pull: sumRound(filtered.map((r) => r.pull)),

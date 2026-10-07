@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole, AuthError } from "@/lib/auth-server";
 import { prisma } from "@/lib/db";
 import { dec, toNumber } from "@/lib/money";
+import { buildBreakdowns } from "@/lib/wallet/breakdown";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -60,14 +61,16 @@ export async function GET(req: Request) {
         orderBy: { createdAt: "desc" },
         take: EXPORT_CAP,
       });
+      const breakdownOf = await buildBreakdowns(rows);
       const esc = (v: unknown) => {
         const s = String(v ?? "");
         return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
       };
       const header =
-        "Date,User,Email,Role,Wallet,Direction,Reason,Amount,BalanceAfter,RefType,RefId,Note";
-      const lines = rows.map((t) =>
-        [
+        "Date,User,Email,Role,Wallet,Direction,Reason,TxnAmount,Charges,Amount,BalanceAfter,RefType,RefId,Note";
+      const lines = rows.map((t) => {
+        const b = breakdownOf(t);
+        return [
           t.createdAt.toISOString(),
           esc(t.user.name),
           esc(t.user.email),
@@ -75,13 +78,15 @@ export async function GET(req: Request) {
           t.walletType,
           t.direction,
           t.reason,
+          b.txnAmount ?? "",
+          b.charges ?? "",
           toNumber(dec(t.amount)),
           toNumber(dec(t.balanceAfter)),
           esc(t.refType),
           esc(t.refId),
           esc(t.note),
-        ].join(",")
-      );
+        ].join(",");
+      });
       const csvContent = [header, ...lines].join("\n");
       const dateStr = new Date().toISOString().slice(0, 10);
 
@@ -127,21 +132,28 @@ export async function GET(req: Request) {
     const creditSum = sums.find((s) => s.direction === "CREDIT")?._sum.amount;
     const debitSum = sums.find((s) => s.direction === "DEBIT")?._sum.amount;
 
+    const breakdownOf = await buildBreakdowns(rows);
+
     return NextResponse.json({
-      entries: rows.map((t) => ({
-        id: t.id,
-        userId: t.userId,
-        user: t.user,
-        walletType: t.walletType,
-        direction: t.direction,
-        reason: t.reason,
-        amount: toNumber(dec(t.amount)),
-        balanceAfter: toNumber(dec(t.balanceAfter)),
-        refType: t.refType,
-        refId: t.refId,
-        note: t.note,
-        createdAt: t.createdAt.toISOString(),
-      })),
+      entries: rows.map((t) => {
+        const b = breakdownOf(t);
+        return {
+          id: t.id,
+          userId: t.userId,
+          user: t.user,
+          walletType: t.walletType,
+          direction: t.direction,
+          reason: t.reason,
+          txnAmount: b.txnAmount,
+          charges: b.charges,
+          amount: toNumber(dec(t.amount)),
+          balanceAfter: toNumber(dec(t.balanceAfter)),
+          refType: t.refType,
+          refId: t.refId,
+          note: t.note,
+          createdAt: t.createdAt.toISOString(),
+        };
+      }),
       total,
       page,
       pageSize,

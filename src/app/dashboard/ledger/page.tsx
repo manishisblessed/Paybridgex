@@ -22,6 +22,8 @@ type WalletTxn = {
   id: string;
   direction: "CREDIT" | "DEBIT";
   reason: string;
+  txnAmount: number | null;
+  charges: number | null;
   amount: number;
   balanceAfter: number;
   note: string | null;
@@ -105,6 +107,16 @@ export default function LedgerPage() {
     { key: "reason", header: "Reason", render: (r) => REASON_LABELS[r.reason] ?? r.reason },
     { key: "note", header: "Description" },
     { key: "refId", header: "Reference" },
+    {
+      key: "txnAmount",
+      header: "Txn amount (INR)",
+      render: (r) => (r.txnAmount == null ? "—" : formatINR(r.txnAmount)),
+    },
+    {
+      key: "charges",
+      header: "Charges (INR)",
+      render: (r) => (r.charges == null ? "—" : formatINR(r.charges)),
+    },
     { key: "amount", header: "Amount (INR)", format: "money" },
     { key: "balanceAfter", header: "Balance after (INR)", format: "money" },
   ];
@@ -206,6 +218,8 @@ export default function LedgerPage() {
               <tr>
                 <th>Type</th>
                 <th>Description</th>
+                <th className="text-right">Txn amount</th>
+                <th className="text-right">Charges</th>
                 <th className="text-right">Amount</th>
                 <th className="text-right">Balance after</th>
                 <th>Date</th>
@@ -214,10 +228,10 @@ export default function LedgerPage() {
             <tbody>
               {!data?.txns.length ? (
                 loading ? (
-                  <TableSkeletonRows rows={8} cols={5} />
+                  <TableSkeletonRows rows={8} cols={7} />
                 ) : (
                   <TableEmptyRow
-                    colSpan={5}
+                    colSpan={7}
                     icon={BookOpenCheck}
                     message="No ledger entries match your filters."
                   />
@@ -245,6 +259,20 @@ export default function LedgerPage() {
                       </div>
                       {t.note && <div className="whitespace-normal text-xs text-ink-500">{t.note}</div>}
                       {t.refId && <div className="text-[11px] text-ink-400 font-mono">{t.refId}</div>}
+                    </td>
+                    <td className="text-right text-ink-700">
+                      {t.txnAmount == null ? (
+                        <span className="text-ink-400">—</span>
+                      ) : (
+                        formatINR(t.txnAmount)
+                      )}
+                    </td>
+                    <td className="text-right">
+                      {t.charges == null ? (
+                        <span className="text-ink-400">—</span>
+                      ) : (
+                        <span className="text-amber-700">{formatINR(t.charges)}</span>
+                      )}
                     </td>
                     <td
                       className={`text-right font-semibold ${

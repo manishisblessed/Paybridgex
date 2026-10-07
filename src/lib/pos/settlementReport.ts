@@ -3,6 +3,13 @@ import { prisma } from "@/lib/db";
 import { AuthError, type SessionUser } from "@/lib/auth-server";
 import { getDescendantIds, isAdminRole } from "@/lib/security/ownership";
 import { toNumber } from "@/lib/money";
+import { SETTLED_VIA, startOfTodayIst } from "@/lib/settlement/engine";
+
+/** settledVia values that represent an INSTANT (T0) settlement leg. */
+const INSTANT_VIA = new Set<string>([
+  SETTLED_VIA.INSTANT_AUTO,
+  SETTLED_VIA.INSTANT_BUTTON,
+]);
 
 /**
  * POS per-transaction SETTLEMENT report — the financial view of every POS swipe
@@ -80,6 +87,92 @@ export type PosSettlementReportRollupRow = {
   mdrAmount: number;
   netSettled: number;
   myCommission: number | null;
+  // ── B (historical) — split within the selected range, by HOW each entry
+  // settled. `instantSettledNet` = net credited via auto/button instant (T0);
+  // `t1SettledNet` = net swept by the next-day T+1 cron; `pendingNet` = net of
+  // rows still awaiting settlement in the window.
+  instantSettledNet: number;
+  instantSettledCount: number;
+  t1SettledNet: number;
+  t1SettledCount: number;
+  pendingNet: number;
+  pendingCount: number;
+};
+
+/** Per-user instant-vs-T+1 split that groupBy(status, settledVia) rolls up to. */
+type SettlementLegSplit = {
+  instantSettledNet: number;
+  instantSettledCount: number;
+  t1SettledNet: number;
+  t1SettledCount: number;
+  pendingNet: number;
+  pendingCount: number;
+};
+
+function emptyLegSplit(): SettlementLegSplit {
+  return {
+    instantSettledNet: 0,
+    instantSettledCount: 0,
+    t1SettledNet: 0,
+    t1SettledCount: 0,
+    pendingNet: 0,
+    pendingCount: 0,
+  };
+}
+
+/** Fold a settled/pending entry into the right leg of a split accumulator. */
+function foldLeg(
+  acc: SettlementLegSplit,
+  status: string,
+  settledVia: string | null,
+  net: number,
+  count: number
+): void {
+  if (status === "SETTLED") {
+    if (settledVia === SETTLED_VIA.T1_CRON) {
+      acc.t1SettledNet += net;
+      acc.t1SettledCount += count;
+    } else if (settledVia && INSTANT_VIA.has(settledVia)) {
+      acc.instantSettledNet += net;
+      acc.instantSettledCount += count;
+    }
+    // MANUAL_RECONCILE / legacy-null settled rows stay out of the instant/T+1
+    // split (they're still counted in the gross/net totals above).
+  } else if (status === "PENDING") {
+    acc.pendingNet += net;
+    acc.pendingCount += count;
+  }
+}
+
+// ── A (today's book) — forward-looking per-user split of TODAY's captures into
+// what settles instant (today) vs what settles T+1 (tomorrow). Always scoped to
+// the current IST day regardless of the report's date range, and respects the
+// caller's downline scope + any merchant / payment-mode filter.
+
+export type PosTodaySettlementRow = {
+  userId: string;
+  name: string;
+  shopName: string | null;
+  userCode: string | null;
+  role: string;
+  /** Net of today's INSTANT-mode captures (settling today). */
+  instantNet: number;
+  instantCount: number;
+  /** Net of today's T+1-mode captures still pending (settling tomorrow). */
+  t1Net: number;
+  t1Count: number;
+};
+
+export type PosTodaySettlementSummary = {
+  instantNet: number;
+  instantCount: number;
+  t1Net: number;
+  t1Count: number;
+};
+
+export type PosTodaySettlement = {
+  rows: PosTodaySettlementRow[];
+  summary: PosTodaySettlementSummary;
 };
 
 export type PosSettlementReportSummary = {
@@ -91,12 +184,20 @@ export type PosSettlementReportSummary = {
   settledCount: number;
   pendingCount: number;
   failedCount: number;
+  // ── B (historical) — range net split by settlement leg.
+  instantSettledNet: number;
+  instantSettledCount: number;
+  t1SettledNet: number;
+  t1SettledCount: number;
+  pendingNet: number;
 };
 
 export type PosSettlementReportResult = {
   rows: PosSettlementReportRow[];
   rollup: PosSettlementReportRollupRow[];
   summary: PosSettlementReportSummary;
+  /** A — today's forward-looking instant-vs-T+1 book (per user + totals). */
+  today: PosTodaySettlement;
   pagination: {
     page: number;
     pageSize: number;
@@ -220,7 +321,7 @@ async function loadSummary(
   where: Prisma.PosSettlementEntryWhereInput,
   totalCommission: number | null
 ): Promise<PosSettlementReportSummary> {
-  const [agg, byStatus] = await Promise.all([
+  const [agg, byStatus, byLeg] = await Promise.all([
     prisma.posSettlementEntry.aggregate({
       where,
       _sum: { grossAmount: true, mdrAmount: true, netAmount: true },
@@ -231,10 +332,21 @@ async function loadSummary(
       where,
       _count: { _all: true },
     }),
+    prisma.posSettlementEntry.groupBy({
+      by: ["status", "settledVia"],
+      where,
+      _sum: { netAmount: true },
+      _count: { _all: true },
+    }),
   ]);
 
   const counts: Record<string, number> = {};
   for (const g of byStatus) counts[g.status] = g._count._all;
+
+  const leg = emptyLegSplit();
+  for (const g of byLeg) {
+    foldLeg(leg, g.status, g.settledVia, toNumber(g._sum.netAmount ?? 0), g._count._all);
+  }
 
   return {
     totalTransactions: agg._count._all,
@@ -245,6 +357,11 @@ async function loadSummary(
     settledCount: counts.SETTLED ?? 0,
     pendingCount: counts.PENDING ?? 0,
     failedCount: counts.FAILED ?? 0,
+    instantSettledNet: leg.instantSettledNet,
+    instantSettledCount: leg.instantSettledCount,
+    t1SettledNet: leg.t1SettledNet,
+    t1SettledCount: leg.t1SettledCount,
+    pendingNet: leg.pendingNet,
   };
 }
 
@@ -253,13 +370,29 @@ async function loadRollup(
   commissionByUser: Map<string, number>,
   showCommission: boolean
 ): Promise<PosSettlementReportRollupRow[]> {
-  const grouped = await prisma.posSettlementEntry.groupBy({
-    by: ["userId"],
-    where,
-    _sum: { grossAmount: true, mdrAmount: true, netAmount: true },
-    _count: { _all: true },
-  });
+  const [grouped, legGrouped] = await Promise.all([
+    prisma.posSettlementEntry.groupBy({
+      by: ["userId"],
+      where,
+      _sum: { grossAmount: true, mdrAmount: true, netAmount: true },
+      _count: { _all: true },
+    }),
+    prisma.posSettlementEntry.groupBy({
+      by: ["userId", "status", "settledVia"],
+      where,
+      _sum: { netAmount: true },
+      _count: { _all: true },
+    }),
+  ]);
   if (grouped.length === 0) return [];
+
+  // Fold the (user × status × settledVia) groups into one split per user.
+  const legByUser = new Map<string, SettlementLegSplit>();
+  for (const g of legGrouped) {
+    const acc = legByUser.get(g.userId) ?? emptyLegSplit();
+    foldLeg(acc, g.status, g.settledVia, toNumber(g._sum.netAmount ?? 0), g._count._all);
+    legByUser.set(g.userId, acc);
+  }
 
   const users = await prisma.user.findMany({
     where: { id: { in: grouped.map((g) => g.userId) } },
@@ -270,6 +403,7 @@ async function loadRollup(
   return grouped
     .map((g) => {
       const u = userById.get(g.userId);
+      const leg = legByUser.get(g.userId) ?? emptyLegSplit();
       return {
         userId: g.userId,
         name: u?.name ?? "Unknown",
@@ -281,9 +415,106 @@ async function loadRollup(
         mdrAmount: toNumber(g._sum.mdrAmount ?? 0),
         netSettled: toNumber(g._sum.netAmount ?? 0),
         myCommission: showCommission ? commissionByUser.get(g.userId) ?? 0 : null,
+        instantSettledNet: leg.instantSettledNet,
+        instantSettledCount: leg.instantSettledCount,
+        t1SettledNet: leg.t1SettledNet,
+        t1SettledCount: leg.t1SettledCount,
+        pendingNet: leg.pendingNet,
+        pendingCount: leg.pendingCount,
       };
     })
     .sort((a, b) => b.grossAmount - a.grossAmount);
+}
+
+/**
+ * A — Today's forward-looking settlement book. Of transactions captured TODAY
+ * (IST) within the caller's scope, splits each downline user's net into what is
+ * settling INSTANT (today) vs what is queued for the T+1 sweep (tomorrow).
+ *
+ * Always keys off the current IST day (independent of the report's date range)
+ * and only its own `status`/date predicates — it still honours the caller's
+ * downline scope, an active merchant drill-down, and the payment-mode filter.
+ */
+async function loadToday(
+  allowed: string[] | null,
+  filters: PosSettlementReportFilters
+): Promise<PosTodaySettlement> {
+  const todayStart = startOfTodayIst();
+  const where: Prisma.PosSettlementEntryWhereInput = {
+    // Reversed / failed captures never settle — exclude from the forward book.
+    status: { in: ["PENDING", "SETTLED"] },
+    OR: [
+      { capturedAt: { gte: todayStart } },
+      { capturedAt: null, createdAt: { gte: todayStart } },
+    ],
+  };
+  if (filters.retailerId) where.userId = filters.retailerId;
+  else if (allowed) where.userId = { in: allowed };
+  if (filters.paymentMode) where.paymentMode = filters.paymentMode;
+
+  const grouped = await prisma.posSettlementEntry.groupBy({
+    by: ["userId", "mode"],
+    where,
+    _sum: { netAmount: true },
+    _count: { _all: true },
+  });
+
+  const summary: PosTodaySettlementSummary = {
+    instantNet: 0,
+    instantCount: 0,
+    t1Net: 0,
+    t1Count: 0,
+  };
+  if (grouped.length === 0) return { rows: [], summary };
+
+  const byUser = new Map<string, PosTodaySettlementRow>();
+  for (const g of grouped) {
+    const net = toNumber(g._sum.netAmount ?? 0);
+    const count = g._count._all;
+    const row =
+      byUser.get(g.userId) ??
+      ({
+        userId: g.userId,
+        name: "Unknown",
+        shopName: null,
+        userCode: null,
+        role: "",
+        instantNet: 0,
+        instantCount: 0,
+        t1Net: 0,
+        t1Count: 0,
+      } as PosTodaySettlementRow);
+    if (g.mode === "INSTANT") {
+      row.instantNet += net;
+      row.instantCount += count;
+      summary.instantNet += net;
+      summary.instantCount += count;
+    } else {
+      row.t1Net += net;
+      row.t1Count += count;
+      summary.t1Net += net;
+      summary.t1Count += count;
+    }
+    byUser.set(g.userId, row);
+  }
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: [...byUser.keys()] } },
+    select: { id: true, name: true, shopName: true, userCode: true, role: true },
+  });
+  for (const u of users) {
+    const row = byUser.get(u.id);
+    if (!row) continue;
+    row.name = u.name;
+    row.shopName = u.shopName ?? null;
+    row.userCode = u.userCode ?? null;
+    row.role = u.role;
+  }
+
+  const rows = [...byUser.values()].sort(
+    (a, b) => b.instantNet + b.t1Net - (a.instantNet + a.t1Net)
+  );
+  return { rows, summary };
 }
 
 type EntryRow = Prisma.PosSettlementEntryGetPayload<{
@@ -419,9 +650,10 @@ export async function buildPosSettlementReport(
 
   const mirror = await mirrorByRef(entries.map((e) => e.transactionRef));
 
-  const [summary, rollup] = await Promise.all([
+  const [summary, rollup, today] = await Promise.all([
     loadSummary(where, showCommission ? commission.total : null),
     loadRollup(where, commission.byUser, showCommission),
+    loadToday(allowed, filters),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -430,6 +662,7 @@ export async function buildPosSettlementReport(
     rows: entries.map((e) => toRow(e, mirror, commission.byRef, showCommission)),
     rollup,
     summary,
+    today,
     pagination: {
       page,
       pageSize,
