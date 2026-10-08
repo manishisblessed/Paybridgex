@@ -102,6 +102,10 @@ export default function ReversalDeskPage() {
   const [decision, setDecision] = useState<{ id: string; action: "APPROVE" | "REJECT" | "CANCEL" } | null>(null);
   const [decideBusy, setDecideBusy] = useState(false);
 
+  // One-click anomaly refund — confirmation + busy state
+  const [refundTarget, setRefundTarget] = useState<Anomaly | null>(null);
+  const [refundBusy, setRefundBusy] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -177,6 +181,57 @@ export default function ReversalDeskPage() {
       setTimeout(() => reconcile(), 0);
     } else if (action === "resolve") {
       setTimeout(() => resolveTxn(), 0);
+    }
+  };
+
+  // One-click refund for a money-loss anomaly: look up the transaction, then
+  // execute the reversal in a single flow (no manual form step). The reversal
+  // service already blocks a duplicate refund (ALREADY_REVERSED), so this is
+  // safe even if clicked twice or if another admin already acted.
+  const refundAnomaly = async (anomaly: Anomaly) => {
+    setRefundBusy(true);
+    try {
+      // 1. Resolve the transaction's owner + refundable amount (amount + fee).
+      const lookupRes = await fetch(
+        `/api/admin/reversals?lookup=${encodeURIComponent(anomaly.refId)}`
+      );
+      const lookupData = await lookupRes.json();
+      if (!lookupRes.ok) throw new Error(lookupData?.error ?? "Could not find the transaction");
+      const p = lookupData.prefill;
+
+      // 2. Execute the reversal (credit the retailer's wallet back).
+      const res = await fetch("/api/admin/reversals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "TRANSACTION",
+          refType: p.refType,
+          refId: p.refId,
+          refLabel: p.refLabel,
+          targetUserId: p.targetUserId,
+          direction: "CREDIT",
+          walletType: "PRIMARY",
+          amount: Number(p.amount),
+          reason: `${ANOMALY_LABELS[anomaly.type].label} — auto-detected, refunded from Reversal Desk`,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        throw new Error(typeof d?.error === "string" ? d.error : "Refund failed");
+      }
+      notify(
+        `${anomaly.refId}: ${formatINR(Number(p.amount))} refunded to ${
+          p.owner?.name ?? "the retailer"
+        }'s wallet.`,
+        true
+      );
+      setRefundTarget(null);
+      load();
+      loadAnomalies();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Refund failed", false);
+    } finally {
+      setRefundBusy(false);
     }
   };
 
@@ -549,12 +604,19 @@ export default function ReversalDeskPage() {
                             </Button>
                           </>
                         ) : (
-                          <Button
-                            size="sm"
-                            onClick={() => handleAnomalyAction(a, "lookup")}
-                          >
-                            Refund
-                          </Button>
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleAnomalyAction(a, "lookup")}
+                              title="Prefill the reversal form to review before refunding"
+                            >
+                              Review
+                            </Button>
+                            <Button size="sm" onClick={() => setRefundTarget(a)}>
+                              Refund
+                            </Button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -773,6 +835,35 @@ export default function ReversalDeskPage() {
             const done = await resolveTxn(providerRef);
             if (done) setResolveNeedRef(null);
           }
+        }}
+      />
+
+      <ConfirmDialog
+        open={refundTarget !== null}
+        onClose={() => setRefundTarget(null)}
+        busy={refundBusy}
+        tone="default"
+        title="Refund this transaction?"
+        description={
+          refundTarget ? (
+            <>
+              This will credit{" "}
+              <span className="font-semibold">
+                {formatINR(refundTarget.amount + refundTarget.fee)}
+              </span>{" "}
+              (amount + fee) back to{" "}
+              <span className="font-semibold">{refundTarget.user?.name ?? "the retailer"}</span>
+              &apos;s wallet and mark{" "}
+              <span className="font-mono text-xs">{refundTarget.refId}</span> as REFUNDED. If a
+              refund already exists for this transaction, it will be safely blocked — no double
+              refund.
+            </>
+          ) : null
+        }
+        confirmLabel="Refund now"
+        cancelLabel="Cancel"
+        onConfirm={async () => {
+          if (refundTarget) await refundAnomaly(refundTarget);
         }}
       />
     </div>
