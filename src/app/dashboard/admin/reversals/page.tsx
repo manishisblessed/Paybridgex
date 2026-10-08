@@ -9,7 +9,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Panel, SectionTitle, StatusPill, SegmentedNav } from "@/components/dashboard/ui";
 import { Reveal } from "@/components/motion";
 import { formatINR, formatNumber, formatIST } from "@/lib/utils";
-import { RefreshCw, Search } from "lucide-react";
+import { RefreshCw, Search, AlertTriangle, ShieldAlert, Clock, CircleDollarSign } from "lucide-react";
 
 type Reversal = {
   id: string;
@@ -27,6 +27,27 @@ type Reversal = {
   target: { id: string; name: string; email: string };
   maker: { name: string } | null;
   checker: { name: string } | null;
+};
+
+type Anomaly = {
+  id: string;
+  type: "FAILED_NO_REVERSAL" | "SUCCESS_NO_PROVIDER" | "STUCK_NON_TERMINAL";
+  txnId: string;
+  refId: string;
+  amount: number;
+  fee: number;
+  service: string;
+  status: string;
+  partner: string | null;
+  detectedAt: string;
+  ageMinutes: number;
+  user: { name: string; email: string; userCode: string | null } | null;
+};
+
+const ANOMALY_LABELS: Record<Anomaly["type"], { label: string; tone: "danger" | "warning"; icon: typeof AlertTriangle }> = {
+  FAILED_NO_REVERSAL: { label: "Failed — not refunded", tone: "danger", icon: CircleDollarSign },
+  SUCCESS_NO_PROVIDER: { label: "Success — no provider record", tone: "danger", icon: ShieldAlert },
+  STUCK_NON_TERMINAL: { label: "Stuck in processing", tone: "warning", icon: Clock },
 };
 
 const STATUSES = ["all", "PENDING_APPROVAL", "COMPLETED", "REJECTED", "CANCELLED"];
@@ -66,6 +87,12 @@ export default function ReversalDeskPage() {
   // When the provider can't confirm from stored refs, prompt for the pay-step ref.
   const [resolveNeedRef, setResolveNeedRef] = useState<string | null>(null);
 
+  // Auto-detected anomalies
+  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+  const [anomalyTotal, setAnomalyTotal] = useState(0);
+  const [anomalyExposure, setAnomalyExposure] = useState(0);
+  const [anomalyLoading, setAnomalyLoading] = useState(true);
+
   // Pending approve/reject/cancel decision awaiting confirmation
   const [decision, setDecision] = useState<{ id: string; action: "APPROVE" | "REJECT" | "CANCEL" } | null>(null);
   const [decideBusy, setDecideBusy] = useState(false);
@@ -87,9 +114,66 @@ export default function ReversalDeskPage() {
     }
   }, [page, status, notify]);
 
+  const loadAnomalies = useCallback(async () => {
+    setAnomalyLoading(true);
+    try {
+      const res = await fetch("/api/admin/transactions/anomalies");
+      const d = await res.json();
+      if (!res.ok) throw new Error(d?.error ?? "Failed to load anomalies");
+      setAnomalies(d.items ?? []);
+      setAnomalyTotal(d.total ?? 0);
+      setAnomalyExposure(d.exposure ?? 0);
+    } catch {
+      // silent — anomaly panel is supplementary
+    } finally {
+      setAnomalyLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadAnomalies();
+  }, [load, loadAnomalies]);
+
+  // Auto-refresh anomalies every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(loadAnomalies, 5 * 60_000);
+    return () => clearInterval(interval);
+  }, [loadAnomalies]);
+
+  const handleAnomalyAction = (anomaly: Anomaly, action: "lookup" | "reconcile" | "resolve") => {
+    setLookupRef(anomaly.refId);
+    if (action === "lookup") {
+      // Trigger lookup with the correct refId
+      setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/admin/reversals?lookup=${encodeURIComponent(anomaly.refId)}`);
+          const d = await res.json();
+          if (!res.ok) throw new Error(d?.error ?? "Lookup failed");
+          const p = d.prefill;
+          setForm((f) => ({
+            ...f,
+            kind: "TRANSACTION",
+            refType: p.refType,
+            refId: p.refId,
+            refLabel: p.refLabel,
+            targetUserId: p.targetUserId,
+            targetLabel: p.owner ? `${p.owner.name} (${p.owner.email})` : p.targetUserId,
+            amount: String(p.amount),
+            direction: "CREDIT",
+            reason: ANOMALY_LABELS[anomaly.type].label + " — auto-detected by anomaly sweep",
+          }));
+          notify(`Found ${p.refLabel} — prefilled the refund of ${formatINR(p.amount)}.`, true);
+        } catch (e) {
+          notify(e instanceof Error ? e.message : "Lookup failed", false);
+        }
+      }, 0);
+    } else if (action === "reconcile") {
+      setTimeout(() => reconcile(), 0);
+    } else if (action === "resolve") {
+      setTimeout(() => resolveTxn(), 0);
+    }
+  };
 
   const lookup = async () => {
     if (!lookupRef.trim()) return;
@@ -150,6 +234,7 @@ export default function ReversalDeskPage() {
           );
       }
       load();
+      loadAnomalies();
     } catch (e) {
       notify(e instanceof Error ? e.message : "Reconcile failed", false);
     } finally {
@@ -200,6 +285,7 @@ export default function ReversalDeskPage() {
           notify(`${ref}: ${d.outcome ?? "no change"}.`, true);
       }
       load();
+      loadAnomalies();
       return true;
     } catch (e) {
       notify(e instanceof Error ? e.message : "Resolve failed", false);
@@ -233,6 +319,7 @@ export default function ReversalDeskPage() {
       setForm((f) => ({ ...f, refId: "", refLabel: "", targetUserId: "", targetLabel: "", amount: "", reason: "" }));
       setLookupRef("");
       load();
+      loadAnomalies();
     } catch (e) {
       notify(e instanceof Error ? e.message : "Failed to raise reversal", false);
     } finally {
@@ -361,6 +448,118 @@ export default function ReversalDeskPage() {
           }
         />
       </Reveal>
+
+      {/* Auto-detected Issues */}
+      {anomalyTotal > 0 && (
+        <Reveal distance={16} duration={0.45}>
+          <Panel>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-rose-100 text-rose-600">
+                  <AlertTriangle className="h-4 w-4" />
+                </span>
+                <div>
+                  <SectionTitle title="Auto-detected Issues" />
+                  <p className="text-xs text-ink-500">
+                    {anomalyTotal} issue{anomalyTotal !== 1 ? "s" : ""} · exposure{" "}
+                    <span className="font-semibold text-rose-600">{formatINR(anomalyExposure)}</span>
+                    {" "}· auto-refreshes every 5 min
+                  </p>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={loadAnomalies}>
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
+              </Button>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {anomalyLoading ? (
+                <p className="py-6 text-center text-sm text-ink-400">Checking for anomalies…</p>
+              ) : (
+                anomalies.map((a) => {
+                  const config = ANOMALY_LABELS[a.type];
+                  const Icon = config.icon;
+                  const ageLabel =
+                    a.ageMinutes < 60
+                      ? `${a.ageMinutes}m ago`
+                      : a.ageMinutes < 1440
+                        ? `${Math.floor(a.ageMinutes / 60)}h ${a.ageMinutes % 60}m ago`
+                        : `${Math.floor(a.ageMinutes / 1440)}d ${Math.floor((a.ageMinutes % 1440) / 60)}h ago`;
+                  return (
+                    <div
+                      key={a.id}
+                      className={`flex items-center justify-between rounded-xl border px-4 py-3 ${
+                        config.tone === "danger"
+                          ? "border-rose-200 bg-rose-50/60"
+                          : "border-amber-200 bg-amber-50/60"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`grid h-8 w-8 place-items-center rounded-lg ${
+                            config.tone === "danger"
+                              ? "bg-rose-100 text-rose-600"
+                              : "bg-amber-100 text-amber-600"
+                          }`}
+                        >
+                          <Icon className="h-4 w-4" />
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-medium text-ink-800">
+                              {a.refId}
+                            </span>
+                            <StatusPill
+                              status={config.label}
+                              tone={config.tone === "danger" ? "danger" : "warning"}
+                            >
+                              {config.label}
+                            </StatusPill>
+                          </div>
+                          <p className="mt-0.5 text-xs text-ink-500">
+                            {a.user?.name ?? "—"}
+                            {a.user?.userCode ? ` (${a.user.userCode})` : ""} ·{" "}
+                            {a.service.replace(/_/g, " ").toLowerCase()} · {formatINR(a.amount)}
+                            {a.fee > 0 ? ` + ${formatINR(a.fee)} fee` : ""} ·{" "}
+                            <span className="text-ink-400">{ageLabel}</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-1.5">
+                        {a.type === "STUCK_NON_TERMINAL" ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleAnomalyAction(a, "reconcile")}
+                            >
+                              Reconcile
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleAnomalyAction(a, "resolve")}
+                            >
+                              Resolve
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => handleAnomalyAction(a, "lookup")}
+                          >
+                            Refund
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </Panel>
+        </Reveal>
+      )}
 
       {/* Raise a reversal */}
       <Reveal distance={16} duration={0.45}>

@@ -127,6 +127,11 @@ export const QUEUES = {
   // is what keeps us under the partner's 100 req/min limit. Idempotent per txn
   // ref. See src/lib/pos/mirror-sweep.ts.
   POS_MIRROR_SYNC: "pos.mirror.sync",
+  // Transaction anomaly detection sweep (every 5 min). Flags money-safety
+  // anomalies: FAILED without wallet reversal, SUCCESS without provider record,
+  // stuck non-terminal transactions. Surfaces them on the Reversal Desk so ops
+  // never has to hunt for stuck payments manually. See src/lib/recon/anomalies.ts.
+  TXN_ANOMALY_SWEEP: "txn.anomaly.sweep",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];

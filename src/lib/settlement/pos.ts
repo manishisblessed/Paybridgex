@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { creditWallet } from "@/lib/ledger";
+import { creditWallet, schedulePosRentalRetryIfNeeded } from "@/lib/ledger";
 import { getEffectiveMdr, type MdrDimensions } from "@/lib/mdr/resolver";
 import { distributeMdrCommission } from "@/lib/commission/distribute";
 import { isAboveMdrFloor } from "@/lib/mdr/floor";
@@ -300,6 +300,8 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
         idempotencyKey: `pos-settle:${input.transactionRef}`,
       });
       wtxnId = wtxn.id;
+      // Instant settlement credited → recover any outstanding POS rent.
+      void schedulePosRentalRetryIfNeeded(userId);
     } catch {
       wtxnId = null;
     }
@@ -797,6 +799,9 @@ async function settleEntry(
     note: `POS ${settlementType === "T0" ? "instant" : "T+1"} settlement (${entry.paymentMode ?? "card"})`,
     idempotencyKey: `pos-settle:${entry.transactionRef}`,
   });
+
+  // Settlement credited → recover any outstanding POS rent immediately.
+  void schedulePosRentalRetryIfNeeded(entry.userId);
 
   // Persist re-priced figures (branded or instant) alongside the settlement.
   const mdrChanged = freshMdr !== null && !eq(freshMdr.mdrAmount, dec(entry.mdrAmount as never));

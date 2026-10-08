@@ -489,6 +489,18 @@ export function ReportView({ type }: { type: ReportType }) {
     setPage(1);
   };
 
+  // The Type/status select, hoisted so it can render either before the role
+  // filters (default) or after them (push-pull: `statusLast`).
+  const statusField = f.status ? (
+    <FilterField>
+      <Label htmlFor="status">{f.status.label}</Label>
+      <Select id="status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="w-44">
+        <option value="">All</option>
+        {f.status.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </Select>
+    </FilterField>
+  ) : null;
+
   return (
     <div className="space-y-6">
       <Link
@@ -618,15 +630,7 @@ export function ReportView({ type }: { type: ReportType }) {
           </>
         )}
 
-        {f.status && (
-          <FilterField>
-            <Label htmlFor="status">{f.status.label}</Label>
-            <Select id="status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="w-44">
-              <option value="">All</option>
-              {f.status.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </Select>
-          </FilterField>
-        )}
+        {!f.statusLast && statusField}
 
         {f.service && (
           <>
@@ -703,6 +707,8 @@ export function ReportView({ type }: { type: ReportType }) {
             )}
           </>
         )}
+
+        {f.statusLast && statusField}
 
         {f.search && (
           <FilterField className="min-w-[220px] flex-1">

@@ -235,21 +235,30 @@ export const samedayBbps: BbpsProvider = {
       pincode: cc.pincode,
     }, undefined, { audit: true });
     if (!r.ok) return r;
-    // Backstop to the pre-pay duplicate guard: if the provider says this
-    // success is a replay of an earlier attempt on the same bill_fetch_ref,
-    // flag it so recon/ops can confirm the customer was charged only once.
-    // Best-effort and non-blocking — we still return success (the bill IS paid).
+    // Idempotent replay detection: the provider says this success is a REPLAY
+    // of a prior attempt on the same bill_fetch_ref — NO NEW MONEY MOVED for
+    // this call. Treating it as a success would permanently debit the
+    // retailer's wallet for a payment that already settled under a different
+    // transaction, causing a direct financial loss. Return a clear failure so
+    // runTransaction refunds the held reserve.
     if (r.data.idempotent_replay || r.data.idempotent) {
       void sendOpsAlert({
-        title: "BBPS pay returned an idempotent replay",
+        title: "BBPS pay returned an idempotent replay — auto-refunding duplicate charge",
         severity: "warning",
         details: {
           billerCode: input.billerCode,
           billFetchRef,
           orderId: r.data.order_id ?? r.data.request_id ?? "(none)",
-          note: "Provider replayed a prior attempt — verify no double charge for this card.",
+          note: "Provider replayed a prior attempt — no new money moved. Wallet reserve refunded.",
         },
       }).catch(() => {});
+      return {
+        ok: false,
+        code: "IDEMPOTENT_REPLAY",
+        message:
+          "This bill was already paid by a prior transaction. No additional charge has been applied.",
+        raw: r.raw,
+      };
     }
     return {
       ok: true,

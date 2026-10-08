@@ -71,6 +71,10 @@ const CODE_MESSAGES: Record<string, string> = {
   // auto-refunded; retrying the same ref won't help until the biller is back.
   PAYMENT_FAILED:
     "This bank isn't responding right now, so the payment couldn't be completed. Any amount debited is auto-refunded to your wallet — please try again in a little while, or choose another card issuer.",
+  // Idempotent replay: the provider confirms the bill was already paid by a
+  // prior transaction — no new money moved. The wallet reserve is auto-refunded.
+  IDEMPOTENT_REPLAY:
+    "This bill was already paid by a prior transaction. No additional charge has been applied — your wallet balance is unchanged.",
   RATE_LIMITED: "We're a bit busy right now. Please wait a moment and try again.",
   NETWORK:
     "We couldn't reach the payment network. Please check your connection and try again.",

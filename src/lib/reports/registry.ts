@@ -50,6 +50,12 @@ export type ReportFilterConfig = {
   search?: string; // placeholder; presence enables the search box
   dateRange?: boolean;
   status?: { label: string; options: FilterOption[] };
+  /**
+   * Render the `status` select after the role/user filters instead of before
+   * them. Used by Push/Pull so the Type (Push/Pull) toggle sits next to the
+   * From/To user pickers it refines.
+   */
+  statusLast?: boolean;
   service?: { label: string; options: FilterOption[]; userPicker?: UserPickerConfig };
   mode?: { label: string; options: FilterOption[]; userPicker?: UserPickerConfig };
 };
@@ -228,6 +234,7 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
       dateRange: true,
       search: "Search name / user ID / note…",
       status: { label: "Type", options: opts(["PUSH", "PULL"]) },
+      statusLast: true,
       service: {
         label: "From Role",
         options: opts(PUSH_PULL_ROLES),

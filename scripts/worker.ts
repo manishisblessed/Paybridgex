@@ -39,6 +39,7 @@ import { runBbpsFailureRateMonitor } from "@/lib/recon/bbpsHealthMonitor";
 import { runRechargekitReconciliation } from "@/lib/recon/rechargekit";
 import { runReconPreflight, runReconConnectivityMonitor } from "@/lib/recon/preflight";
 import { runReconHeartbeat } from "@/lib/recon/heartbeat";
+import { runAnomalySweep } from "@/lib/recon/anomalies";
 import { sweepDisputeSlas } from "@/lib/disputes/service";
 import { runSettlementAutosweep } from "@/lib/settlement/autosweep";
 import { runT1SettlementSweep } from "@/lib/settlement/t1";
@@ -200,6 +201,23 @@ async function main() {
     if (r.recovered.length > 0) log(`recon.connectivity: RESTORED rails=${r.recovered.join(",")}`);
   });
   await boss.schedule(QUEUES.RECON_CONNECTIVITY, "*/5 * * * *");
+
+  // QUEUES.TXN_ANOMALY_SWEEP — money-safety anomaly detection (every 5 min).
+  // Flags: FAILED without wallet reversal, SUCCESS without provider record, stuck
+  // non-terminal payments. Each anomaly is recorded once and surfaces on the
+  // Reversal Desk's "Auto-detected Issues" panel. Resolved anomalies are
+  // auto-cleared on the next sweep.
+  await boss.work(QUEUES.TXN_ANOMALY_SWEEP, async () => {
+    const r = await runAnomalySweep();
+    if (r.total > 0 || r.cleared > 0) {
+      log(
+        `txn.anomaly.sweep: failedNoReversal=${r.failedNoReversal} ` +
+          `successNoProvider=${r.successNoProvider} stuck=${r.stuckNonTerminal} ` +
+          `cleared=${r.cleared}`
+      );
+    }
+  });
+  await boss.schedule(QUEUES.TXN_ANOMALY_SWEEP, "*/5 * * * *");
 
   // QUEUES.REKYC_MONTHLY — flag all ACTIVE network users for re-verification.
   // The sweep is internally idempotent, so a duplicate/retried delivery is safe.
@@ -469,11 +487,14 @@ async function main() {
   });
   await boss.schedule(QUEUES.PG_SETTLEMENT_INSTANT, "*/3 * * * *", {}, { tz: "Asia/Kolkata" });
 
-  // QUEUES.POS_RENTAL_BILLING — admin console Phase 5. Runs every hour; only
-  // fires billing when the current IST hour matches the admin-configured hour.
+  // QUEUES.POS_RENTAL_BILLING — admin console Phase 5. Runs every hour.
+  // At the admin-configured hour: full billing (new invoices + retry FAILED).
+  // Every other hour: retry-only sweep — settles FAILED invoices the moment the
+  // user's wallet has balance, regardless of HOW the balance arrived.
   // Idempotent per (subscription, YYYY-MM) via the unique invoice key.
   await boss.work(QUEUES.POS_RENTAL_BILLING, async () => {
     const cfg = await getSetting("pos.rental_billing");
+    if (!cfg.enabled) return;
     const istHour = Number(
       new Intl.DateTimeFormat("en-GB", {
         timeZone: "Asia/Kolkata",
@@ -481,10 +502,19 @@ async function main() {
         hour12: false,
       }).format(new Date())
     );
-    if (istHour !== cfg.hour) return;
-    const r = await runPosRentalBilling();
-    if (r.processed > 0)
-      log(`pos.rental.billing: billed=${r.billed} failed=${r.failed} skipped=${r.skipped}`);
+    if (istHour === cfg.hour) {
+      // Configured hour → full billing: create new invoices + retry failed
+      const r = await runPosRentalBilling();
+      if (r.processed > 0)
+        log(`pos.rental.billing: billed=${r.billed} failed=${r.failed} skipped=${r.skipped}`);
+    } else {
+      // Every other hour → retry-only sweep (no new invoices, just settle FAILED)
+      const r = await runPosRentalBilling(new Date(), { retryOnly: true });
+      if (r.processed > 0)
+        log(
+          `pos.rental.billing.retry-sweep: billed=${r.billed} failed=${r.failed} skipped=${r.skipped}`
+        );
+    }
   });
   await boss.schedule(QUEUES.POS_RENTAL_BILLING, "0 * * * *", {}, { tz: "Asia/Kolkata" });
 
@@ -625,7 +655,7 @@ async function main() {
   }
 
   log(
-    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), bbps.health_monitor (*/5 * * * *), rechargekit.reconcile (*/5 * * * *), recon.heartbeat (*/15 * * * *), recon.connectivity (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.settle.sweep (*/10 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), pos.mirror.sync (*/2 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
+    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), bbps.health_monitor (*/5 * * * *), rechargekit.reconcile (*/5 * * * *), recon.heartbeat (*/15 * * * *), recon.connectivity (*/5 * * * *), txn.anomaly.sweep (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.settle.sweep (*/10 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), pos.mirror.sync (*/2 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
   );
 }
 
