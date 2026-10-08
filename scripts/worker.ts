@@ -212,8 +212,8 @@ async function main() {
     if (r.total > 0 || r.cleared > 0) {
       log(
         `txn.anomaly.sweep: failedNoReversal=${r.failedNoReversal} ` +
-          `successNoProvider=${r.successNoProvider} stuck=${r.stuckNonTerminal} ` +
-          `cleared=${r.cleared}`
+          `successNoProvider=${r.successNoProvider} duplicateRef=${r.duplicateProviderRef} ` +
+          `stuck=${r.stuckNonTerminal} cleared=${r.cleared}`
       );
     }
   });

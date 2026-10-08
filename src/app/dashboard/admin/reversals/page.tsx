@@ -31,7 +31,11 @@ type Reversal = {
 
 type Anomaly = {
   id: string;
-  type: "FAILED_NO_REVERSAL" | "SUCCESS_NO_PROVIDER" | "STUCK_NON_TERMINAL";
+  type:
+    | "FAILED_NO_REVERSAL"
+    | "SUCCESS_NO_PROVIDER"
+    | "DUPLICATE_PROVIDER_REF"
+    | "STUCK_NON_TERMINAL";
   txnId: string;
   refId: string;
   amount: number;
@@ -47,6 +51,7 @@ type Anomaly = {
 const ANOMALY_LABELS: Record<Anomaly["type"], { label: string; tone: "danger" | "warning"; icon: typeof AlertTriangle }> = {
   FAILED_NO_REVERSAL: { label: "Failed — not refunded", tone: "danger", icon: CircleDollarSign },
   SUCCESS_NO_PROVIDER: { label: "Success — no provider record", tone: "danger", icon: ShieldAlert },
+  DUPLICATE_PROVIDER_REF: { label: "Duplicate charge — same provider ref", tone: "danger", icon: ShieldAlert },
   STUCK_NON_TERMINAL: { label: "Stuck in processing", tone: "warning", icon: Clock },
 };
 

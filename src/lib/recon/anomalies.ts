@@ -52,6 +52,7 @@ const RAILS_REQUIRING_PARTNER_REF: ServiceCode[] = [
 export const ANOMALY_ACTIONS = {
   FAILED_NO_REVERSAL: "anomaly.failed_no_reversal",
   SUCCESS_NO_PROVIDER: "anomaly.success_no_provider",
+  DUPLICATE_PROVIDER_REF: "anomaly.duplicate_provider_ref",
   STUCK_NON_TERMINAL: "anomaly.stuck_non_terminal",
 } as const;
 
@@ -61,11 +62,30 @@ export type AnomalySweepSummary = {
   ranAt: string;
   failedNoReversal: number;
   successNoProvider: number;
+  duplicateProviderRef: number;
   stuckNonTerminal: number;
   total: number;
   /** Anomalies auto-cleared because the underlying txn was resolved. */
   cleared: number;
 };
+
+/**
+ * Correlation keys for duplicate-charge detection: the stored partnerTxnId
+ * (order_id) plus the single-use bill_fetch_ref mined from the pay request.
+ * Namespaced (`pt:` / `bfr:`) so a partnerTxnId can never collide with a
+ * bill_fetch_ref. Two SUCCESS txns sharing ANY of these are the same payment.
+ */
+function duplicateRefKeys(partnerTxnId: string | null, request: unknown): string[] {
+  const keys: string[] = [];
+  const pt = typeof partnerTxnId === "string" ? partnerTxnId.trim() : "";
+  if (pt) keys.push(`pt:${pt}`);
+  const cp = (request as { customerParams?: Record<string, unknown> } | null)?.customerParams;
+  if (cp) {
+    const bfr = (cp.billFetchRef ?? cp.bill_fetch_ref) as unknown;
+    if (typeof bfr === "string" && bfr.trim()) keys.push(`bfr:${bfr.trim()}`);
+  }
+  return Array.from(new Set(keys));
+}
 
 async function alreadyFlagged(txnId: string, action: string): Promise<boolean> {
   const existing = await prisma.auditLog.findFirst({
@@ -100,6 +120,7 @@ export async function runAnomalySweep(): Promise<AnomalySweepSummary> {
   const scanSince = new Date(now - SCAN_WINDOW_MS);
   let failedNoReversal = 0;
   let successNoProvider = 0;
+  let duplicateProviderRef = 0;
   let stuckNonTerminal = 0;
   let cleared = 0;
 
@@ -254,6 +275,81 @@ export async function runAnomalySweep(): Promise<AnomalySweepSummary> {
     }
   }
 
+  // ── 2b. DUPLICATE provider reference (idempotent replay) ────────────────
+  // The signature of an idempotent replay: TWO or more SUCCESS bill-payments
+  // share the SAME provider reference. We key on BOTH:
+  //   • partnerTxnId (order_id) — shared when the provider replays the same order
+  //   • bill_fetch_ref          — the SINGLE-USE fetch handle; a second SUCCESS
+  //                               pay on it is ALWAYS a replay (no new money),
+  //                               even if the provider returns a different order_id.
+  // Only the EARLIEST transaction in a shared-ref group moved real money; every
+  // later sibling double-charged the retailer's wallet. Active provider
+  // verification can't catch this (the shared ref legitimately resolves to the
+  // original payment), so we detect it structurally. We flag every duplicate
+  // EXCEPT the earliest; each flagged one is a refund candidate on the desk.
+  const recentSuccess = await prisma.transaction.findMany({
+    where: {
+      status: "SUCCESS",
+      service: { in: RAILS_REQUIRING_PARTNER_REF },
+      partner: { not: RK_PARTNER },
+      isSettlement: false,
+      createdAt: { gte: scanSince },
+    },
+    select: {
+      id: true,
+      refId: true,
+      userId: true,
+      amount: true,
+      fee: true,
+      service: true,
+      partner: true,
+      partnerTxnId: true,
+      request: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 2000,
+  });
+  // Group earliest-first so the first txn to use a ref is the "original".
+  recentSuccess.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  // Maps a shared reference key → the refId of the EARLIEST txn that used it.
+  const refOwner = new Map<string, string>();
+  for (const txn of recentSuccess) {
+    const keys = duplicateRefKeys(txn.partnerTxnId, txn.request);
+    if (keys.length === 0) continue; // nothing to correlate on
+
+    let ownerRefId: string | null = null;
+    for (const k of keys) {
+      const o = refOwner.get(k);
+      if (o) {
+        ownerRefId = o;
+        break;
+      }
+    }
+
+    if (ownerRefId) {
+      // A prior SUCCESS txn already used one of these refs → this is a duplicate.
+      const created = await flagAnomaly(txn.id, txn.userId, ANOMALY_ACTIONS.DUPLICATE_PROVIDER_REF, {
+        refId: txn.refId,
+        amount: toNumber(txn.amount),
+        fee: toNumber(txn.fee),
+        service: txn.service,
+        partner: txn.partner,
+        partnerTxnId: txn.partnerTxnId,
+        sharedWithRefId: ownerRefId,
+        createdAt: txn.createdAt.toISOString(),
+      });
+      if (created) duplicateProviderRef++;
+      // Register this txn's as-yet-unseen keys to the SAME original so a later
+      // transitive sibling still resolves to one original.
+      for (const k of keys) if (!refOwner.has(k)) refOwner.set(k, ownerRefId);
+    } else {
+      // First txn to use these refs → it's the original (the real payment).
+      for (const k of keys) refOwner.set(k, txn.refId);
+    }
+  }
+
   // ── 3. Stuck in non-terminal state beyond threshold ─────────────────────
   const stuckTxns = await prisma.transaction.findMany({
     where: {
@@ -333,7 +429,10 @@ export async function runAnomalySweep(): Promise<AnomalySweepSummary> {
       if (rev) resolved = true;
       // Also resolved if txn is no longer FAILED/REFUNDED (promoted to SUCCESS)
       if (txn.status === "SUCCESS") resolved = true;
-    } else if (anomaly.action === ANOMALY_ACTIONS.SUCCESS_NO_PROVIDER) {
+    } else if (
+      anomaly.action === ANOMALY_ACTIONS.SUCCESS_NO_PROVIDER ||
+      anomaly.action === ANOMALY_ACTIONS.DUPLICATE_PROVIDER_REF
+    ) {
       // Cleared once the txn has been reversed/refunded (admin raised a reversal,
       // or a REVERSAL credit was posted) — the money is back with the retailer.
       if (txn.status === "FAILED" || txn.status === "REFUNDED") resolved = true;
@@ -369,28 +468,34 @@ export async function runAnomalySweep(): Promise<AnomalySweepSummary> {
     }
   }
 
-  const total = failedNoReversal + successNoProvider + stuckNonTerminal;
+  const total = failedNoReversal + successNoProvider + duplicateProviderRef + stuckNonTerminal;
 
   // Alert ops if new anomalies were found (batched, not per-txn).
   if (total > 0) {
+    const moneyLoss = failedNoReversal > 0 || successNoProvider > 0 || duplicateProviderRef > 0;
     void sendOpsAlert({
       title: `${total} new transaction anomal${total === 1 ? "y" : "ies"} detected`,
-      severity: failedNoReversal > 0 ? "critical" : "warning",
+      severity: moneyLoss ? "critical" : "warning",
       details: {
         failedNoReversal,
         successNoProvider,
+        duplicateProviderRef,
         stuckNonTerminal,
         cleared,
         hint: "Review on the Reversal Desk → Auto-detected Issues.",
       },
     }).catch(() => {});
-    log.warn({ failedNoReversal, successNoProvider, stuckNonTerminal, cleared }, "anomalies detected");
+    log.warn(
+      { failedNoReversal, successNoProvider, duplicateProviderRef, stuckNonTerminal, cleared },
+      "anomalies detected"
+    );
   }
 
   const summary: AnomalySweepSummary = {
     ranAt,
     failedNoReversal,
     successNoProvider,
+    duplicateProviderRef,
     stuckNonTerminal,
     total,
     cleared,
