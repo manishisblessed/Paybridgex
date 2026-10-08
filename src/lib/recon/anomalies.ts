@@ -23,11 +23,20 @@ import { prisma } from "@/lib/db";
 import { toNumber } from "@/lib/money";
 import { sendOpsAlert } from "@/lib/monitoring/alerts";
 import { logger } from "@/lib/logger";
+import { flags } from "@/lib/env";
+import { getPartner } from "@/lib/partners";
+import { deriveTxnRefs } from "@/lib/recon/refs";
 
 const log = logger.child({ module: "recon/anomalies" });
 
 const STUCK_THRESHOLD_MS = 60 * 60_000; // 1 hour
 const SCAN_WINDOW_MS = 7 * 24 * 3_600_000; // look back 7 days
+// SUCCESS verification: check recent SUCCESS bill payments against the provider.
+// Window kept short (48h) and min-age applied so we never race a fresh
+// settlement, and the provider-call volume stays bounded.
+const VERIFY_WINDOW_MS = 48 * 3_600_000; // only verify SUCCESS txns < 48h old
+const VERIFY_MIN_AGE_MS = 10 * 60_000; // …and ≥ 10 min old (let settlement settle)
+const RK_PARTNER = "SAMEDAY_RECHARGEKIT"; // different rail — excluded from BBPS verify
 
 /** Service rails where a SUCCESS transaction MUST have a partnerTxnId. */
 const RAILS_REQUIRING_PARTNER_REF: ServiceCode[] = [
@@ -141,44 +150,108 @@ export async function runAnomalySweep(): Promise<AnomalySweepSummary> {
     }
   }
 
-  // ── 2. SUCCESS with no partnerTxnId on rails that require one ───────────
-  // A SUCCESS BBPS/RechargeKit transaction with a blank partnerTxnId means the
-  // provider returned success but we have nothing to trace it with — most
-  // commonly an idempotent replay where no new money moved. If the provider
-  // ledger shows no matching debit, the retailer's wallet was charged for
-  // nothing. Flag it so ops can verify against the provider panel.
-  const noProviderTxns = await prisma.transaction.findMany({
-    where: {
-      status: "SUCCESS",
-      service: { in: RAILS_REQUIRING_PARTNER_REF },
-      createdAt: { gte: scanSince },
-      isSettlement: false,
-      OR: [{ partnerTxnId: null }, { partnerTxnId: "" }],
-    },
-    select: {
-      id: true,
-      refId: true,
-      userId: true,
-      amount: true,
-      fee: true,
-      service: true,
-      createdAt: true,
-      partner: true,
-    },
-    orderBy: { createdAt: "desc" },
-    take: 200,
-  });
+  // ── 2. SUCCESS with no provider record (ACTIVE verification) ────────────
+  // A SUCCESS bill-payment the provider has NO record of means our system
+  // settled + charged the retailer's wallet but no money actually moved
+  // upstream (the idempotent-replay / lost-response class of bug). We VERIFY
+  // each recent SUCCESS BBPS txn against the provider's status API using every
+  // reference it ever exchanged (partnerTxnId / order_id / request_id /
+  // bill_fetch_ref). If ALL of them come back not-found, the provider has no
+  // record → flag it.
+  //
+  // FALSE-POSITIVE GUARD: if the provider is unreachable for the whole batch
+  // (outage / IP de-whitelist), every status call fails and we'd wrongly flag
+  // every SUCCESS txn. So a txn that HAS references is only flagged once we've
+  // confirmed the provider is reachable (≥1 other txn resolved OK). A txn with
+  // NO resolvable reference at all is untraceable regardless, so it's always
+  // flagged.
+  if (flags.bbps) {
+    const bbps = getPartner("bbps");
+    if (bbps.status) {
+      const successTxns = await prisma.transaction.findMany({
+        where: {
+          status: "SUCCESS",
+          service: { in: RAILS_REQUIRING_PARTNER_REF },
+          partner: { not: RK_PARTNER },
+          isSettlement: false,
+          createdAt: {
+            gte: new Date(now - VERIFY_WINDOW_MS),
+            lt: new Date(now - VERIFY_MIN_AGE_MS),
+          },
+        },
+        select: {
+          id: true,
+          refId: true,
+          userId: true,
+          amount: true,
+          fee: true,
+          service: true,
+          partner: true,
+          partnerTxnId: true,
+          request: true,
+          response: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 150,
+      });
 
-  for (const txn of noProviderTxns) {
-    const created = await flagAnomaly(txn.id, txn.userId, ANOMALY_ACTIONS.SUCCESS_NO_PROVIDER, {
-      refId: txn.refId,
-      amount: toNumber(txn.amount),
-      fee: toNumber(txn.fee),
-      service: txn.service,
-      partner: txn.partner,
-      createdAt: txn.createdAt.toISOString(),
-    });
-    if (created) successNoProvider++;
+      let providerReachable = false;
+      // Collect "no record" txns with whether they had any ref to check.
+      const noRecord: Array<{
+        txn: (typeof successTxns)[number];
+        hadRefs: boolean;
+      }> = [];
+
+      for (const txn of successTxns) {
+        // Skip if already flagged (avoids re-querying the provider every sweep).
+        if (await alreadyFlagged(txn.id, ANOMALY_ACTIONS.SUCCESS_NO_PROVIDER)) continue;
+
+        const refs = deriveTxnRefs({
+          partnerTxnId: txn.partnerTxnId,
+          request: txn.request,
+          response: txn.response,
+        });
+
+        if (refs.length === 0) {
+          // No handle at all → provider could never have a trace. Always flag.
+          noRecord.push({ txn, hadRefs: false });
+          continue;
+        }
+
+        let found = false;
+        for (const ref of refs) {
+          let r = await bbps.status({ orderId: ref });
+          if (!r.ok) r = await bbps.status({ requestId: ref });
+          if (!r.ok) r = await bbps.status({ billFetchRef: ref });
+          if (r.ok) {
+            providerReachable = true; // provider answered → it's up
+            found = true;
+            break;
+          }
+        }
+        if (!found) noRecord.push({ txn, hadRefs: true });
+      }
+
+      for (const { txn, hadRefs } of noRecord) {
+        // A txn WITH refs is only flagged once we know the provider is reachable
+        // (otherwise an outage would mass-flag). A txn with NO refs is always
+        // untraceable, so flag it regardless.
+        if (hadRefs && !providerReachable) continue;
+        const created = await flagAnomaly(txn.id, txn.userId, ANOMALY_ACTIONS.SUCCESS_NO_PROVIDER, {
+          refId: txn.refId,
+          amount: toNumber(txn.amount),
+          fee: toNumber(txn.fee),
+          service: txn.service,
+          partner: txn.partner,
+          partnerTxnId: txn.partnerTxnId,
+          hadProviderRefs: hadRefs,
+          verifiedVia: hadRefs ? "provider_status_api" : "no_reference",
+          createdAt: txn.createdAt.toISOString(),
+        });
+        if (created) successNoProvider++;
+      }
+    }
   }
 
   // ── 3. Stuck in non-terminal state beyond threshold ─────────────────────
@@ -261,14 +334,19 @@ export async function runAnomalySweep(): Promise<AnomalySweepSummary> {
       // Also resolved if txn is no longer FAILED/REFUNDED (promoted to SUCCESS)
       if (txn.status === "SUCCESS") resolved = true;
     } else if (anomaly.action === ANOMALY_ACTIONS.SUCCESS_NO_PROVIDER) {
-      // Check if partnerTxnId was since filled in
-      const updated = await prisma.transaction.findUnique({
-        where: { id: txn.id },
-        select: { partnerTxnId: true, status: true },
+      // Cleared once the txn has been reversed/refunded (admin raised a reversal,
+      // or a REVERSAL credit was posted) — the money is back with the retailer.
+      if (txn.status === "FAILED" || txn.status === "REFUNDED") resolved = true;
+      const rev = await prisma.walletTxn.findFirst({
+        where: {
+          direction: "CREDIT",
+          reason: "REVERSAL",
+          refType: "Transaction",
+          refId: txn.id,
+        },
+        select: { id: true },
       });
-      if (updated?.partnerTxnId) resolved = true;
-      // Or if the txn was reversed
-      if (updated?.status === "FAILED" || updated?.status === "REFUNDED") resolved = true;
+      if (rev) resolved = true;
     } else if (anomaly.action === ANOMALY_ACTIONS.STUCK_NON_TERMINAL) {
       // Resolved if the txn has reached a terminal state
       if (txn.status === "SUCCESS" || txn.status === "FAILED" || txn.status === "REFUNDED") {
