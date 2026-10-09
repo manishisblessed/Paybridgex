@@ -7,8 +7,7 @@
 #  migrate deploy → next build → pm2 restart.
 #
 #  Required GitHub Secrets (Settings → Secrets and variables → Actions):
-#    EC2_SSH_KEY   – The PRIVATE key (PEM) for the EC2 instance (~/.ssh/id_rsa
-#                    or the .pem file you downloaded from AWS)
+#    EC2_SSH_KEY   – The PRIVATE key (PEM) for the EC2 instance
 #    EC2_HOST      – Public IP or hostname of your EC2 instance
 #    EC2_USER      – SSH user, typically "ubuntu" for Ubuntu AMIs
 # ============================================================================
@@ -19,7 +18,7 @@ on:
   push:
     branches: [main]
 
-  # Allow manual trigger from the Actions tab (handy for re-deploys)
+  # Allow manual trigger from the Actions tab
   workflow_dispatch:
 
 # Only one deploy at a time — cancel older runs if a new push arrives
@@ -35,24 +34,27 @@ jobs:
 
     steps:
       - name: 🔑 Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SSH_HOST: ${{ secrets.EC2_HOST }}
+          SSH_USER: ${{ secrets.EC2_USER }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          # Skip host-key verification (the EC2 IP is trusted)
-          cat >> ~/.ssh/config <<EOF
-          Host ec2-prod
-            HostName ${{ secrets.EC2_HOST }}
-            User ${{ secrets.EC2_USER }}
-            IdentityFile ~/.ssh/deploy_key
-            StrictHostKeyChecking no
-            ServerAliveInterval 30
-            ServerAliveCountMax 5
-          EOF
+          printf '%s\n' \
+            "Host ec2-prod" \
+            "  HostName $SSH_HOST" \
+            "  User $SSH_USER" \
+            "  IdentityFile ~/.ssh/deploy_key" \
+            "  StrictHostKeyChecking no" \
+            "  ServerAliveInterval 30" \
+            "  ServerAliveCountMax 5" \
+            > ~/.ssh/config
+          chmod 600 ~/.ssh/config
 
       - name: 🚀 Deploy via SSH
-        run: |
-          ssh ec2-prod "bash /home/ubuntu/paybridgex/deploy/redeploy.sh"
+        run: ssh ec2-prod "bash /home/ubuntu/paybridgex/deploy/redeploy.sh"
 
       - name: ✅ Health check
         run: |
@@ -68,4 +70,4 @@ jobs:
 
       - name: 🧹 Cleanup SSH key
         if: always()
-        run: rm -f ~/.ssh/deploy_key
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/config
