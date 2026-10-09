@@ -363,11 +363,21 @@ async function main() {
   // (retailer has no matching scheme/rate) — surfaced so admins can fix pricing.
   await boss.work(QUEUES.POS_INGEST, async () => {
     const r = await runPosMirrorSettleSweep();
-    if (!r.skipped && (r.queued > 0 || r.noScheme > 0))
+    if (!r.skipped && (r.queued > 0 || r.noScheme > 0 || r.errored > 0))
       log(
         `pos.settle.sweep: terminals=${r.eligibleTerminals} scanned=${r.scanned} ` +
-          `queued=${r.queued} dup=${r.duplicate} noScheme=${r.noScheme} skipped=${r.skippedRows}`
+          `queued=${r.queued} dup=${r.duplicate} noScheme=${r.noScheme} ` +
+          `skipped=${r.skippedRows} errored=${r.errored}`
       );
+    if (!r.skipped && r.errored > 0)
+      await sendOpsAlert({
+        title: "POS settlement sweep hit per-row errors",
+        severity: "warning",
+        details: {
+          errored: r.errored,
+          hint: "Rows that threw were isolated and skipped; the next sweep retries them (idempotent). Check worker logs for the failing transactionRefs.",
+        },
+      }).catch(() => {});
     if (!r.skipped && r.noScheme > 0)
       await sendOpsAlert({
         title: "POS captures on assigned terminals could not be priced",

@@ -13,6 +13,7 @@ export {
   CARD_LEVELS,
   canonicalCardLevel,
   canonicalNetwork,
+  canonicalCompany,
   posClassificationLabel,
 } from "@/lib/pos/classification";
 

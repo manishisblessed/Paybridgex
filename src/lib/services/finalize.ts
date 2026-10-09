@@ -10,6 +10,20 @@ import { logger } from "@/lib/logger";
 
 const log = logger.child({ module: "services/finalize" });
 
+/**
+ * True when a write failed because it would create a SECOND SUCCESS row on the
+ * same provider order — the partial unique index `transaction_partner_txn_success_uq`
+ * (one SUCCESS per non-null partnerTxnId). This is the race-proof backstop
+ * behind the application-level pre-check: when two finalizers settle the same
+ * upstream order concurrently, exactly one wins and the loser lands here.
+ */
+export function isPartnerTxnDuplicate(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") return false;
+  const t = e.meta?.target;
+  const s = Array.isArray(t) ? t.join(",") : String(t ?? "");
+  return s.includes("partner_txn") || s.includes("partnerTxnId");
+}
+
 // These finalizers run claim + ledger movements (which may trigger a lien sweep
 // touching several rows) in ONE interactive transaction. Prisma's 5s default is
 // too tight over a high-latency DB link (EC2 ↔ allow-listed Postgres), so give
@@ -73,34 +87,86 @@ export async function finalizeServiceTransaction(opts: {
 
   // ── SUCCESS ─────────────────────────────────────────────────────────────
   if (status === "SUCCESS") {
-    let finalized = false;
-    await prisma.$transaction(async (tx) => {
-      const claim = await tx.transaction.updateMany({
-        where: { id: txn.id, status: { in: NON_TERMINAL } },
-        data: { status: "SUCCESS", partnerTxnId, response: raw },
+    // ── Duplicate-order backstop ──────────────────────────────────────────
+    // At most ONE Transaction may settle SUCCESS per provider order. The
+    // upstream provider returns the same order id for a rapid same-card re-tap,
+    // so two internal rows can both resolve to a single real payment. If
+    // another row already owns this partnerTxnId as SUCCESS, THIS row is a
+    // phantom duplicate — refund its held reserve (amount + fee) instead of
+    // charging the retailer twice. (Fast-path pre-check; the partial unique
+    // index + the P2002 catch below make it race-proof.)
+    if (partnerTxnId) {
+      const dup = await prisma.transaction.findFirst({
+        where: { partnerTxnId, status: "SUCCESS", id: { not: txn.id } },
+        select: { refId: true },
       });
-      if (claim.count === 0) return; // someone finalized first
-      finalized = true;
-
-      // Charge-driven rails (BBPS/RechargeKit/Payout) book the spread —
-      // (fee − gst) − vendorCharge — into the Revenue Wallet. Idempotent.
-      if (isChargeDrivenService(txn.service)) {
-        const margin = round(
-          sub(sub(txn.fee.toNumber(), txn.gst.toNumber()), txn.vendorCharge.toNumber())
+      if (dup) {
+        log.warn(
+          { refId: txn.refId, partnerTxnId, duplicateOf: dup.refId, source },
+          "duplicate provider order on settle — refunding phantom leg instead of double-charging"
         );
-        await creditServiceMargin(txn.id, txn.service, margin, tx);
+        return finalizeServiceTransaction({
+          txn,
+          status: "REFUNDED",
+          partnerTxnId,
+          errorCode: "DUPLICATE_PARTNER_TXN",
+          errorMessage: `Duplicate of ${dup.refId} on provider order ${partnerTxnId}`,
+          raw: opts.raw,
+          source: `${source}_dup`,
+        });
       }
+    }
 
-      await tx.auditLog.create({
-        data: {
-          userId: txn.userId,
-          action: `txn.${source}_settled`,
-          entity: "Transaction",
-          entityId: txn.id,
-          meta: { refId: txn.refId, source, partner: txn.partner },
-        },
-      });
-    }, TXN_OPTS);
+    let finalized = false;
+    try {
+      await prisma.$transaction(async (tx) => {
+        const claim = await tx.transaction.updateMany({
+          where: { id: txn.id, status: { in: NON_TERMINAL } },
+          data: { status: "SUCCESS", partnerTxnId, response: raw },
+        });
+        if (claim.count === 0) return; // someone finalized first
+        finalized = true;
+
+        // Charge-driven rails (BBPS/RechargeKit/Payout) book the spread —
+        // (fee − gst) − vendorCharge — into the Revenue Wallet. Idempotent.
+        if (isChargeDrivenService(txn.service)) {
+          const margin = round(
+            sub(sub(txn.fee.toNumber(), txn.gst.toNumber()), txn.vendorCharge.toNumber())
+          );
+          await creditServiceMargin(txn.id, txn.service, margin, tx);
+        }
+
+        await tx.auditLog.create({
+          data: {
+            userId: txn.userId,
+            action: `txn.${source}_settled`,
+            entity: "Transaction",
+            entityId: txn.id,
+            meta: { refId: txn.refId, source, partner: txn.partner },
+          },
+        });
+      }, TXN_OPTS);
+    } catch (e) {
+      // Race backstop: a concurrent finalizer settled the SAME provider order
+      // first and the partial unique index rejected our second SUCCESS. Refund
+      // this phantom leg instead of surfacing a hard error or double-charging.
+      if (isPartnerTxnDuplicate(e) && partnerTxnId) {
+        log.warn(
+          { refId: txn.refId, partnerTxnId, source },
+          "duplicate provider order race on settle — refunding phantom leg"
+        );
+        return finalizeServiceTransaction({
+          txn,
+          status: "REFUNDED",
+          partnerTxnId,
+          errorCode: "DUPLICATE_PARTNER_TXN",
+          errorMessage: `Duplicate provider order ${partnerTxnId}`,
+          raw: opts.raw,
+          source: `${source}_dup`,
+        });
+      }
+      throw e;
+    }
 
     if (finalized) {
       void emitWebhookEvent(txn.userId, "txn.success", {

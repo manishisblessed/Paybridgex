@@ -40,6 +40,45 @@ function isIndeterminateHttp(status: number): boolean {
   return status >= 500 || status === 408 || status === 429;
 }
 
+/**
+ * Transient rate-limit (HTTP 429) retry policy.
+ *
+ * A 429 is the provider's throttle REJECTING the call before it reaches the
+ * payment processor — no money moved — so it is the ONLY transient outcome we
+ * may safely RE-SEND (unlike 5xx / 408 / network drops, which may have completed
+ * upstream and must never be blind-retried). Without this, a momentary throttle
+ * strands a pay in NEEDS_REVIEW with a BLANK partnerTxnId (the provider never
+ * returned an order_id / request_id), and the status API can't resolve it from
+ * the surviving bill_fetch_ref (ORDER_NOT_FOUND) — leaving the retailer's
+ * reserve held until a manual panel lookup.
+ *
+ * Bounded + jittered so a PERSISTENT throttle still falls through to the normal
+ * indeterminate "hold" path rather than looping. The provider's own
+ * idempotent_replay guard (keyed on bill_fetch_ref) stays the backstop if a
+ * retried pay were ever to double-hit.
+ */
+const SAMEDAY_MAX_ATTEMPTS = 3; // 1 initial + up to 2 retries, 429 only
+const SAMEDAY_RETRY_BASE_MS = 400;
+const SAMEDAY_RETRY_CAP_MS = 3_000;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Exponential backoff with jitter for the Nth attempt (1-based). */
+function backoffMs(attempt: number): number {
+  const base = Math.min(SAMEDAY_RETRY_BASE_MS * 2 ** (attempt - 1), SAMEDAY_RETRY_CAP_MS);
+  return base + Math.floor(Math.random() * 200);
+}
+
+/** Honour a `Retry-After` header (delta-seconds or HTTP-date); capped; null if absent/invalid. */
+function retryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const secs = Number(header);
+  if (Number.isFinite(secs) && secs >= 0) return Math.min(secs * 1_000, SAMEDAY_RETRY_CAP_MS);
+  const when = Date.parse(header);
+  if (!Number.isNaN(when)) return Math.min(Math.max(when - Date.now(), 0), SAMEDAY_RETRY_CAP_MS);
+  return null;
+}
+
 export type SamedayCredentials = {
   baseUrl: string;
   apiKey: string;
@@ -144,13 +183,9 @@ export async function samedayRequest<T extends { success?: boolean }>(
   opts?: SamedayRequestOpts
 ): Promise<PartnerResult<T>> {
   // Compact JSON — the server re-serializes and verifies against this form.
+  // Auth headers are (re)computed PER ATTEMPT below so each retry carries a
+  // fresh x-timestamp inside the provider's 5-minute signing window.
   const bodyString = body !== undefined ? JSON.stringify(body) : "";
-  const headers: Record<string, string> = samedayAuthHeaders(
-    creds.apiKey,
-    creds.apiSecret,
-    bodyString
-  );
-  if (bodyString) headers["Content-Type"] = "application/json";
 
   // Real-time rail-health signal: record ONLY user-facing Pay2New bill
   // fetch/pay outcomes (not recon status polls or billers listing) so the UI
@@ -181,74 +216,99 @@ export async function samedayRequest<T extends { success?: boolean }>(
   // a trace (and, once patched, the provider poll key) for reconciliation.
   const auditId = opts?.audit ? await auditCreate(method, path, body) : null;
 
-  // Bound the request so a hung socket fails fast (→ NETWORK, indeterminate)
-  // instead of blocking a money-moving call indefinitely. We NEVER blind-retry a
-  // pay on timeout — the caller holds and resolves via the status API.
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), SAMEDAY_REQUEST_TIMEOUT_MS);
+  // 429-aware request loop. Each attempt recomputes auth headers (fresh
+  // x-timestamp) and bounds the socket so a hung connection fails fast
+  // (→ NETWORK, indeterminate) instead of blocking a money-moving call forever.
+  // We NEVER blind-retry on timeout / 5xx — only on an explicit 429, which the
+  // provider rejected BEFORE processing (see retry policy above).
+  for (let attempt = 1; ; attempt++) {
+    const headers: Record<string, string> = samedayAuthHeaders(
+      creds.apiKey,
+      creds.apiSecret,
+      bodyString
+    );
+    if (bodyString) headers["Content-Type"] = "application/json";
 
-  try {
-    const res = await fetch(url, {
-      method,
-      headers,
-      body: bodyString || undefined,
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    const json = (await res.json().catch(() => ({}))) as T & SamedayError;
-    const ok = res.ok && json.success !== false;
-    const code = ok ? null : json.error?.code || `HTTP_${res.status}`;
-    // Patch the durable log the INSTANT the response is in hand — before the
-    // caller (runTransaction) does anything else — so the provider reference is
-    // safe even if the caller dies immediately after this returns.
-    await auditPatch(auditId, { response: json, httpStatus: res.status, ok, code });
-    noteHealth(ok, code, json.error?.message ?? res.statusText ?? null);
-    if (!ok) {
-      // Surface the RAW provider failure in server logs for EVERY call (fetch,
-      // billers, pay, …) — not just audited money calls — so a fetch/preview
-      // failure (which creates no PartnerApiLog row) is still diagnosable from
-      // pm2 logs. User-facing text stays sanitized via friendlyPartnerError.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SAMEDAY_REQUEST_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers,
+        body: bodyString || undefined,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+
+      // Rate limited → the provider threw the request away BEFORE processing it
+      // (no money moved), so re-send after a bounded backoff. A persistent
+      // throttle exhausts the retries and falls through to the normal
+      // indeterminate "hold" path below — never an infinite loop.
+      if (res.status === 429 && attempt < SAMEDAY_MAX_ATTEMPTS) {
+        const waitMs = retryAfterMs(res.headers.get("retry-after")) ?? backoffMs(attempt);
+        log.warn({ action: "sameday_request_rate_limited", method, path, attempt, waitMs });
+        clearTimeout(timeout);
+        await sleep(waitMs);
+        continue;
+      }
+
+      const json = (await res.json().catch(() => ({}))) as T & SamedayError;
+      const ok = res.ok && json.success !== false;
+      const code = ok ? null : json.error?.code || `HTTP_${res.status}`;
+      // Patch the durable log the INSTANT the response is in hand — before the
+      // caller (runTransaction) does anything else — so the provider reference is
+      // safe even if the caller dies immediately after this returns.
+      await auditPatch(auditId, { response: json, httpStatus: res.status, ok, code });
+      noteHealth(ok, code, json.error?.message ?? res.statusText ?? null);
+      if (!ok) {
+        // Surface the RAW provider failure in server logs for EVERY call (fetch,
+        // billers, pay, …) — not just audited money calls — so a fetch/preview
+        // failure (which creates no PartnerApiLog row) is still diagnosable from
+        // pm2 logs. User-facing text stays sanitized via friendlyPartnerError.
+        log.warn({
+          action: "sameday_request_failed",
+          method,
+          path,
+          httpStatus: res.status,
+          code,
+          attempts: attempt,
+          message: json.error?.message ?? res.statusText ?? null,
+        });
+        return {
+          ok: false,
+          code: code!,
+          message: json.error?.message || res.statusText || "Same Day request failed",
+          raw: json,
+          // INDETERMINATE when the transport/gateway never gave a definitive
+          // business answer: HTTP 5xx (upstream may have completed), 408 (request
+          // timeout) or 429 (rate limited → may be retried by provider). An
+          // explicit decline (HTTP 200 success:false, 4xx auth/validation) is
+          // DEFINITIVE — the provider did not process it, safe to fail + refund.
+          indeterminate: isIndeterminateHttp(res.status),
+        };
+      }
+      return { ok: true, data: json, raw: json };
+    } catch (e) {
+      await auditPatch(auditId, { response: null, httpStatus: null, ok: false, code: "NETWORK" });
+      noteHealth(false, "NETWORK", (e as Error).message ?? null);
       log.warn({
-        action: "sameday_request_failed",
+        action: "sameday_request_error",
         method,
         path,
-        httpStatus: res.status,
-        code,
-        message: json.error?.message ?? res.statusText ?? null,
+        err: (e as Error).name === "AbortError" ? "timeout" : String((e as Error).message),
       });
+      // A thrown fetch (socket drop, DNS, TLS, abort/timeout) means we got NO
+      // answer at all — always indeterminate; the provider may have charged.
       return {
         ok: false,
-        code: code!,
-        message: json.error?.message || res.statusText || "Same Day request failed",
-        raw: json,
-        // INDETERMINATE when the transport/gateway never gave a definitive
-        // business answer: HTTP 5xx (upstream may have completed), 408 (request
-        // timeout) or 429 (rate limited → may be retried by provider). An
-        // explicit decline (HTTP 200 success:false, 4xx auth/validation) is
-        // DEFINITIVE — the provider did not process it, safe to fail + refund.
-        indeterminate: isIndeterminateHttp(res.status),
+        code: "NETWORK",
+        message: (e as Error).name === "AbortError" ? "Same Day request timed out" : (e as Error).message,
+        indeterminate: true,
       };
+    } finally {
+      clearTimeout(timeout);
     }
-    return { ok: true, data: json, raw: json };
-  } catch (e) {
-    await auditPatch(auditId, { response: null, httpStatus: null, ok: false, code: "NETWORK" });
-    noteHealth(false, "NETWORK", (e as Error).message ?? null);
-    log.warn({
-      action: "sameday_request_error",
-      method,
-      path,
-      err: (e as Error).name === "AbortError" ? "timeout" : String((e as Error).message),
-    });
-    // A thrown fetch (socket drop, DNS, TLS, abort/timeout) means we got NO
-    // answer at all — always indeterminate; the provider may have charged.
-    return {
-      ok: false,
-      code: "NETWORK",
-      message: (e as Error).name === "AbortError" ? "Same Day request timed out" : (e as Error).message,
-      indeterminate: true,
-    };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

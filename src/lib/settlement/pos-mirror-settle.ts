@@ -39,6 +39,7 @@ export type PosMirrorSettleResult = {
   noScheme: number; // assigned but not priceable (no scheme/rate) — needs admin
   skippedRows: number; // no assigned/active user, non-positive net, bad row
   preAssignment: number; // captured BEFORE the holder's assignment — never auto-credited (manual)
+  errored: number; // handlePosCapture threw for this row — isolated so the sweep keeps going
 };
 
 /** Start of the IST day `days` ago, as a UTC Date. */
@@ -90,6 +91,7 @@ export async function runPosMirrorSettleSweep(opts?: {
     noScheme: 0,
     skippedRows: 0,
     preAssignment: 0,
+    errored: 0,
   };
 
   if (!flags.pos) return { ...base, skipped: true, reason: "POS partner disabled" };
@@ -159,17 +161,31 @@ export async function runPosMirrorSettleSweep(opts?: {
       continue;
     }
 
-    const result = await handlePosCapture({
-      transactionRef: t.transactionRef,
-      terminalId: t.terminalId,
-      grossAmount,
-      paymentMode: t.paymentMode ?? "CARD",
-      cardType: t.cardType ?? undefined,
-      brandType: t.cardBrand ?? undefined,
-      classification: classificationEnabled ? t.cardClassification ?? undefined : undefined,
-      capturedAt: t.txnTime,
-      // company is resolved from the machine inside handlePosCapture.
-    });
+    // Per-row isolation (money-safety): this sweep scans the WHOLE fleet oldest-
+    // first, and already-settled rows return DUPLICATE. If a single capture ever
+    // throws (a transient DB/pricing error), an unguarded throw would abort the
+    // entire run at that row EVERY pass — a poison pill that silently strands all
+    // later captures' settlements. Isolate each row so one failure is counted and
+    // skipped while the rest of the fleet keeps settling. The next sweep retries
+    // the failed row (handlePosCapture is idempotent per transactionRef).
+    let result;
+    try {
+      result = await handlePosCapture({
+        transactionRef: t.transactionRef,
+        terminalId: t.terminalId,
+        grossAmount,
+        paymentMode: t.paymentMode ?? "CARD",
+        cardType: t.cardType ?? undefined,
+        brandType: t.cardBrand ?? undefined,
+        classification: classificationEnabled ? t.cardClassification ?? undefined : undefined,
+        capturedAt: t.txnTime,
+        // company is resolved from the machine inside handlePosCapture.
+      });
+    } catch (e) {
+      base.errored++;
+      console.error("[pos settle sweep] capture failed, skipping row:", t.transactionRef, e);
+      continue;
+    }
 
     switch (result.status) {
       case "SETTLED":

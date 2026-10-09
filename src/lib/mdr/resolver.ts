@@ -1,7 +1,7 @@
 import type { MdrServiceKind, MdrSlab, RateType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { dec, gte, lte, mul, round, type Money } from "@/lib/money";
-import { canonicalCardLevel } from "@/lib/pos/binLookup";
+import { canonicalCardLevel, canonicalCompany } from "@/lib/pos/binLookup";
 import { isCardClassificationEnabled } from "@/lib/settings";
 import { splitMdrGst } from "./gst";
 
@@ -117,7 +117,11 @@ function slabScore(slab: MdrSlab, dims: MdrDimensions, useClassification: boolea
   // if their tier were a wildcard.
   const pairs: Array<[string | null, string | null | undefined, (v: string | null | undefined) => string]> = [
     [slab.paymentMode === "*" ? null : slab.paymentMode, dims.paymentMode === "*" ? null : dims.paymentMode, norm],
-    [slab.company, dims.company, norm],
+    // Company (acquirer) is free-text the partner reformats over time; match on a
+    // canonical token set so e.g. "Sameday-AVIKA-AXIS" and "Sameday-AVIKA - AXIS"
+    // resolve to the same slab, while AXIS vs HDFC stay distinct. See
+    // canonicalCompany — a format drift here previously stranded settlements.
+    [slab.company, dims.company, canonicalCompany],
     [slab.cardType, dims.cardType, norm],
     [slab.brandType, dims.brandType, norm],
   ];
@@ -126,7 +130,9 @@ function slabScore(slab: MdrSlab, dims: MdrDimensions, useClassification: boolea
   }
   for (const [slabVal, txnVal, cmp] of pairs) {
     if (slabVal == null || slabVal === "") continue; // wildcard slab dimension
-    if (!txnVal || cmp(slabVal) !== cmp(txnVal)) return -1; // pinned mismatch
+    const slabKey = cmp(slabVal);
+    if (slabKey === "") continue; // reduced to noise (e.g. company = just "Sameday") → wildcard
+    if (!txnVal || slabKey !== cmp(txnVal)) return -1; // pinned mismatch
     score++;
   }
   return score;

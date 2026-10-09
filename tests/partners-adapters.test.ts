@@ -1,6 +1,6 @@
 import crypto from "crypto";
-import { describe, expect, it } from "vitest";
-import { samedaySign, samedayAuthHeaders } from "@/lib/partners/sameday-core";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { samedaySign, samedayAuthHeaders, samedayRequest } from "@/lib/partners/sameday-core";
 import { mapPay2NewBill, mapPay2NewStatus } from "@/lib/partners/sameday-bbps";
 import { mapSettlementStatus, type SettlementAccount, type VerificationStatus } from "@/lib/partners/sameday-settlement";
 import { mapSettlementToPayoutStatus } from "@/lib/partners/sameday-payout";
@@ -34,6 +34,76 @@ describe("Same Day HMAC signing", () => {
   it("signs the empty string for GET requests", () => {
     const h = samedayAuthHeaders("key-1", "secret-1", "");
     expect(h["x-signature"]).toBe(samedaySign("secret-1", h["x-timestamp"]));
+  });
+});
+
+describe("samedayRequest transient rate-limit (HTTP 429) handling", () => {
+  const creds = { baseUrl: "https://provider.test", apiKey: "k", apiSecret: "s" };
+  // Use a non bill/pay·bill/fetch path so no rail-health side-effect fires, and
+  // leave `audit` off so nothing touches the DB — this isolates the retry logic.
+  const PATH = "/api/partner/pay2new/charges";
+  const res = (status: number, body: unknown, headers?: Record<string, string>) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json", ...(headers ?? {}) },
+    });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("retries a 429 and succeeds once the throttle clears", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(res(429, { success: false, error: { code: "RATE_LIMIT" } }, { "retry-after": "0" }))
+      .mockResolvedValueOnce(res(200, { success: true, order_id: "P2N_PAY_1", request_id: "SDS_1" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const r = await samedayRequest<{ success?: boolean; order_id?: string }>(creds, "POST", PATH, { amount: 100 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2); // one retry
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.order_id).toBe("P2N_PAY_1");
+  });
+
+  it("gives up after the bounded attempts when the throttle persists, flagging it indeterminate (held, never blind-refunded)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(res(429, { success: false }, { "retry-after": "0" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const r = await samedayRequest(creds, "POST", PATH, { amount: 100 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3); // 1 initial + 2 retries
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("HTTP_429");
+      expect(r.indeterminate).toBe(true);
+    }
+  });
+
+  it("NEVER retries a 5xx — it may have completed upstream (money may have moved)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(res(502, { success: false }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const r = await samedayRequest(creds, "POST", PATH, { amount: 100 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.indeterminate).toBe(true); // held, not refunded
+  });
+
+  it("NEVER retries an explicit 4xx decline — definitive, safe to fail + refund", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(res(400, { success: false, error: { code: "BAD_PARAMS" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const r = await samedayRequest(creds, "POST", PATH, { amount: 100 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("BAD_PARAMS");
+      expect(r.indeterminate).toBe(false);
+    }
   });
 });
 

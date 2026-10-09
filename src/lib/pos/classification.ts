@@ -98,6 +98,53 @@ export function canonicalNetwork(value: string | null | undefined): string {
 }
 
 /**
+ * Generic words in an acquiring-company label that carry no acquirer identity —
+ * dropped before matching so formatting noise never blocks a slab. These are the
+ * platform prefix (`posCompanyLabel` prepends "Sameday-"), the partner's own
+ * name ("Same Day Solution"), and descriptive device words.
+ */
+const COMPANY_NOISE_TOKENS = new Set([
+  "SAMEDAY",
+  "SAME",
+  "DAY",
+  "SOLUTION",
+  "SOLUTIONS",
+  "POS",
+  "TERMINAL",
+  "MACHINE",
+]);
+
+/**
+ * Reduce an acquiring-company label to an order-independent set of SIGNIFICANT
+ * tokens so MDR-slab matching is immune to how the partner formats the string.
+ *
+ * The acquirer label is free-text and the partner feed reformats it over time —
+ * e.g. "Sameday-AVIKA-AXIS" vs "Sameday-AVIKA - AXIS", or "Sameday-Avika POS
+ * ( HDFC)" vs "Sameday-AVIKA - HDFC". A format change silently broke every slab
+ * match on the affected terminals (`NO_SCHEME`) and stranded their settlements.
+ *
+ * Canonicalizing here keeps the SAME acquirer matching regardless of spacing /
+ * punctuation / a stray "POS" token, while DISTINCT acquirers (AXIS vs HDFC)
+ * stay distinct — so per-acquirer MDR pricing is preserved:
+ *   "Sameday-AVIKA-AXIS"        → "AVIKA AXIS"
+ *   "Sameday-AVIKA - AXIS"      → "AVIKA AXIS"   (matches)
+ *   "Sameday-Avika POS ( HDFC)" → "AVIKA HDFC"
+ *   "Sameday-AVIKA - HDFC"      → "AVIKA HDFC"   (matches)
+ *   "Sameday-AVIKA-AXIS" vs HDFC → "AVIKA AXIS" ≠ "AVIKA HDFC" (stay distinct)
+ *
+ * Returns "" for a null/empty/all-noise label (a company that reduces to nothing
+ * significant is treated as a wildcard by the matcher).
+ */
+export function canonicalCompany(value: string | null | undefined): string {
+  if (!value) return "";
+  const tokens = value
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter((t) => t.length > 0 && !COMPANY_NOISE_TOKENS.has(t));
+  return [...new Set(tokens)].sort().join(" ");
+}
+
+/**
  * Classification values the feed returns that carry no real tier information —
  * treated as "no classification" so the display falls back to something useful.
  */

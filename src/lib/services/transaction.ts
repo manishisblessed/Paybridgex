@@ -11,6 +11,7 @@ import { distributeCommission, distributeMdrCommission, mdrKindForService } from
 import { creditServiceMargin } from "../commission/revenue";
 import { isChargeDrivenService } from "../scheme/constants";
 import { friendlyPartnerError, isSensitivePartnerCode } from "../partners/friendlyError";
+import { isPartnerTxnDuplicate } from "./finalize";
 import { partnerCallContext } from "../partners/callContext";
 import { sendOpsAlert } from "../monitoring/alerts";
 import type { PartnerResult } from "../partners/types";
@@ -220,6 +221,33 @@ export async function runTransaction<TIn, TOut>(
 
   // 4. Settle: mark SUCCESS and distribute commission up the chain, or refund.
   if (result.ok) {
+    // ── Duplicate-order backstop ──────────────────────────────────────────
+    // At most ONE Transaction may settle SUCCESS per provider order. A rapid
+    // same-card re-tap can collapse to a single upstream order (the provider
+    // returns the same order id), so if another row already owns this
+    // partnerTxnId as SUCCESS, THIS leg is a phantom duplicate: refund the held
+    // reserve (amount + fee) instead of charging the retailer twice. The partial
+    // unique index + the P2002 catch below make this race-proof.
+    const dupSuccess = result.partnerTxnId
+      ? await prisma.transaction.findFirst({
+          where: { partnerTxnId: result.partnerTxnId, status: "SUCCESS", id: { not: txn.id } },
+          select: { refId: true },
+        })
+      : null;
+    if (dupSuccess) {
+      await refundDuplicateLeg(txn.id, input.userId, reserveAmount, reversalKey, {
+        refId,
+        partnerTxnId: result.partnerTxnId ?? null,
+        duplicateOf: dupSuccess.refId,
+        raw: result.raw,
+        service: input.service,
+        partner: input.partner,
+        amount: input.amount,
+      });
+      return { status: "REFUNDED" as const, refId, error: "Duplicate payment reversed" };
+    }
+
+    try {
     await prisma.$transaction(async (tx) => {
       await tx.transaction.update({
         where: { id: txn.id },
@@ -285,6 +313,24 @@ export async function runTransaction<TIn, TOut>(
         },
       });
     });
+    } catch (e) {
+      // Race backstop: a concurrent settle/finalizer claimed the SAME provider
+      // order first and the partial unique index rejected our SUCCESS. Refund
+      // this phantom leg instead of double-charging the retailer.
+      if (isPartnerTxnDuplicate(e)) {
+        await refundDuplicateLeg(txn.id, input.userId, reserveAmount, reversalKey, {
+          refId,
+          partnerTxnId: result.partnerTxnId ?? null,
+          duplicateOf: null,
+          raw: result.raw,
+          service: input.service,
+          partner: input.partner,
+          amount: input.amount,
+        });
+        return { status: "REFUNDED" as const, refId, error: "Duplicate payment reversed" };
+      }
+      throw e;
+    }
     // Partner webhook (best-effort; never blocks settlement).
     void emitWebhookEvent(input.userId, "txn.success", {
       refId,
@@ -400,4 +446,79 @@ export async function runTransaction<TIn, TOut>(
   });
 
   return { status: "FAILED", refId, error: userMessage };
+}
+
+/**
+ * Reverse a phantom DUPLICATE leg: a payment that resolved SUCCESS at the
+ * provider under a partnerTxnId that another Transaction already settled. One
+ * real provider order must never debit the retailer twice, so we mark this row
+ * REFUNDED and credit the held reserve (amount + fee) straight back — keyed on
+ * the same reversal idempotency key so it can never double-apply.
+ */
+async function refundDuplicateLeg(
+  txnId: string,
+  userId: string,
+  reserveAmount: Parameters<typeof creditWallet>[0]["amount"],
+  reversalKey: string,
+  meta: {
+    refId: string;
+    partnerTxnId: string | null;
+    duplicateOf: string | null;
+    raw: unknown;
+    service: ServiceCode;
+    partner: string;
+    amount: number;
+  }
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.transaction.update({
+      where: { id: txnId },
+      data: {
+        status: "REFUNDED",
+        partnerTxnId: meta.partnerTxnId,
+        errorCode: "DUPLICATE_PARTNER_TXN",
+        errorMessage: friendlyPartnerError("DUPLICATE_PARTNER_TXN", null, "payment"),
+        response: (meta.raw ?? null) as Prisma.InputJsonValue,
+        refundedAt: new Date(),
+      },
+    });
+    await creditWallet(
+      {
+        userId,
+        amount: reserveAmount,
+        reason: "REVERSAL",
+        refType: "Transaction",
+        refId: txnId,
+        idempotencyKey: reversalKey,
+      },
+      tx
+    );
+    await tx.auditLog.create({
+      data: {
+        userId,
+        action: "txn.duplicate_refunded",
+        entity: "Transaction",
+        entityId: txnId,
+        meta: {
+          refId: meta.refId,
+          partnerTxnId: meta.partnerTxnId,
+          duplicateOf: meta.duplicateOf,
+          partner: meta.partner,
+        },
+      },
+    });
+  });
+
+  void sendOpsAlert({
+    title: "Duplicate provider order auto-refunded (no double charge)",
+    severity: "warning",
+    details: {
+      refId: meta.refId,
+      partnerTxnId: meta.partnerTxnId ?? null,
+      duplicateOf: meta.duplicateOf,
+      service: meta.service,
+      partner: meta.partner,
+      amount: meta.amount,
+    },
+  });
 }

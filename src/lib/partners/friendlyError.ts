@@ -75,6 +75,11 @@ const CODE_MESSAGES: Record<string, string> = {
   // prior transaction — no new money moved. The wallet reserve is auto-refunded.
   IDEMPOTENT_REPLAY:
     "This bill was already paid by a prior transaction. No additional charge has been applied — your wallet balance is unchanged.",
+  // Our own duplicate backstop: two payments on the SAME card collapsed to one
+  // upstream provider order (a rapid same-card re-tap). Only one is a real
+  // charge; this leg is reversed in full so the retailer is never charged twice.
+  DUPLICATE_PARTNER_TXN:
+    "This payment duplicated an earlier one on the same card, so it was reversed and the full amount returned to your wallet. No double charge has been applied.",
   RATE_LIMITED: "We're a bit busy right now. Please wait a moment and try again.",
   NETWORK:
     "We couldn't reach the payment network. Please check your connection and try again.",
