@@ -1,0 +1,71 @@
+# ============================================================================
+#  Paybridgex — Auto-deploy to EC2 on push to main
+# ============================================================================
+#  Triggers when code lands on `main` (direct push or merged PR).
+#  SSHs into the production EC2 box and runs the existing deploy/redeploy.sh,
+#  which handles: git pull → env check → npm ci → prisma generate → prisma
+#  migrate deploy → next build → pm2 restart.
+#
+#  Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#    EC2_SSH_KEY   – The PRIVATE key (PEM) for the EC2 instance (~/.ssh/id_rsa
+#                    or the .pem file you downloaded from AWS)
+#    EC2_HOST      – Public IP or hostname of your EC2 instance
+#    EC2_USER      – SSH user, typically "ubuntu" for Ubuntu AMIs
+# ============================================================================
+
+name: 🚀 Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+
+  # Allow manual trigger from the Actions tab (handy for re-deploys)
+  workflow_dispatch:
+
+# Only one deploy at a time — cancel older runs if a new push arrives
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 🔑 Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Skip host-key verification (the EC2 IP is trusted)
+          cat >> ~/.ssh/config <<EOF
+          Host ec2-prod
+            HostName ${{ secrets.EC2_HOST }}
+            User ${{ secrets.EC2_USER }}
+            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking no
+            ServerAliveInterval 30
+            ServerAliveCountMax 5
+          EOF
+
+      - name: 🚀 Deploy via SSH
+        run: |
+          ssh ec2-prod "bash /home/ubuntu/paybridgex/deploy/redeploy.sh"
+
+      - name: ✅ Health check
+        run: |
+          echo "Waiting 10s for the app to start..."
+          sleep 10
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" https://paybridgex.in/api/healthz || echo "000")
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Health check passed (HTTP $STATUS)"
+          else
+            echo "⚠️  Health check returned HTTP $STATUS — check PM2 logs on the server"
+            exit 1
+          fi
+
+      - name: 🧹 Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
