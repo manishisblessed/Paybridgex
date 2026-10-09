@@ -71,9 +71,13 @@ async function executeReversal(rev: Reversal): Promise<string> {
   });
 
   // Kind-specific side effects — stamp the source entity where we own it.
+  // NEEDS_REVIEW is included so a Reversal-Desk refund of a HELD (indeterminate)
+  // transaction also marks it terminal REFUNDED — otherwise the money is
+  // returned but the row lingers in the Needs-Review queue and keeps an open
+  // STUCK anomaly (which only clears on a terminal status).
   if (rev.kind === "TRANSACTION" && rev.refType === "Transaction") {
     await prisma.transaction.updateMany({
-      where: { id: rev.refId, status: { in: ["SUCCESS", "FAILED", "HOLD"] } },
+      where: { id: rev.refId, status: { in: ["SUCCESS", "FAILED", "HOLD", "NEEDS_REVIEW"] } },
       data: { status: "REFUNDED", refundedAt: new Date(), refundRefId: rev.id },
     });
   }
