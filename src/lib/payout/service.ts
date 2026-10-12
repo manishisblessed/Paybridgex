@@ -28,8 +28,11 @@ import { logger } from "@/lib/logger";
  * ledger; releaseHold is guarded by the single-winner claim.
  */
 
-// States that still hold reserved funds and may be finalized.
-const HOLDABLE: PayoutStatus[] = ["APPROVED", "PROCESSING"];
+// States that still hold reserved funds and may be finalized. NEEDS_REVIEW is an
+// INDETERMINATE hold (the bank may have disbursed) — like PROCESSING, it is
+// pollable and finalizable to SUCCESS/FAILED/REVERSED, and the hold is retained
+// until the rail's books resolve it.
+const HOLDABLE: PayoutStatus[] = ["APPROVED", "PROCESSING", "NEEDS_REVIEW"];
 
 const TERMINAL: PayoutStatus[] = ["SUCCESS", "FAILED", "REJECTED", "REVERSED"];
 
@@ -342,6 +345,53 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
   });
 
   if (!res.ok) {
+    // INDETERMINATE outcome (network/timeout, HTTP 5xx/408/429, or an uncaught
+    // transport exception): the bank transfer MAY have gone through. Releasing
+    // the hold here (finalizePayoutFailure) would free the retailer's money for
+    // a payout that possibly succeeded — a direct double-spend loss. So we do
+    // NOT finalize: the row moves to NEEDS_REVIEW (funds HELD), landing in the
+    // admin held-payouts queue. The reconcile poller then tries to RECOVER the
+    // rail reference (reference recovery via the settlement list API) and
+    // finalize against the rail's own books; an inbound webhook can also resolve
+    // it; and an operator can resolve it manually. Page ops for visibility.
+    if (res.indeterminate) {
+      await prisma.payoutRequest.updateMany({
+        where: { id: payoutRequestId, status: "PROCESSING" },
+        data: { status: "NEEDS_REVIEW" },
+      });
+      void sendOpsAlert({
+        title: "Indeterminate payout outcome — HELD for review, funds NOT released (possible bank disbursal)",
+        severity: "critical",
+        details: {
+          payoutId: row.id,
+          userId: row.userId,
+          amount: toNumber(row.amount),
+          totalDebit: toNumber(row.totalDebit),
+          code: res.code ?? null,
+          providerReferenceId: row.providerReferenceId,
+          hasRailReference: Boolean(row.providerTxnId),
+        },
+      });
+      await prisma.auditLog.create({
+        data: {
+          userId: row.userId,
+          action: "payout.held_indeterminate",
+          entity: "PayoutRequest",
+          entityId: row.id,
+          meta: { code: res.code ?? null, reason: "indeterminate_provider_result", status: "NEEDS_REVIEW" },
+        },
+      });
+      logger.warn({
+        action: "payout.held_indeterminate",
+        payoutId: row.id,
+        code: res.code ?? null,
+        msg: "payout moved to NEEDS_REVIEW (hold retained) pending reconciliation",
+      });
+      return; // NEEDS_REVIEW — hold retained, recon/webhook/operator will finalize
+    }
+
+    // DEFINITIVE decline (business reject / 4xx / explicit provider failure):
+    // safe to release the hold back to spendable.
     await finalizePayoutFailure(payoutRequestId, {
       failureReason: payoutFailureReason(res),
       response: res.raw,
@@ -365,12 +415,124 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
 }
 
 /**
+ * RECOVER the rail reference of a held payout whose transfer response was lost.
+ *
+ * When a payout goes INDETERMINATE (NEEDS_REVIEW) we often never captured the
+ * rail's `reference_id` — our own `providerReferenceId` ("PO…") is NOT accepted
+ * by the settlement status API, so the payout is un-pollable. This lists the
+ * rail's own recent transactions and matches one to our held row by
+ * amount + beneficiary account last-4 + a time window around when we sent it.
+ *
+ * To avoid a wrong attribution it only recovers an UNAMBIGUOUS, UNCLAIMED match
+ * (exactly one candidate, not already linked to another payout). On success it
+ * persists the reference as `providerTxnId` so the normal poll path can finalize.
+ * Returns the recovered reference (or null when none/ambiguous).
+ */
+export async function recoverPayoutReference(payoutRequestId: string): Promise<string | null> {
+  const row = await prisma.payoutRequest.findUnique({ where: { id: payoutRequestId } });
+  if (!row || !HOLDABLE.includes(row.status) || row.providerTxnId) {
+    return row?.providerTxnId ?? null;
+  }
+
+  const provider = getPartner("payout");
+  if (typeof provider.listRecent !== "function") return null;
+  assertRealMoneyProvider(
+    provider,
+    () => new Error("Payout rail resolved to MOCK in production — refusing to recover reference")
+  );
+
+  const list = await provider.listRecent(50);
+  if (!list.ok) return null; // transient; next poll retries
+
+  const targetAmount = toNumber(row.amount);
+  const last4 = (row.accountLast4 ?? "").replace(/\D/g, "").slice(-4);
+  // Generous window anchored on when we handed the transfer to the rail.
+  const anchor = (row.processedAt ?? row.createdAt).getTime();
+  const WINDOW_MS = 6 * 3_600_000; // 6h — covers NEFT/RTGS settlement lag
+
+  const candidates = list.data.filter((rec) => {
+    if (Math.abs(rec.amount - targetAmount) > 0.009) return false;
+    if (last4 && rec.accountLast4 && rec.accountLast4 !== last4) return false;
+    if (rec.createdAt) {
+      const t = new Date(rec.createdAt).getTime();
+      if (!Number.isNaN(t) && Math.abs(t - anchor) > WINDOW_MS) return false;
+    }
+    return true;
+  });
+
+  if (candidates.length === 0) return null;
+
+  // Discard any candidate already linked to a different payout, so two payouts
+  // of the same amount to the same account can never steal each other's record.
+  const unclaimed: typeof candidates = [];
+  for (const rec of candidates) {
+    const taken = await prisma.payoutRequest.findFirst({
+      where: { providerTxnId: rec.reference, id: { not: row.id } },
+      select: { id: true },
+    });
+    if (!taken) unclaimed.push(rec);
+  }
+
+  if (unclaimed.length !== 1) {
+    // Zero (all claimed) or ambiguous (>1) — do not guess; leave for an operator.
+    if (unclaimed.length > 1) {
+      void sendOpsAlert({
+        title: "Payout reference recovery is AMBIGUOUS — manual review needed",
+        severity: "warning",
+        details: {
+          payoutId: row.id,
+          amount: targetAmount,
+          accountLast4: last4 || null,
+          candidates: unclaimed.map((c) => c.reference).slice(0, 5).join(", "),
+        },
+      });
+    }
+    return null;
+  }
+
+  const recovered = unclaimed[0];
+  await prisma.payoutRequest.updateMany({
+    where: { id: row.id, status: { in: HOLDABLE }, providerTxnId: null },
+    data: { providerTxnId: recovered.reference },
+  });
+  await prisma.auditLog.create({
+    data: {
+      userId: row.userId,
+      action: "payout.reference_recovered",
+      entity: "PayoutRequest",
+      entityId: row.id,
+      meta: { reference: recovered.reference, railStatus: recovered.status, via: "settlement_list" },
+    },
+  });
+  logger.warn({
+    action: "payout.reference_recovered",
+    payoutId: row.id,
+    reference: recovered.reference,
+    msg: "recovered lost rail reference for held payout",
+  });
+  return recovered.reference;
+}
+
+/**
  * Poll the payout rail for the terminal state of a single in-flight payout and
  * finalize. Safe fallback that finalizes payouts left in a non-terminal state.
+ *
+ * For a NEEDS_REVIEW row with no stored rail reference, it first attempts
+ * reference recovery (so a payout whose transfer response was lost can still be
+ * finalized against the rail's books) before polling.
  */
 export async function reconcilePayout(payoutRequestId: string): Promise<void> {
-  const row = await prisma.payoutRequest.findUnique({ where: { id: payoutRequestId } });
+  let row = await prisma.payoutRequest.findUnique({ where: { id: payoutRequestId } });
   if (!row || !HOLDABLE.includes(row.status)) return;
+
+  // No rail reference persisted (lost response) → try to recover it first.
+  if (!row.providerTxnId) {
+    const recovered = await recoverPayoutReference(payoutRequestId);
+    if (recovered) {
+      row = await prisma.payoutRequest.findUnique({ where: { id: payoutRequestId } });
+      if (!row || !HOLDABLE.includes(row.status)) return;
+    }
+  }
 
   const provider = getPartner("payout");
   // A mock status poll unconditionally returns "PAID" — never let recon finalize
@@ -381,7 +543,7 @@ export async function reconcilePayout(payoutRequestId: string): Promise<void> {
   );
   const lookupId = row.providerTxnId || row.providerReferenceId;
   const res = await provider.status(lookupId);
-  if (!res.ok) return; // transient; try again on the next poll
+  if (!res.ok) return; // transient (or un-pollable "PO…" ref); try again next poll
 
   if (res.data.status === "PAID") {
     await finalizePayoutSuccess(payoutRequestId, { utr: res.data.utr, response: res.raw });
@@ -448,7 +610,9 @@ export async function reconcileStuckPayouts(
 ): Promise<{ scanned: number }> {
   const cutoff = new Date(Date.now() - olderThanSec * 1000);
   const rows = await prisma.payoutRequest.findMany({
-    where: { status: "PROCESSING", processedAt: { lt: cutoff } },
+    // NEEDS_REVIEW rows are swept too: recon attempts reference recovery +
+    // poll so an indeterminate hold self-resolves without operator action.
+    where: { status: { in: ["PROCESSING", "NEEDS_REVIEW"] }, processedAt: { lt: cutoff } },
     orderBy: { processedAt: "asc" },
     take: limit,
     select: { id: true },
@@ -462,6 +626,134 @@ export async function reconcileStuckPayouts(
     }
   }
   return { scanned: rows.length };
+}
+
+/** A held (NEEDS_REVIEW) payout as surfaced in the admin review queue. */
+export type HeldPayoutRow = {
+  id: string;
+  userId: string;
+  userCode: string | null;
+  amount: number;
+  totalDebit: number;
+  mode: string;
+  beneficiaryName: string;
+  accountLast4: string | null;
+  providerReferenceId: string;
+  providerTxnId: string | null;
+  failureReason: string | null;
+  processedAt: string | null;
+  createdAt: string;
+};
+
+/** List payouts held for review (INDETERMINATE outcome), oldest first. */
+export async function listHeldPayouts(limit = 200): Promise<HeldPayoutRow[]> {
+  const rows = await prisma.payoutRequest.findMany({
+    where: { status: "NEEDS_REVIEW" },
+    orderBy: { processedAt: "asc" },
+    take: limit,
+    include: { user: { select: { userCode: true } } },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.userId,
+    userCode: r.user?.userCode ?? null,
+    amount: toNumber(r.amount),
+    totalDebit: toNumber(r.totalDebit),
+    mode: r.mode,
+    beneficiaryName: r.beneficiaryName,
+    accountLast4: r.accountLast4,
+    providerReferenceId: r.providerReferenceId,
+    providerTxnId: r.providerTxnId,
+    failureReason: r.failureReason,
+    processedAt: r.processedAt ? r.processedAt.toISOString() : null,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+export type ResolvePayoutAction = "recover" | "poll" | "force_paid" | "force_failed";
+
+export type ResolvePayoutResult = {
+  action: ResolvePayoutAction;
+  status: PayoutStatus;
+  recoveredReference?: string | null;
+  changed: boolean;
+};
+
+/**
+ * Operator resolution of a held (NEEDS_REVIEW) payout. Every path is idempotent
+ * and keeps the double-spend-safe invariant: the hold is only RELEASED when the
+ * bank definitively did NOT disburse.
+ *
+ *   recover      — auto-recover the rail reference + poll (no money unless the
+ *                  rail reports a terminal state).
+ *   poll         — operator supplies the real rail reference_id, then poll.
+ *   force_paid   — operator confirmed (bank statement/UTR) the money DID leave:
+ *                  capture the hold into a real DEBIT.
+ *   force_failed — operator confirmed the money did NOT leave: release the hold
+ *                  back to spendable.
+ */
+export async function resolveOnePayout(
+  payoutRequestId: string,
+  opts: {
+    actorId: string;
+    action: ResolvePayoutAction;
+    reference?: string | null;
+    utr?: string | null;
+    note?: string | null;
+  }
+): Promise<ResolvePayoutResult> {
+  const row = await prisma.payoutRequest.findUnique({ where: { id: payoutRequestId } });
+  if (!row) throw new Error("Payout not found");
+  if (row.status !== "NEEDS_REVIEW") {
+    return { action: opts.action, status: row.status, changed: false };
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      userId: opts.actorId,
+      action: `payout.resolve.${opts.action}`,
+      entity: "PayoutRequest",
+      entityId: row.id,
+      meta: {
+        targetUserId: row.userId,
+        reference: opts.reference ?? null,
+        utr: opts.utr ?? null,
+        note: opts.note ?? null,
+      },
+    },
+  });
+
+  if (opts.action === "poll" && opts.reference) {
+    await prisma.payoutRequest.updateMany({
+      where: { id: row.id, status: "NEEDS_REVIEW" },
+      data: { providerTxnId: opts.reference },
+    });
+    await reconcilePayout(row.id);
+  } else if (opts.action === "recover") {
+    await reconcilePayout(row.id); // reconcile auto-recovers when ref is missing
+  } else if (opts.action === "force_paid") {
+    await finalizePayoutSuccess(row.id, {
+      utr: opts.utr ?? null,
+      providerTxnId: opts.reference ?? undefined,
+      response: { operatorResolved: true, note: opts.note ?? null },
+    });
+  } else if (opts.action === "force_failed") {
+    await finalizePayoutFailure(row.id, {
+      failureReason: opts.note?.trim() || "Operator confirmed bank did not disburse",
+      response: { operatorResolved: true, note: opts.note ?? null },
+    });
+  }
+
+  const after = await prisma.payoutRequest.findUnique({
+    where: { id: row.id },
+    select: { status: true, providerTxnId: true },
+  });
+  return {
+    action: opts.action,
+    status: after?.status ?? row.status,
+    recoveredReference: after?.providerTxnId ?? null,
+    changed: (after?.status ?? row.status) !== "NEEDS_REVIEW",
+  };
 }
 
 export { LedgerError };

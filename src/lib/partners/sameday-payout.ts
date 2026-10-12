@@ -28,6 +28,7 @@ import {
   settlementAddTrustedAccount,
   settlementBalance,
   settlementDeleteAccount,
+  settlementList,
   settlementListAccounts,
   settlementStatus,
   settlementTransfer,
@@ -267,5 +268,25 @@ export const samedaySettlementPayout: PayoutProvider = {
     const r = await settlementBalance();
     if (!r.ok) return r;
     return { ok: true, data: r.data.balance, raw: r.raw };
+  },
+
+  async listRecent(limit = 50) {
+    // The rail's own recent-transactions feed — used to RECOVER the reference_id
+    // of a payout whose transfer response was lost (NEEDS_REVIEW). The reconciler
+    // matches these records to the held row by amount + account last-4 + time.
+    const r = await settlementList(limit);
+    if (!r.ok) return r;
+    return {
+      ok: true,
+      data: r.data.map((t) => ({
+        reference: t.referenceId,
+        amount: t.amount,
+        accountLast4: (t.accountNumber ?? "").replace(/\D/g, "").slice(-4) || undefined,
+        utr: t.utr,
+        status: mapSettlementToPayoutStatus(t.status),
+        createdAt: t.createdAt,
+      })),
+      raw: r.raw,
+    };
   },
 };

@@ -13,14 +13,16 @@ export function payoutDisplayStatus(
   if (status === "SUCCESS") return "Success";
   if (status === "FAILED" || status === "REJECTED" || status === "REVERSED")
     return "Failed";
-  // DRAFT | PENDING_APPROVAL | APPROVED | PROCESSING
+  // DRAFT | PENDING_APPROVAL | APPROVED | PROCESSING | NEEDS_REVIEW
+  // NEEDS_REVIEW is an indeterminate HOLD (funds not released) — the retailer
+  // sees it as still in-flight, never as Failed/refunded.
   return "Pending";
 }
 
 /** PayoutStatus values that back each display status (for status filtering). */
 export const PAYOUT_STATUS_GROUPS: Record<string, PayoutStatus[]> = {
   Success: ["SUCCESS"],
-  Pending: ["DRAFT", "PENDING_APPROVAL", "APPROVED", "PROCESSING"],
+  Pending: ["DRAFT", "PENDING_APPROVAL", "APPROVED", "PROCESSING", "NEEDS_REVIEW"],
   Failed: ["FAILED", "REJECTED", "REVERSED"],
 };
 

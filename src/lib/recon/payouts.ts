@@ -45,9 +45,11 @@ export async function runDailyPayoutReconciliation(): Promise<PayoutReconSummary
   const now = Date.now();
 
   // ── 1. Drain: poll every non-terminal payout older than 10 minutes. ──────
+  //       NEEDS_REVIEW (indeterminate hold) is included so the deep sweep also
+  //       attempts reference recovery + finalize for lost-response payouts.
   const inflight = await prisma.payoutRequest.findMany({
     where: {
-      status: { in: ["APPROVED", "PROCESSING"] },
+      status: { in: ["APPROVED", "PROCESSING", "NEEDS_REVIEW"] },
       createdAt: { lt: new Date(now - 10 * 60_000) },
     },
     orderBy: { createdAt: "asc" },
@@ -66,20 +68,24 @@ export async function runDailyPayoutReconciliation(): Promise<PayoutReconSummary
   }
 
   // ── 2. Stuck: escalate anything still holding funds after 2 hours. ───────
+  //       Includes NEEDS_REVIEW rows that recovery could not auto-resolve —
+  //       these need a human in the held-payouts queue.
   const stillStuck = await prisma.payoutRequest.findMany({
     where: {
-      status: { in: ["APPROVED", "PROCESSING"] },
+      status: { in: ["APPROVED", "PROCESSING", "NEEDS_REVIEW"] },
       createdAt: { lt: new Date(now - STUCK_THRESHOLD_MS) },
     },
     select: { id: true, status: true, createdAt: true },
   });
 
+  const needsReviewStuck = stillStuck.filter((r) => r.status === "NEEDS_REVIEW").length;
   if (stillStuck.length > 0) {
     await sendOpsAlert({
       title: "Payouts stuck in a non-terminal state",
-      severity: "warning",
+      severity: needsReviewStuck > 0 ? "critical" : "warning",
       details: {
         count: stillStuck.length,
+        needsReview: needsReviewStuck,
         oldest: stillStuck[0].createdAt.toISOString(),
         ids: stillStuck.slice(0, 10).map((r) => r.id).join(", "),
       },

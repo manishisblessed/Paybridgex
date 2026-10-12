@@ -156,6 +156,26 @@ export class FakeDb {
       );
       return row ? { ...row } : null;
     },
+    // Duplicate-order backstop in runTransaction looks up another SUCCESS row
+    // owning the same partnerTxnId (excluding the current leg).
+    findFirst: async ({
+      where,
+    }: {
+      where?: {
+        partnerTxnId?: string | null;
+        status?: string;
+        id?: { not?: string };
+      };
+    } = {}) => {
+      const w = where ?? {};
+      const row = this.transactions.find(
+        (t) =>
+          (w.partnerTxnId === undefined || t.partnerTxnId === w.partnerTxnId) &&
+          (w.status === undefined || t.status === w.status) &&
+          (w.id?.not === undefined || t.id !== w.id.not)
+      );
+      return row ? { ...row } : null;
+    },
     updateMany: async ({
       where,
       data,

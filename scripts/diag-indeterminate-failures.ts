@@ -137,7 +137,11 @@ async function main() {
 
   const failed = (await prisma.transaction.findMany({
     where: {
-      status: "FAILED",
+      // Both terminal "we didn't charge the retailer in the end" states: a bare
+      // FAILED (reserve returned via the failure path) AND REFUNDED (the explicit
+      // auto-refund path). The real false-refund losses we've seen land as
+      // REFUNDED, so scanning FAILED alone would miss them.
+      status: { in: ["FAILED", "REFUNDED"] },
       createdAt: { gte: since },
       OR: [{ partner: RK_PARTNER }, { service: { in: BBPS_SERVICES as unknown as string[] } }],
     },

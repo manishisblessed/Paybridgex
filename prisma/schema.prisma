@@ -1382,6 +1382,9 @@ enum PayoutStatus {
   PENDING_APPROVAL // submitted by maker, funds held, awaiting checker
   APPROVED // checker approved, queued for the worker
   PROCESSING // sent to the payout rail, awaiting terminal state (poll)
+  NEEDS_REVIEW // INDETERMINATE send outcome (lost response / 5xx / timeout): the
+  // bank MAY have disbursed, so funds stay HELD (never released) until the rail's
+  // books are recovered (reference recovery / webhook) or an operator resolves it.
   SUCCESS // settled at the rail; hold captured into a real DEBIT
   FAILED // rail declined / failed; hold released back to spendable
   REJECTED // checker rejected before initiation; hold released

@@ -128,6 +128,24 @@ export interface PayoutProvider {
    * — callers must tolerate this being absent or failing.
    */
   fetchBalance?(): Promise<PartnerResult<number>>;
+  /**
+   * Optional: list the most recent payouts/transfers from the rail's books.
+   * Used to RECOVER the rail reference of a payout whose initiate response was
+   * lost (INDETERMINATE / NEEDS_REVIEW) by matching amount + beneficiary account
+   * + time, so a held payout can be finalized without ever having stored the
+   * provider id. Best-effort — callers must tolerate absence/failure.
+   */
+  listRecent?(limit?: number): Promise<PartnerResult<PayoutRailRecord[]>>;
+}
+
+/** A single payout/transfer as seen on the rail's own books (for recovery). */
+export interface PayoutRailRecord {
+  reference: string; // the rail reference_id we poll status with
+  amount: number;
+  accountLast4?: string;
+  utr?: string;
+  status: PayoutOutput["status"];
+  createdAt?: string;
 }
 
 // ---------- BBPS ----------

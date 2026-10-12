@@ -27,6 +27,7 @@ const STATUS_LABEL: Record<PayoutStatus, string> = {
   PENDING_APPROVAL: "Pending approval",
   APPROVED: "Approved",
   PROCESSING: "Processing",
+  NEEDS_REVIEW: "Processing",
   SUCCESS: "Success",
   FAILED: "Failed",
   REJECTED: "Rejected",
