@@ -158,6 +158,7 @@ export const ASSIGNABLE_ADMIN_TABS = [
   { href: "reversals", label: "Reversal Desk" },
   { href: "needs-review", label: "Needs Review" },
   { href: "payout-review", label: "Held Payouts" },
+  { href: "money-at-risk", label: "Money at Risk" },
   { href: "aeps", label: "AePS Centre" },
   { href: "qr", label: "QR Collections" },
   { href: "disputes", label: "Support Desk" },
@@ -222,6 +223,7 @@ const adminMoneyDesk: NavItem[] = [
   { href: "/dashboard/admin/reversals", label: "Reversal Desk", icon: Undo2 },
   { href: "/dashboard/admin/needs-review", label: "Needs Review", icon: Inbox },
   { href: "/dashboard/admin/payout-review", label: "Held Payouts", icon: Landmark },
+  { href: "/dashboard/admin/money-at-risk", label: "Money at Risk", icon: ShieldAlert },
   { href: "/dashboard/payout-approvals", label: "Payout Approvals", icon: ListChecks }
 ];
 

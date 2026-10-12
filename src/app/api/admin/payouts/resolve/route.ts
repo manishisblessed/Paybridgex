@@ -3,7 +3,14 @@ import { z } from "zod";
 import { requireAdminActivity } from "@/lib/security/adminActivity";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
+import { enforceDualControl } from "@/lib/security/dualControl";
 import { resolveOnePayout } from "@/lib/payout/service";
+import { prisma } from "@/lib/db";
+import { toNumber } from "@/lib/money";
+
+// force_paid / force_failed on a payout at or above this value needs a second,
+// different admin to approve (dual control). Env-overridable.
+const DUAL_CONTROL_PAYOUT_AMOUNT = Number(process.env.DUAL_CONTROL_PAYOUT_AMOUNT ?? 50_000);
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -56,6 +63,37 @@ export async function POST(req: Request) {
       entity: "PayoutRequest",
     });
     await enforceRateLimit(`payout:resolve:${admin.id}`, RATE_LIMITS.sensitiveWrite);
+
+    // Dual control: a large force_paid/force_failed needs a second approver.
+    if (force) {
+      const payout = await prisma.payoutRequest.findUnique({
+        where: { id: parsed.data.payoutId },
+        select: { totalDebit: true },
+      });
+      const amount = toNumber(payout?.totalDebit ?? 0);
+      if (amount >= DUAL_CONTROL_PAYOUT_AMOUNT) {
+        const decision = await enforceDualControl({
+          scope: "payout.force",
+          action: parsed.data.action,
+          entity: "PayoutRequest",
+          entityId: parsed.data.payoutId,
+          actorId: admin.id,
+          meta: { amount, action: parsed.data.action },
+        });
+        if (!decision.proceed) {
+          return NextResponse.json(
+            {
+              changed: false,
+              dualControl: decision.status,
+              message: decision.message,
+              threshold: DUAL_CONTROL_PAYOUT_AMOUNT,
+              amount,
+            },
+            { status: 202 }
+          );
+        }
+      }
+    }
 
     const result = await resolveOnePayout(parsed.data.payoutId, {
       actorId: admin.id,

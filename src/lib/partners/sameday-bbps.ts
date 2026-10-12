@@ -294,6 +294,9 @@ export const samedayBbps: BbpsProvider = {
         // partnerTxnId (not the bill_fetch_ref we may have queried with).
         orderId: r.data.order_id ?? undefined,
         requestId: r.data.request_id ?? undefined,
+        // Provider-reported paid amount — corrective flows cross-check this
+        // against the row before promoting a wrongly-failed row to SUCCESS.
+        amount: typeof r.data.amount === "number" ? r.data.amount : undefined,
       },
       raw: r.raw,
     };

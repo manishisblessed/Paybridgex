@@ -121,6 +121,17 @@ export async function placeWalletLien(input: CreateLienInput): Promise<WalletLie
     });
     // Freeze the debt and immediately sweep any currently-available funds.
     await placeLienHold(input.targetUserId, input.amount, tx);
+    // Governance: tell the retailer a hold was placed (atomic with the lien) so
+    // they always know why their spendable balance dropped. Never silent.
+    await tx.notification.create({
+      data: {
+        userId: input.targetUserId,
+        title: "A hold was placed on your wallet",
+        body: `₹${input.amount.toFixed(2)} has been placed under a recovery hold (${input.reasonCode}). It will be recovered from your available balance and future credits. Reason: ${input.remarks.trim()}`,
+        channel: "INAPP",
+        href: "/dashboard/wallet",
+      },
+    });
     return tx.walletLien.findUniqueOrThrow({ where: { id: created.id } });
   });
 }

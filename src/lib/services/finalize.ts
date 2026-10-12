@@ -335,6 +335,17 @@ export async function correctTerminalToSuccess(opts: {
       lienId = lien.id;
       await placeLienHold(txn.userId, refunded, tx);
       clawbackPlaced = true;
+      // Governance: notify the retailer their earlier refund is being clawed back
+      // (the provider confirmed the payment actually succeeded). Atomic with the lien.
+      await tx.notification.create({
+        data: {
+          userId: txn.userId,
+          title: "A wallet hold was placed to recover a refund",
+          body: `₹${refunded.toFixed(2)} from txn ${txn.refId} is being recovered: the provider confirmed this payment actually succeeded, so the earlier refund is reversed via a recovery hold (not a negative balance).`,
+          channel: "INAPP",
+          href: "/dashboard/wallet",
+        },
+      });
     }
 
     // Book the company margin exactly like a normal SUCCESS settlement.

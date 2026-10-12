@@ -83,6 +83,17 @@ export default function HeldPayoutsPage() {
         const d = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Resolve failed");
 
+        if (d.dualControl) {
+          // Maker-checker: a large force action needs a second, different admin.
+          toast.info(
+            typeof d.message === "string"
+              ? d.message
+              : "A second, different admin must approve this action."
+          );
+          await load();
+          return false;
+        }
+
         if (!d.changed) {
           toast.info(
             action === "recover" || action === "poll"

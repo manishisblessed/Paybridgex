@@ -132,6 +132,19 @@ export const QUEUES = {
   // stuck non-terminal transactions. Surfaces them on the Reversal Desk so ops
   // never has to hunt for stuck payments manually. See src/lib/recon/anomalies.ts.
   TXN_ANOMALY_SWEEP: "txn.anomaly.sweep",
+  // Outcome verification sweep (hourly): re-polls recent TERMINAL service rows
+  // (SUCCESS/FAILED/REFUNDED on BBPS + RechargeKit) against the provider and
+  // flags provider clawbacks, false refunds, and amount mismatches on the
+  // Reversal Desk. Never moves money. See src/lib/recon/anomalies.ts.
+  TXN_OUTCOME_VERIFY: "txn.outcome.verify",
+  // Money-at-risk threshold alert (every 30 min): consolidated check of
+  // NEEDS_REVIEW payout exposure, open anomaly exposure, and outstanding liens.
+  // Fires a single ops alert when a configured threshold is breached. Read-only.
+  // See src/lib/recon/exposure.ts.
+  EXPOSURE_ALERT: "recon.exposure.alert",
+  // Lien governance report (daily): flags ageing and large ACTIVE liens for ops
+  // review. Never writes off or releases a lien. See src/lib/recon/lienGovernance.ts.
+  LIEN_AGING_REPORT: "recon.lien.aging",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];

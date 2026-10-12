@@ -35,7 +35,10 @@ type Anomaly = {
     | "FAILED_NO_REVERSAL"
     | "SUCCESS_NO_PROVIDER"
     | "DUPLICATE_PROVIDER_REF"
-    | "STUCK_NON_TERMINAL";
+    | "STUCK_NON_TERMINAL"
+    | "PROVIDER_CLAWBACK"
+    | "FALSE_REFUND"
+    | "AMOUNT_MISMATCH";
   txnId: string;
   refId: string;
   amount: number;
@@ -53,6 +56,9 @@ const ANOMALY_LABELS: Record<Anomaly["type"], { label: string; tone: "danger" | 
   SUCCESS_NO_PROVIDER: { label: "Success — no provider record", tone: "danger", icon: ShieldAlert },
   DUPLICATE_PROVIDER_REF: { label: "Duplicate charge — same provider ref", tone: "danger", icon: ShieldAlert },
   STUCK_NON_TERMINAL: { label: "Stuck in processing", tone: "warning", icon: Clock },
+  PROVIDER_CLAWBACK: { label: "Provider clawed back a success", tone: "danger", icon: ShieldAlert },
+  FALSE_REFUND: { label: "Refunded — but provider paid", tone: "danger", icon: ShieldAlert },
+  AMOUNT_MISMATCH: { label: "Amount mismatch vs provider", tone: "danger", icon: ShieldAlert },
 };
 
 const STATUSES = ["all", "PENDING_APPROVAL", "COMPLETED", "REJECTED", "CANCELLED"];
@@ -601,6 +607,25 @@ export default function ReversalDeskPage() {
                               onClick={() => handleAnomalyAction(a, "resolve")}
                             >
                               Resolve
+                            </Button>
+                          </>
+                        ) : a.type === "FALSE_REFUND" || a.type === "AMOUNT_MISMATCH" ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleAnomalyAction(a, "lookup")}
+                              title="Prefill the form to inspect this row before acting"
+                            >
+                              Review
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleAnomalyAction(a, "resolve")}
+                              title="Re-check the provider; promote + lien-claw-back a confirmed false refund (amount mismatches are refused for manual review)"
+                            >
+                              Resolve / verify
                             </Button>
                           </>
                         ) : (

@@ -296,12 +296,24 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
     return;
   }
 
-  // Claim APPROVED/PROCESSING -> PROCESSING (records processedAt once).
+  // Idempotent send guard: ONLY the APPROVED → PROCESSING transition is allowed
+  // to call the rail. A row already in PROCESSING/NEEDS_REVIEW was handed off on
+  // a prior attempt (whose response may have been lost before we persisted the
+  // reference), so a worker retry must NEVER re-send — it reconciles instead,
+  // which runs reference recovery and finalizes against the rail's own books.
+  // This closes the double-send window where a transfer succeeded but the attempt
+  // crashed before the provider id was stored.
   const claim = await prisma.payoutRequest.updateMany({
-    where: { id: payoutRequestId, status: { in: HOLDABLE } },
+    where: { id: payoutRequestId, status: "APPROVED" },
     data: { status: "PROCESSING", processedAt: row.processedAt ?? new Date() },
   });
-  if (claim.count === 0) return;
+  if (claim.count === 0) {
+    // Not freshly APPROVED → already in-flight (PROCESSING/NEEDS_REVIEW) or
+    // terminal. Reconcile (recovery-aware) rather than re-sending — this is what
+    // makes a retry recover a lost reference instead of duplicating the transfer.
+    await reconcilePayout(payoutRequestId);
+    return;
+  }
 
   const user = await prisma.user.findUnique({
     where: { id: row.userId },

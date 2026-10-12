@@ -25,6 +25,7 @@ import { sendOpsAlert } from "@/lib/monitoring/alerts";
 import { logger } from "@/lib/logger";
 import { flags } from "@/lib/env";
 import { getPartner } from "@/lib/partners";
+import { rechargekitStatus } from "@/lib/partners/sameday-rechargekit";
 import { deriveTxnRefs } from "@/lib/recon/refs";
 
 const log = logger.child({ module: "recon/anomalies" });
@@ -54,7 +55,24 @@ export const ANOMALY_ACTIONS = {
   SUCCESS_NO_PROVIDER: "anomaly.success_no_provider",
   DUPLICATE_PROVIDER_REF: "anomaly.duplicate_provider_ref",
   STUCK_NON_TERMINAL: "anomaly.stuck_non_terminal",
+  // Outcome-verification anomalies (provider books vs our ledger):
+  // PROVIDER_CLAWBACK — we settled SUCCESS but the provider now reports
+  //   FAILED/REFUNDED: the rail clawed it back / never settled. Funds captured
+  //   from the retailer are at risk → review + corrective action.
+  PROVIDER_CLAWBACK: "anomaly.provider_clawback",
+  // FALSE_REFUND — we recorded FAILED/REFUNDED (reserve returned) but the
+  //   provider reports SUCCESS for the SAME amount: a direct loss (vendor paid,
+  //   retailer refunded). Resolve → promote to SUCCESS + lien clawback.
+  FALSE_REFUND: "anomaly.false_refund",
+  // AMOUNT_MISMATCH — provider confirms a terminal outcome but for a DIFFERENT
+  //   amount than the row (twin double-attempt). Needs a human to pick the leg.
+  AMOUNT_MISMATCH: "anomaly.amount_mismatch",
 } as const;
+
+/** Durable "this terminal row was verified against the provider and agreed"
+ *  marker — bounds provider polling to at most once per row (NOT an anomaly,
+ *  so it never surfaces on the Reversal Desk). */
+const OUTCOME_VERIFIED_ACTION = "recon.txn_outcome_verified";
 
 export type AnomalyType = keyof typeof ANOMALY_ACTIONS;
 
@@ -112,6 +130,18 @@ async function flagAnomaly(
     },
   });
   return true;
+}
+
+/** Stamp a terminal row as provider-verified-OK so it is never re-polled. */
+async function markOutcomeVerified(txnId: string, providerStatus: string): Promise<void> {
+  await prisma.auditLog.create({
+    data: {
+      action: OUTCOME_VERIFIED_ACTION,
+      entity: "Transaction",
+      entityId: txnId,
+      meta: { providerStatus, verifiedAt: new Date().toISOString() },
+    },
+  });
 }
 
 export async function runAnomalySweep(): Promise<AnomalySweepSummary> {
@@ -451,6 +481,25 @@ export async function runAnomalySweep(): Promise<AnomalySweepSummary> {
       if (txn.status === "SUCCESS" || txn.status === "FAILED" || txn.status === "REFUNDED") {
         resolved = true;
       }
+    } else if (anomaly.action === ANOMALY_ACTIONS.PROVIDER_CLAWBACK) {
+      // We flagged a SUCCESS the provider had clawed back. Cleared once an
+      // operator has acted — the row is no longer a plain SUCCESS (reversed /
+      // corrected) or a lien now covers the captured funds.
+      if (txn.status !== "SUCCESS") resolved = true;
+      else {
+        const lien = await prisma.walletLien.findFirst({
+          where: { refType: "Transaction", refId: txn.id },
+          select: { id: true },
+        });
+        if (lien) resolved = true;
+      }
+    } else if (
+      anomaly.action === ANOMALY_ACTIONS.FALSE_REFUND ||
+      anomaly.action === ANOMALY_ACTIONS.AMOUNT_MISMATCH
+    ) {
+      // Cleared once the row has been corrected to SUCCESS (the resolver promotes
+      // + lien-claws-back a confirmed false refund).
+      if (txn.status === "SUCCESS") resolved = true;
     }
 
     if (resolved) {
@@ -506,6 +555,221 @@ export async function runAnomalySweep(): Promise<AnomalySweepSummary> {
   });
 
   return summary;
+}
+
+// Outcome verification scans a wider terminal window than the SUCCESS-only check,
+// but bounds cost via the one-shot OUTCOME_VERIFIED marker (each row polled once).
+const OUTCOME_VERIFY_WINDOW_MS = 72 * 3_600_000; // re-check terminal rows < 72h old
+const OUTCOME_VERIFY_MIN_AGE_MS = 15 * 60_000; // …and ≥ 15 min old (let it settle)
+
+export type OutcomeVerifySummary = {
+  ranAt: string;
+  scanned: number;
+  providerClawback: number;
+  falseRefund: number;
+  amountMismatch: number;
+  verifiedOk: number;
+};
+
+/**
+ * Proactive clawback / false-refund / amount-mismatch detector.
+ *
+ * Re-polls recent TERMINAL service rows (SUCCESS / FAILED / REFUNDED on the
+ * BBPS + RechargeKit rails) against the provider's own status API and compares
+ * the authoritative outcome — and amount — to our ledger:
+ *
+ *   • we SUCCESS, provider FAILED/REFUNDED  → PROVIDER_CLAWBACK (captured funds
+ *     at risk; the rail reversed or never settled).
+ *   • we FAILED/REFUNDED, provider SUCCESS (same amount) → FALSE_REFUND (the
+ *     direct-loss incident: vendor paid, retailer refunded).
+ *   • provider terminal but a DIFFERENT amount → AMOUNT_MISMATCH (twin attempt).
+ *
+ * It NEVER moves money — findings land on the Reversal Desk (same AuditLog
+ * anomaly namespace) + a critical ops alert, for a deliberate operator action.
+ * Each row is polled at most once (OUTCOME_VERIFIED marker) so provider load
+ * stays bounded; a definitive provider answer is required before any flag, so a
+ * provider outage can never mass-flag.
+ */
+export async function runOutcomeVerificationSweep(): Promise<OutcomeVerifySummary> {
+  const ranAt = new Date().toISOString();
+  const now = Date.now();
+  let scanned = 0;
+  let providerClawback = 0;
+  let falseRefund = 0;
+  let amountMismatch = 0;
+  let verifiedOk = 0;
+
+  const bbps = flags.bbps ? getPartner("bbps") : null;
+
+  const rows = await prisma.transaction.findMany({
+    where: {
+      status: { in: ["SUCCESS", "FAILED", "REFUNDED"] },
+      isSettlement: false,
+      OR: [
+        { service: { in: RAILS_REQUIRING_PARTNER_REF }, partner: { not: RK_PARTNER } },
+        { partner: RK_PARTNER },
+      ],
+      createdAt: {
+        gte: new Date(now - OUTCOME_VERIFY_WINDOW_MS),
+        lt: new Date(now - OUTCOME_VERIFY_MIN_AGE_MS),
+      },
+    },
+    select: {
+      id: true,
+      refId: true,
+      userId: true,
+      amount: true,
+      fee: true,
+      service: true,
+      status: true,
+      partner: true,
+      partnerTxnId: true,
+      request: true,
+      response: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+  });
+
+  for (const txn of rows) {
+    // Skip rows already verified-ok or already carrying an outcome anomaly.
+    if (await alreadyFlagged(txn.id, OUTCOME_VERIFIED_ACTION)) continue;
+    if (await alreadyFlagged(txn.id, ANOMALY_ACTIONS.PROVIDER_CLAWBACK)) continue;
+    if (await alreadyFlagged(txn.id, ANOMALY_ACTIONS.FALSE_REFUND)) continue;
+    if (await alreadyFlagged(txn.id, ANOMALY_ACTIONS.AMOUNT_MISMATCH)) continue;
+
+    const refs = deriveTxnRefs({
+      partnerTxnId: txn.partnerTxnId,
+      request: txn.request,
+      response: txn.response,
+    });
+    if (refs.length === 0) continue; // no handle to poll (no-ref SUCCESS handled elsewhere)
+
+    const isRk = txn.partner === RK_PARTNER;
+    let provStatus: "SUCCESS" | "PENDING" | "FAILED" | "REFUNDED" | null = null;
+    let provAmount: number | null = null;
+    try {
+      for (const ref of refs) {
+        if (isRk) {
+          let r = await rechargekitStatus({ txnId: ref });
+          if (!r.ok) r = await rechargekitStatus({ requestId: ref });
+          if (r.ok) {
+            provStatus = r.data.status;
+            provAmount = typeof r.data.amount === "number" && r.data.amount > 0 ? r.data.amount : null;
+            break;
+          }
+        } else {
+          if (!bbps?.status) break;
+          let r = await bbps.status({ orderId: ref });
+          if (!r.ok) r = await bbps.status({ requestId: ref });
+          if (!r.ok) r = await bbps.status({ billFetchRef: ref });
+          if (r.ok) {
+            provStatus = r.data.status;
+            provAmount = typeof r.data.amount === "number" && r.data.amount > 0 ? r.data.amount : null;
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      log.warn({ refId: txn.refId, err: String(e) }, "outcome verify: provider poll failed");
+      continue;
+    }
+
+    scanned++;
+    if (!provStatus || provStatus === "PENDING") continue; // inconclusive → retry later
+
+    const rowAmt = toNumber(txn.amount);
+    const amountOk = provAmount == null || Math.abs(provAmount - rowAmt) <= 0.01;
+    const weSucceeded = txn.status === "SUCCESS";
+    const meta = {
+      refId: txn.refId,
+      amount: rowAmt,
+      fee: toNumber(txn.fee),
+      service: txn.service,
+      partner: txn.partner,
+      partnerTxnId: txn.partnerTxnId,
+      ourStatus: txn.status,
+      providerStatus: provStatus,
+      providerAmount: provAmount,
+      createdAt: txn.createdAt.toISOString(),
+    };
+
+    if (provStatus === "SUCCESS") {
+      if (!amountOk) {
+        if (await flagAnomaly(txn.id, txn.userId, ANOMALY_ACTIONS.AMOUNT_MISMATCH, meta)) amountMismatch++;
+      } else if (weSucceeded) {
+        await markOutcomeVerified(txn.id, provStatus);
+        verifiedOk++;
+      } else {
+        // We refunded/failed it but the provider paid → direct loss.
+        if (await flagAnomaly(txn.id, txn.userId, ANOMALY_ACTIONS.FALSE_REFUND, meta)) falseRefund++;
+      }
+    } else {
+      // provider FAILED / REFUNDED
+      if (weSucceeded) {
+        if (await flagAnomaly(txn.id, txn.userId, ANOMALY_ACTIONS.PROVIDER_CLAWBACK, meta)) providerClawback++;
+      } else {
+        await markOutcomeVerified(txn.id, provStatus);
+        verifiedOk++;
+      }
+    }
+  }
+
+  const total = providerClawback + falseRefund + amountMismatch;
+  if (total > 0) {
+    void sendOpsAlert({
+      title: `${total} payment outcome mismatch(es) vs provider detected`,
+      severity: "critical",
+      details: {
+        providerClawback,
+        falseRefund,
+        amountMismatch,
+        verifiedOk,
+        hint: "Review on the Reversal Desk → Auto-detected Issues, then Resolve / verify.",
+      },
+    }).catch(() => {});
+    log.warn({ providerClawback, falseRefund, amountMismatch, verifiedOk }, "outcome mismatches detected");
+  }
+
+  const summary: OutcomeVerifySummary = {
+    ranAt,
+    scanned,
+    providerClawback,
+    falseRefund,
+    amountMismatch,
+    verifiedOk,
+  };
+  await prisma.auditLog.create({
+    data: { action: "recon.outcome_verify", entity: "System", meta: { ...summary } },
+  });
+  return summary;
+}
+
+/**
+ * Total open-anomaly exposure (count of flagged txns + Σ amount+fee). Cleared
+ * anomalies are deleted from AuditLog, so the remaining flags are the open set.
+ * Used by the money-at-risk dashboard.
+ */
+export async function getAnomalyExposure(): Promise<{ count: number; exposure: number }> {
+  const allActions = Object.values(ANOMALY_ACTIONS);
+  const logs = await prisma.auditLog.findMany({
+    where: { action: { in: allActions }, entity: "Transaction" },
+    select: { entityId: true },
+    orderBy: { createdAt: "desc" },
+    take: 2000,
+  });
+  const ids = [
+    ...new Set(logs.map((l) => l.entityId).filter((x): x is string => !!x)),
+  ];
+  if (ids.length === 0) return { count: 0, exposure: 0 };
+  const txns = await prisma.transaction.findMany({
+    where: { id: { in: ids } },
+    select: { amount: true, fee: true },
+  });
+  let exposure = 0;
+  for (const t of txns) exposure += toNumber(t.amount) + toNumber(t.fee);
+  return { count: txns.length, exposure };
 }
 
 /** Read open anomalies for the admin UI. */

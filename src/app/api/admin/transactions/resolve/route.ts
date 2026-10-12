@@ -56,6 +56,21 @@ export async function POST(req: Request) {
     if (!result.found)
       return NextResponse.json({ error: "No transaction found for that reference" }, { status: 404 });
 
+    // The provider confirmed SUCCESS but for a DIFFERENT amount than this row —
+    // the twin double-attempt trap. Refuse and surface both amounts so the
+    // operator corrects the right leg instead of clawing back the wrong one.
+    if (result.outcome === "amount_mismatch") {
+      return NextResponse.json(
+        {
+          ...result,
+          error:
+            `Provider reports SUCCESS for ₹${result.providerAmount ?? "?"}, but this row is a different amount. ` +
+            "This looks like a twin double-attempt — verify which attempt actually paid before resolving.",
+        },
+        { status: 409 }
+      );
+    }
+
     // The provider could not confirm the outcome from any available reference —
     // the admin must supply the pay-step reference from the provider panel.
     if (result.outcome === "unresolved") {

@@ -167,7 +167,7 @@ type ProviderStatus = "SUCCESS" | "FAILED" | "REFUNDED" | "PENDING";
 async function resolveProviderStatus(
   rail: "rechargekit" | "bbps",
   refs: string[]
-): Promise<{ status: ProviderStatus; ref: string; payRef: string | null; raw: unknown } | null> {
+): Promise<{ status: ProviderStatus; ref: string; payRef: string | null; amount: number | null; raw: unknown } | null> {
   for (const ref of refs) {
     if (rail === "bbps") {
       const bbps = getPartner("bbps");
@@ -176,14 +176,42 @@ async function resolveProviderStatus(
       let r = await bbps.status({ orderId: ref });
       if (!r.ok) r = await bbps.status({ requestId: ref });
       if (!r.ok) r = await bbps.status({ billFetchRef: ref });
-      if (r.ok) return { status: r.data.status, ref, payRef: r.data.orderId ?? r.data.requestId ?? null, raw: r.raw };
+      if (r.ok)
+        return {
+          status: r.data.status,
+          ref,
+          payRef: r.data.orderId ?? r.data.requestId ?? null,
+          amount: typeof r.data.amount === "number" ? r.data.amount : null,
+          raw: r.raw,
+        };
     } else {
       let r = await rechargekitStatus({ txnId: ref });
       if (!r.ok) r = await rechargekitStatus({ requestId: ref });
-      if (r.ok) return { status: r.data.status, ref, payRef: r.data.txnId ?? null, raw: r.raw };
+      if (r.ok)
+        return {
+          status: r.data.status,
+          ref,
+          payRef: r.data.txnId ?? null,
+          amount: typeof r.data.amount === "number" ? r.data.amount : null,
+          raw: r.raw,
+        };
     }
   }
   return null;
+}
+
+/**
+ * Guard against clawing back the WRONG leg of a twin bill. When a bill is
+ * attempted twice (same bill_fetch_ref, often different amounts), the provider's
+ * status resolves to the ONE order that actually paid. Before we promote a
+ * wrongly-failed row to SUCCESS + lien-clawback, require the provider's reported
+ * amount to match THIS row's amount. Returns true when it is safe to proceed
+ * (amounts agree, or the provider did not report an amount → fall back to the
+ * partnerTxnId-uniqueness backstop). A paise-level tolerance absorbs rounding.
+ */
+function providerAmountMatches(providerAmount: number | null, rowAmount: number): boolean {
+  if (providerAmount == null) return true; // unknown → defer to unique-constraint backstop
+  return Math.abs(providerAmount - rowAmount) <= 0.01;
 }
 
 export type CorrectOneResult =
@@ -202,7 +230,10 @@ export type CorrectOneResult =
         | "refunded" // non-terminal → FAILED/REFUNDED
         | "noop" // already consistent with the provider
         | "unresolved" // provider could not confirm from any available ref
+        | "amount_mismatch" // provider SUCCESS but for a DIFFERENT amount — refused
         | "not_applicable"; // unsupported rail
+      /** Provider-reported amount when it disagreed with the row (amount_mismatch). */
+      providerAmount?: number;
       clawback?: { placed: boolean; refunded: number; lienId: string | null };
     };
 
@@ -267,6 +298,39 @@ export async function correctOneTransaction(
 
   // Provider confirms the money DID move.
   if (resolved.status === "SUCCESS") {
+    // AMOUNT GUARD: never clawback/settle against a provider SUCCESS whose amount
+    // differs from this row (the twin double-attempt trap, e.g. a ₹48k success
+    // vs a ₹49k row sharing one bill_fetch_ref). Refuse and flag for a human.
+    if (!providerAmountMatches(resolved.amount, txn.amount.toNumber())) {
+      await prisma.auditLog.create({
+        data: {
+          userId: opts.actorId,
+          action: "txn.resolve.amount_mismatch",
+          entity: "Transaction",
+          entityId: txn.id,
+          meta: {
+            refId: txn.refId,
+            rowAmount: txn.amount.toNumber(),
+            providerAmount: resolved.amount,
+            providerRef: resolved.payRef ?? resolved.ref,
+            source,
+          },
+        },
+      });
+      log.warn(
+        { refId: txn.refId, rowAmount: txn.amount.toNumber(), providerAmount: resolved.amount },
+        "resolve refused: provider SUCCESS amount does not match the row amount"
+      );
+      return {
+        found: true,
+        refId: txn.refId,
+        rail,
+        status: txn.status,
+        providerStatus: "SUCCESS",
+        outcome: "amount_mismatch",
+        providerAmount: resolved.amount ?? undefined,
+      };
+    }
     if (isTerminalFailed) {
       const r = await correctTerminalToSuccess({
         txn,

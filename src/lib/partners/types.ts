@@ -207,6 +207,14 @@ export interface BbpsProvider {
       /** Pay-step references echoed by the provider — stamp these as partnerTxnId. */
       orderId?: string;
       requestId?: string;
+      /**
+       * Provider-reported paid amount (rupees), when the status payload carries
+       * it. Corrective flows cross-check this against the row's amount BEFORE
+       * promoting a wrongly-failed row to SUCCESS, so a twin double-attempt bill
+       * (same bill_fetch_ref, different amounts) can never be clawed back against
+       * the wrong leg. Absent → callers fall back to the partnerTxnId uniqueness.
+       */
+      amount?: Money;
     }>
   >;
 }

@@ -39,7 +39,9 @@ import { runBbpsFailureRateMonitor } from "@/lib/recon/bbpsHealthMonitor";
 import { runRechargekitReconciliation } from "@/lib/recon/rechargekit";
 import { runReconPreflight, runReconConnectivityMonitor } from "@/lib/recon/preflight";
 import { runReconHeartbeat } from "@/lib/recon/heartbeat";
-import { runAnomalySweep } from "@/lib/recon/anomalies";
+import { runAnomalySweep, runOutcomeVerificationSweep } from "@/lib/recon/anomalies";
+import { runExposureThresholdAlert } from "@/lib/recon/exposure";
+import { runLienAgingReport } from "@/lib/recon/lienGovernance";
 import { sweepDisputeSlas } from "@/lib/disputes/service";
 import { runSettlementAutosweep } from "@/lib/settlement/autosweep";
 import { runT1SettlementSweep } from "@/lib/settlement/t1";
@@ -218,6 +220,47 @@ async function main() {
     }
   });
   await boss.schedule(QUEUES.TXN_ANOMALY_SWEEP, "*/5 * * * *");
+
+  // QUEUES.TXN_OUTCOME_VERIFY — proactive clawback / false-refund detector (hourly).
+  // Re-polls recent TERMINAL service rows (SUCCESS/FAILED/REFUNDED on BBPS +
+  // RechargeKit) against the provider's status API and flags PROVIDER_CLAWBACK,
+  // FALSE_REFUND, and AMOUNT_MISMATCH on the Reversal Desk. Each row is polled at
+  // most once (verified marker) and NO money is moved — operators resolve manually.
+  await boss.work(QUEUES.TXN_OUTCOME_VERIFY, async () => {
+    const r = await runOutcomeVerificationSweep();
+    if (r.providerClawback > 0 || r.falseRefund > 0 || r.amountMismatch > 0) {
+      log(
+        `txn.outcome.verify: providerClawback=${r.providerClawback} ` +
+          `falseRefund=${r.falseRefund} amountMismatch=${r.amountMismatch} ` +
+          `verifiedOk=${r.verifiedOk} scanned=${r.scanned}`
+      );
+    }
+  });
+  await boss.schedule(QUEUES.TXN_OUTCOME_VERIFY, "15 * * * *", {}, { tz: "Asia/Kolkata" });
+
+  // QUEUES.EXPOSURE_ALERT — money-at-risk threshold check (every 30 min).
+  // Consolidated: NEEDS_REVIEW payout exposure + open anomaly exposure +
+  // outstanding liens. Alerts ops when a threshold is breached. Read-only.
+  await boss.work(QUEUES.EXPOSURE_ALERT, async () => {
+    const r = await runExposureThresholdAlert();
+    if (r.breached) {
+      log(`recon.exposure.alert: BREACHED totalAtRisk=${r.risk.totalAtRisk.toFixed(2)}`);
+    }
+  });
+  await boss.schedule(QUEUES.EXPOSURE_ALERT, "*/30 * * * *", {}, { tz: "Asia/Kolkata" });
+
+  // QUEUES.LIEN_AGING_REPORT — lien governance (daily 03:00 IST). Flags ageing +
+  // large ACTIVE liens for ops. Never writes off or releases a lien.
+  await boss.work(QUEUES.LIEN_AGING_REPORT, async () => {
+    const r = await runLienAgingReport();
+    if (r.agingCount > 0 || r.largeCount > 0) {
+      log(
+        `recon.lien.aging: aging=${r.agingCount} large=${r.largeCount} ` +
+          `outstanding=${r.totalOutstanding.toFixed(2)}`
+      );
+    }
+  });
+  await boss.schedule(QUEUES.LIEN_AGING_REPORT, "0 3 * * *", {}, { tz: "Asia/Kolkata" });
 
   // QUEUES.REKYC_MONTHLY — flag all ACTIVE network users for re-verification.
   // The sweep is internally idempotent, so a duplicate/retried delivery is safe.
