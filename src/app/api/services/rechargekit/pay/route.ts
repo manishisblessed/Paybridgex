@@ -14,6 +14,15 @@ import { toNumber, dec, gt, sub, round } from "@/lib/money";
 import { runTransaction } from "@/lib/services/transaction";
 import { rechargekitPay } from "@/lib/partners/sameday-rechargekit";
 import { AuthError } from "@/lib/auth-server";
+import { prisma } from "@/lib/db";
+
+// Debounce window for repeat payments on the SAME card via the RechargeKit
+// (CC-2) rail. Mirrors the guard on the BBPS/Pay2New CC route: a rapid re-tap
+// on the same card number can submit two transfers before the first one settles,
+// resulting in a double-charge. We block ANY new attempt on the same card
+// (keyed by last-4) within this window, regardless of amount.
+// Env-tunable; defaults to 60 seconds.
+const RK_DUP_GUARD_COOLDOWN_SEC = Number(process.env.BBPS_DUP_GUARD_COOLDOWN_SEC ?? 60);
 
 const Body = z
   .object({
@@ -77,6 +86,42 @@ export async function POST(req: Request) {
   const d = parsed.data;
 
   try {
+    // ── Same-card debounce guard ──────────────────────────────────────────
+    // Block any new RechargeKit CC payment on the same card (keyed by last-4)
+    // within the cooldown window. A rapid double-tap — or a client retry before
+    // the first outcome is known — can produce two in-flight CC transfers that
+    // double-charge the retailer. Only a prior NON-FAILED attempt gates here.
+    const cardLast4 = d.accountNo.slice(-4);
+    const rkDupSince = new Date(Date.now() - RK_DUP_GUARD_COOLDOWN_SEC * 1000);
+    const recentRk = await prisma.transaction.findFirst({
+      where: {
+        userId: user.id,
+        service: "BILL_CREDIT_CARD",
+        partner: "SAMEDAY_RECHARGEKIT",
+        customer: cardLast4,
+        status: { in: ["PROCESSING", "NEEDS_REVIEW", "SUCCESS"] },
+        createdAt: { gte: rkDupSince },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { refId: true, createdAt: true },
+    });
+    if (recentRk) {
+      const waitSec = Math.max(
+        1,
+        RK_DUP_GUARD_COOLDOWN_SEC - Math.floor((Date.now() - recentRk.createdAt.getTime()) / 1000)
+      );
+      return NextResponse.json(
+        {
+          error: `A payment on this card was just submitted. To avoid paying twice, any payment on the same card is held for ${RK_DUP_GUARD_COOLDOWN_SEC} seconds — please wait ${waitSec} more second${waitSec === 1 ? "" : "s"} and try again.`,
+          code: "DUPLICATE_COOLDOWN",
+          refId: recentRk.refId,
+          retryAfterSec: waitSec,
+        },
+        { status: 429 }
+      );
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     // Per-transaction ceiling: reject amounts above the top configured slab for
     // this rail with a precise message. Without this, an above-ceiling amount
     // had no matching slab, priced to ₹0, and was still allowed through.

@@ -28,6 +28,14 @@ import { dec, gt, type Money } from "@/lib/money";
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const ACCOUNT_RE = /^\d{9,18}$/;
 
+// Debounce window for repeat payouts to the SAME account. A rapid double-tap
+// (or a retry before the first attempt's outcome is known) can produce two
+// in-flight IMPS transfers — one of which goes NEEDS_REVIEW — before any
+// velocity/daily cap can fire. We block a second payout to the same
+// (user, accountLast4, mode) inside this window regardless of amount.
+// Env-tunable; defaults to 60 seconds.
+const PAYOUT_DUP_GUARD_COOLDOWN_SEC = Number(process.env.PAYOUT_DUP_GUARD_COOLDOWN_SEC ?? 60);
+
 /**
  * Payout submission body. Two shapes are accepted:
  *
@@ -268,6 +276,44 @@ export async function POST(req: Request) {
       );
     throw e;
   }
+
+  // ── Same-account debounce guard ──────────────────────────────────────────
+  // Block any new payout to the same (user, accountLast4, mode) within the
+  // cooldown window. Catches rapid double-taps and client retries that arrive
+  // before the first attempt's outcome is known, preventing twin in-flight
+  // IMPS transfers that cannot be safely deduplicated at the bank level.
+  // Only a prior NON-FAILED attempt gates here: a FAILED row was definitively
+  // rejected and its hold released, so it carries no double-disburse risk
+  // and must not block a genuine retry.
+  const accountLast4Guard = accountNumber.slice(-4);
+  const dupSince = new Date(Date.now() - PAYOUT_DUP_GUARD_COOLDOWN_SEC * 1000);
+  const recentPayout = await prisma.payoutRequest.findFirst({
+    where: {
+      userId: user.id,
+      accountLast4: accountLast4Guard,
+      mode: body.mode,
+      status: { in: ["APPROVED", "PROCESSING", "NEEDS_REVIEW", "SUCCESS"] },
+      createdAt: { gte: dupSince },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, createdAt: true },
+  });
+  if (recentPayout) {
+    const waitSec = Math.max(
+      1,
+      PAYOUT_DUP_GUARD_COOLDOWN_SEC - Math.floor((Date.now() - recentPayout.createdAt.getTime()) / 1000)
+    );
+    return NextResponse.json(
+      {
+        error: `A payout to this account was just submitted. To avoid a duplicate transfer, any payout to the same account is held for ${PAYOUT_DUP_GUARD_COOLDOWN_SEC} seconds — please wait ${waitSec} more second${waitSec === 1 ? "" : "s"} and try again.`,
+        code: "DUPLICATE_COOLDOWN",
+        payoutId: recentPayout.id,
+        retryAfterSec: waitSec,
+      },
+      { status: 429 }
+    );
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   // Idempotency-Key header dedupes accidental double submits (client retries).
   const idemKey = req.headers.get("Idempotency-Key") || req.headers.get("idempotency-key") || nanoid();
