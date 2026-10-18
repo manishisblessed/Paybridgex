@@ -275,6 +275,12 @@ export async function samedayRequest<T extends { success?: boolean }>(
           attempts: attempt,
           message: json.error?.message ?? res.statusText ?? null,
         });
+        // Codes that are DEFINITIVE business rejections even when the HTTP status
+        // is 429 (provider's deduplication guard fires before the bank). A DUPLICATE
+        // means the provider rejected this request as a copy of an earlier one —
+        // it never reached the bank, so holding funds would be wrong.
+        const DEFINITIVE_BODY_CODES = new Set(["DUPLICATE"]);
+        const bodyCode = (json.error?.code ?? "").toUpperCase();
         return {
           ok: false,
           code: code!,
@@ -285,7 +291,9 @@ export async function samedayRequest<T extends { success?: boolean }>(
           // timeout) or 429 (rate limited → may be retried by provider). An
           // explicit decline (HTTP 200 success:false, 4xx auth/validation) is
           // DEFINITIVE — the provider did not process it, safe to fail + refund.
-          indeterminate: isIndeterminateHttp(res.status),
+          // Exception: if the body carries a definitive code (e.g. DUPLICATE),
+          // treat as definitive regardless of HTTP status.
+          indeterminate: !DEFINITIVE_BODY_CODES.has(bodyCode) && isIndeterminateHttp(res.status),
         };
       }
       return { ok: true, data: json, raw: json };
