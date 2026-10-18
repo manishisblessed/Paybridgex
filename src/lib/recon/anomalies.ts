@@ -503,17 +503,35 @@ export async function runAnomalySweep(): Promise<AnomalySweepSummary> {
     }
 
     if (resolved) {
-      await prisma.auditLog.create({
-        data: {
+      // Idempotency guard: if the delete silently failed on a prior sweep (e.g.
+      // pgbouncer replication lag / swallowed error), the original anomaly stays
+      // and the sweep would create a duplicate .cleared entry every 5 min.
+      // Skip creating another .cleared if one already exists for this anomaly id.
+      const alreadyCleared = await prisma.auditLog.findFirst({
+        where: {
           action: `${anomaly.action}.cleared`,
           entity: "Transaction",
           entityId: txn.id,
-          meta: { originalAnomalyId: anomaly.id, clearedAt: new Date().toISOString() },
         },
+        select: { id: true },
       });
-      // Delete the original anomaly so it drops from the feed
-      await prisma.auditLog.delete({ where: { id: anomaly.id } });
-      cleared++;
+      if (!alreadyCleared) {
+        await prisma.auditLog.create({
+          data: {
+            action: `${anomaly.action}.cleared`,
+            entity: "Transaction",
+            entityId: txn.id,
+            meta: { originalAnomalyId: anomaly.id, clearedAt: new Date().toISOString() },
+          },
+        });
+        cleared++;
+      }
+      // Delete the original anomaly so it drops from the feed.
+      // Log failures instead of silently swallowing them — a failed delete leaves
+      // the original in place and causes the duplicate-cleared loop above.
+      await prisma.auditLog.delete({ where: { id: anomaly.id } }).catch((e) => {
+        log.warn({ action: "anomaly.clear.delete_failed", anomalyId: anomaly.id, err: String(e) });
+      });
     }
   }
 
