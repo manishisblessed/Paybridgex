@@ -1277,6 +1277,16 @@ function SlabModal({
 // POS MDR rate modal (company/card dimensions + T+1/T+0)
 // ---------------------------------------------------------------------------
 
+/**
+ * Convert a stored rate fraction/flat to a human-readable string for inputs.
+ * Uses toFixed(4) + Number() to remove floating-point noise (e.g. 0.0145 * 100
+ * = 1.4500000000000002 → "1.45").
+ */
+function fromStored(v: number, type: "PERCENT" | "FLAT"): string {
+  const human = type === "PERCENT" ? v * 100 : v;
+  return String(Number(human.toFixed(4)));
+}
+
 function MdrRateModal({
   schemeId,
   editing,
@@ -1308,36 +1318,36 @@ function MdrRateModal({
   const [mdrType, setMdrType] = useState<RateType>(editing?.mdrType ?? "PERCENT");
   // PERCENT edited as human percent (1 = 1%), stored as fraction (0.01).
   const [mdrT1, setMdrT1] = useState(
-    String(editing ? (editing.mdrType === "PERCENT" ? editing.mdrValue * 100 : editing.mdrValue) : 0)
+    editing ? fromStored(editing.mdrValue, editing.mdrType) : "0"
   );
   const [mdrT0, setMdrT0] = useState(
-    String(editing ? (editing.mdrType === "PERCENT" ? editing.mdrValueT0 * 100 : editing.mdrValueT0) : 0)
+    editing ? fromStored(editing.mdrValueT0, editing.mdrType) : "0"
   );
   const [vendorT1, setVendorT1] = useState(
-    String(editing ? (editing.mdrType === "PERCENT" ? editing.vendorCharge * 100 : editing.vendorCharge) : 0)
+    editing ? fromStored(editing.vendorCharge, editing.mdrType) : "0"
   );
   const [vendorT0, setVendorT0] = useState(
-    String(editing ? (editing.mdrType === "PERCENT" ? editing.vendorChargeT0 * 100 : editing.vendorChargeT0) : 0)
+    editing ? fromStored(editing.vendorChargeT0, editing.mdrType) : "0"
   );
   const [commissionType, setCommissionType] = useState<RateType>(editing?.commissionType ?? "PERCENT");
   const [commDist, setCommDist] = useState(
-    String(editing ? (editing.commissionType === "PERCENT" ? editing.commissionDistributor * 100 : editing.commissionDistributor) : 0)
+    editing ? fromStored(editing.commissionDistributor, editing.commissionType) : "0"
   );
   const [commMaster, setCommMaster] = useState(
-    String(editing ? (editing.commissionType === "PERCENT" ? editing.commissionMaster * 100 : editing.commissionMaster) : 0)
+    editing ? fromStored(editing.commissionMaster, editing.commissionType) : "0"
   );
   const [commSuper, setCommSuper] = useState(
-    String(editing ? (editing.commissionType === "PERCENT" ? editing.commissionSuperDistributor * 100 : editing.commissionSuperDistributor) : 0)
+    editing ? fromStored(editing.commissionSuperDistributor, editing.commissionType) : "0"
   );
   // Instant (T+0) commission per tier — 0 means "use the T+1 value".
   const [commDistT0, setCommDistT0] = useState(
-    String(editing ? (editing.commissionType === "PERCENT" ? editing.commissionDistributorT0 * 100 : editing.commissionDistributorT0) : 0)
+    editing ? fromStored(editing.commissionDistributorT0, editing.commissionType) : "0"
   );
   const [commMasterT0, setCommMasterT0] = useState(
-    String(editing ? (editing.commissionType === "PERCENT" ? editing.commissionMasterT0 * 100 : editing.commissionMasterT0) : 0)
+    editing ? fromStored(editing.commissionMasterT0, editing.commissionType) : "0"
   );
   const [commSuperT0, setCommSuperT0] = useState(
-    String(editing ? (editing.commissionType === "PERCENT" ? editing.commissionSuperDistributorT0 * 100 : editing.commissionSuperDistributorT0) : 0)
+    editing ? fromStored(editing.commissionSuperDistributorT0, editing.commissionType) : "0"
   );
   // GST treatment on the company MDR margin. Default: inclusive @18% (revenue is
   // booked ex-GST; the carved GST is a pass-through liability filed via the GST
@@ -1406,11 +1416,11 @@ function MdrRateModal({
     }
     const isPercent = pick.mdrType === "PERCENT";
     setMdrType(pick.mdrType as RateType);
-    setVendorT1(String(isPercent ? Number(pick.mdrValue) * 100 : Number(pick.mdrValue)));
-    setVendorT0(String(isPercent ? Number(pick.mdrValueT0) * 100 : Number(pick.mdrValueT0)));
+    setVendorT1(fromStored(Number(pick.mdrValue), pick.mdrType as "PERCENT" | "FLAT"));
+    setVendorT0(fromStored(Number(pick.mdrValueT0), pick.mdrType as "PERCENT" | "FLAT"));
     // Minimum MDR (human %). Defaults to the vendor cost when the brand hasn't
     // set one (zero company margin), mirroring the server.
-    const toHuman = (v: number) => (isPercent ? v * 100 : v);
+    const toHuman = (v: number) => (isPercent ? Number((v * 100).toFixed(4)) : v);
     const minMdr = Number(pick.minMdrValue) > 0 ? Number(pick.minMdrValue) : Number(pick.mdrValue);
     const minMdrT0 = Number(pick.minMdrValueT0) > 0 ? Number(pick.minMdrValueT0) : minMdr;
     setPosLock({ locked: true, missing: false, minMdr: toHuman(minMdr), minMdrT0: toHuman(minMdrT0) });
