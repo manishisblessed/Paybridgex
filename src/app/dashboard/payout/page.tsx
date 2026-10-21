@@ -89,6 +89,7 @@ type PayoutStatus =
   | "PENDING_APPROVAL"
   | "APPROVED"
   | "PROCESSING"
+  | "NEEDS_REVIEW"
   | "SUCCESS"
   | "FAILED"
   | "REJECTED"
@@ -138,6 +139,7 @@ const STATUS_BADGE: Record<PayoutStatus, "success" | "danger" | "warning" | "bra
   PROCESSING: "brand",
   APPROVED: "brand",
   PENDING_APPROVAL: "warning",
+  NEEDS_REVIEW: "warning",
   DRAFT: "default",
 };
 
@@ -149,6 +151,7 @@ const STATUS_LABEL: Record<PayoutStatus, string> = {
   PROCESSING: "Processing",
   APPROVED: "Approved",
   PENDING_APPROVAL: "Pending approval",
+  NEEDS_REVIEW: "Under Review",
   DRAFT: "Draft",
 };
 
@@ -1501,7 +1504,7 @@ ${payBy}`;
           {isSuccess ? "Payout submitted" : isFailed ? "Payout failed" : "Payout processing"}
         </h3>
         <p className="mt-1 text-sm text-white/80">
-          {result.status === "PENDING_APPROVAL" ? "Awaiting approval by the checker" : result.status === "APPROVED" ? "Processing your payout" : STATUS_LABEL[result.status]}
+          {result.status === "PENDING_APPROVAL" ? "Awaiting approval by the checker" : result.status === "APPROVED" ? "Processing your payout" : result.status === "NEEDS_REVIEW" ? "Your payout is under review — our team will confirm shortly" : STATUS_LABEL[result.status]}
         </p>
         <p className="mt-3 font-display text-3xl font-bold">{inr2(result.amount)}</p>
       </div>
