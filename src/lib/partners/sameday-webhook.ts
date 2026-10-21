@@ -11,7 +11,7 @@ import { handlePosCapture, handlePosReversal } from "@/lib/settlement/pos";
 import { lookupBin, classificationFromBin } from "@/lib/pos/binLookup";
 import { isCardClassificationEnabled } from "@/lib/settings";
 import { upsertMirrorFromWebhook } from "@/lib/pos/mirror";
-import { reconcilePayoutFromWebhook } from "@/lib/payout/service";
+import { reconcilePayoutFromWebhook, fuzzyMatchHeldPayoutFromWebhook } from "@/lib/payout/service";
 import { reconcileRechargekitFromWebhook } from "@/lib/recon/rechargekit";
 import { reconcileBbpsFromWebhook } from "@/lib/recon/bbps";
 
@@ -111,6 +111,31 @@ export async function handleSamedayWebhook(req: Request): Promise<Response> {
     return NextResponse.json({ ok: true, channel: "payout", ...payout });
   }
 
+  // ── Fuzzy payout match ────────────────────────────────────────────────────
+  // If exact-reference matching failed and this looks like a settlement event,
+  // try fuzzy-matching to a NEEDS_REVIEW payout by amount + accountLast4.
+  // This auto-resolves lost-reference payouts from inbound webhooks without
+  // manual intervention.
+  if (!payout.matched && isSettlementEvent(eventType)) {
+    const webhookAmount = extractWebhookAmount(body);
+    const webhookLast4 = extractWebhookAccountLast4(body);
+    const fuzzy = await fuzzyMatchHeldPayoutFromWebhook(
+      webhookAmount,
+      webhookLast4,
+      refs,
+      body,
+      { reversal }
+    );
+    if (fuzzy.matched) {
+      await auditWebhook(
+        { channel: "payout", eventType, action: fuzzy.action, via: "fuzzy_match", verified, deliveryId },
+        "PayoutRequest",
+        fuzzy.payoutRequestId
+      );
+      return NextResponse.json({ ok: true, channel: "payout", ...fuzzy });
+    }
+  }
+
   // BBPS-2 / Pay2New (Credit Card bill pay) — event `pay2new.cc.status`.
   // Correlates by the bill_fetch_ref it carries (survives a lost pay response),
   // then re-polls the provider status before finalising.
@@ -156,6 +181,31 @@ function isPosEvent(eventType: string, body: Record<string, unknown>): boolean {
   if (eventType.startsWith("pos")) return true;
   if (String(body.action ?? "").toLowerCase() === "remove") return true;
   return "mappedStatus" in body || "tid" in body || "rrNumber" in body;
+}
+
+/** Settlement / payout events — the channels where a lost-reference fuzzy match
+ *  makes sense. BBPS and RechargeKit have their own correlation keys. */
+function isSettlementEvent(eventType: string): boolean {
+  return /settlement|payout/.test(eventType);
+}
+
+/** Extract the transfer amount (in rupees) from a settlement/payout webhook. */
+function extractWebhookAmount(body: Record<string, unknown>): number {
+  for (const k of ["amount", "transfer_amount", "txn_amount"]) {
+    const v = body[k];
+    if (typeof v === "number" && v > 0) return v;
+    if (typeof v === "string") { const n = Number(v); if (n > 0) return n; }
+  }
+  return 0;
+}
+
+/** Extract the beneficiary account last-4 from a settlement/payout webhook. */
+function extractWebhookAccountLast4(body: Record<string, unknown>): string {
+  for (const k of ["account_number", "accountNumber", "account_no"]) {
+    const v = body[k];
+    if (typeof v === "string" && v.length >= 4) return v.replace(/\D/g, "").slice(-4);
+  }
+  return "";
 }
 
 /** Gather every candidate correlation id a non-POS payload might carry. */

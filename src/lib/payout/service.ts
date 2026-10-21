@@ -328,6 +328,10 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
     provider,
     () => new Error("Payout rail resolved to MOCK in production — refusing to send")
   );
+  // Embed our providerReferenceId in the narration so SameDay carries it in
+  // webhook payloads and list API responses. This makes reference recovery
+  // reliable even when the transfer response is lost (indeterminate).
+  const narrationTag = row.providerReferenceId;
   const res = await provider.payout({
     idempotencyKey: row.providerReferenceId,
     userId: row.userId,
@@ -335,8 +339,8 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
     amount: toNumber(row.amount),
     beneficiary: beneficiaryFor(row, toContactMobile(user?.phone)),
     purpose: user?.userCode
-      ? `Pay by NxtGenPay by RT Code - ${user.userCode}`
-      : `Pay by NxtGenPay ${row.userId}`,
+      ? `NxtGenPay RT-${user.userCode} ${narrationTag}`
+      : `NxtGenPay ${narrationTag}`,
   });
 
   // Persist a safe request/response snapshot (no raw PII in request).
@@ -453,14 +457,18 @@ export async function recoverPayoutReference(payoutRequestId: string): Promise<s
     () => new Error("Payout rail resolved to MOCK in production — refusing to recover reference")
   );
 
+  // SameDay's list endpoint is capped at 50 rows by the API. We also search by
+  // our own providerReferenceId embedded in the narration (Fix 2) so recovery
+  // is reliable even when the list has cycled past the indeterminate transfer.
   const list = await provider.listRecent(50);
   if (!list.ok) return null; // transient; next poll retries
 
   const targetAmount = toNumber(row.amount);
   const last4 = (row.accountLast4 ?? "").replace(/\D/g, "").slice(-4);
   // Generous window anchored on when we handed the transfer to the rail.
+  // 48h covers NEFT/RTGS settlement lag and delayed SameDay list availability.
   const anchor = (row.processedAt ?? row.createdAt).getTime();
-  const WINDOW_MS = 6 * 3_600_000; // 6h — covers NEFT/RTGS settlement lag
+  const WINDOW_MS = 48 * 3_600_000; // 48h — covers delayed settlement + long weekends
 
   const candidates = list.data.filter((rec) => {
     if (Math.abs(rec.amount - targetAmount) > 0.009) return false;
@@ -610,6 +618,129 @@ export async function reconcilePayoutFromWebhook(
   // Non-terminal → re-poll the rail and finalize; terminal → no-op.
   await reconcilePayout(row.id);
   return { matched: true, payoutRequestId: row.id, action: "reconciled" };
+}
+
+// ── Fuzzy webhook matching ──────────────────────────────────────────────────
+// When exact-reference matching fails (lost transfer response → no providerTxnId
+// stored), fall back to matching the webhook's amount + accountLast4 to a
+// NEEDS_REVIEW payout with no rail reference. This closes the gap where SameDay
+// sends a settlement.success webhook that we cannot correlate by reference alone.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Maximum age (ms) of a NEEDS_REVIEW payout eligible for fuzzy webhook match. */
+const FUZZY_WEBHOOK_WINDOW_MS = 48 * 3_600_000; // 48 hours
+
+/**
+ * Try to fuzzy-match an unmatched settlement webhook to a held (NEEDS_REVIEW)
+ * payout whose rail reference was lost. Match criteria:
+ *   1. Status is NEEDS_REVIEW and providerTxnId IS NULL (lost reference).
+ *   2. Amount matches (±0.01 tolerance for rounding).
+ *   3. Account last-4 matches (when available in both).
+ *   4. Created within FUZZY_WEBHOOK_WINDOW_MS.
+ *   5. Exactly ONE candidate (ambiguous → skip, alert ops).
+ *
+ * On match: stores the webhook's reference as providerTxnId, then reconciles
+ * via the normal poll path (re-fetches status from SameDay before moving money).
+ */
+export async function fuzzyMatchHeldPayoutFromWebhook(
+  webhookAmount: number,
+  webhookAccountLast4: string,
+  webhookRefs: string[],
+  webhookBody: unknown,
+  opts: { reversal: boolean } = { reversal: false }
+): Promise<{ matched: boolean; payoutRequestId?: string; action?: string }> {
+  if (webhookAmount <= 0) return { matched: false };
+
+  // Find the first usable reference from the webhook to store as providerTxnId.
+  const refToStore = webhookRefs.find((r) => r.length > 0) ?? null;
+  if (!refToStore) return { matched: false };
+
+  const cutoff = new Date(Date.now() - FUZZY_WEBHOOK_WINDOW_MS);
+  const candidates = await prisma.payoutRequest.findMany({
+    where: {
+      status: "NEEDS_REVIEW",
+      providerTxnId: null,
+      createdAt: { gte: cutoff },
+    },
+    select: {
+      id: true,
+      status: true,
+      amount: true,
+      accountLast4: true,
+      createdAt: true,
+    },
+  });
+
+  const matched = candidates.filter((c) => {
+    if (Math.abs(toNumber(c.amount) - webhookAmount) > 0.01) return false;
+    if (webhookAccountLast4.length === 4 && c.accountLast4 && c.accountLast4 !== webhookAccountLast4) return false;
+    return true;
+  });
+
+  if (matched.length === 0) return { matched: false };
+
+  if (matched.length > 1) {
+    void sendOpsAlert({
+      title: "Fuzzy webhook payout match is AMBIGUOUS — skipped, manual review needed",
+      severity: "warning",
+      details: {
+        webhookAmount,
+        webhookAccountLast4: webhookAccountLast4 || null,
+        webhookRef: refToStore,
+        candidates: matched.map((c) => c.id).slice(0, 5).join(", "),
+      },
+    });
+    logger.warn({
+      action: "payout.fuzzy_webhook_ambiguous",
+      webhookRef: refToStore,
+      count: matched.length,
+      msg: "multiple NEEDS_REVIEW payouts match this webhook — skipped",
+    });
+    return { matched: false };
+  }
+
+  const target = matched[0];
+
+  // Ensure the reference is not already claimed by a different payout.
+  const taken = await prisma.payoutRequest.findFirst({
+    where: { providerTxnId: refToStore, id: { not: target.id } },
+    select: { id: true },
+  });
+  if (taken) return { matched: false };
+
+  // Store the recovered reference.
+  const claim = await prisma.payoutRequest.updateMany({
+    where: { id: target.id, status: "NEEDS_REVIEW", providerTxnId: null },
+    data: { providerTxnId: refToStore },
+  });
+  if (claim.count === 0) return { matched: false };
+
+  await prisma.auditLog.create({
+    data: {
+      userId: null,
+      action: "payout.reference_recovered",
+      entity: "PayoutRequest",
+      entityId: target.id,
+      meta: { reference: refToStore, via: "fuzzy_webhook_match", webhookAmount },
+    },
+  });
+  logger.warn({
+    action: "payout.fuzzy_webhook_recovered",
+    payoutId: target.id,
+    reference: refToStore,
+    msg: "recovered lost rail reference from unmatched webhook via fuzzy match",
+  });
+
+  // Now reconcile via the normal path (re-fetches status from SameDay API).
+  if (opts.reversal) {
+    const r = await reversePayout(target.id, {
+      response: webhookBody,
+      reason: "Reversed by Same Day settlement (webhook, fuzzy match)",
+    });
+    return { matched: true, payoutRequestId: target.id, action: r.reversed ? "reversed" : "noop" };
+  }
+  await reconcilePayout(target.id);
+  return { matched: true, payoutRequestId: target.id, action: "fuzzy_reconciled" };
 }
 
 /**
