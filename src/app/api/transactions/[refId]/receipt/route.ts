@@ -98,6 +98,15 @@ export async function GET(req: Request, { params }: { params: { refId: string } 
 
   let data: ReceiptData | null = null;
 
+  // POS transactions do not generate invoices/receipts — GST is not filed for
+  // POS, so there is no taxable breakdown to display.
+  if (t && t.service === "POS") {
+    return NextResponse.json(
+      { error: "Receipts are not available for POS transactions" },
+      { status: 404 }
+    );
+  }
+
   if (t && (isAdmin || t.userId === user.id)) {
     // GST breakdown. IMPORTANT: `Transaction.fee` is GST-INCLUSIVE — it already
     // contains `Transaction.gst` (see the pay routes: feeMoney = charge + gst, or

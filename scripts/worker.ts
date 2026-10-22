@@ -620,10 +620,11 @@ async function main() {
     if (!flags.pos) return;
     try {
       const r = await runPosMirrorSweep();
-      if (!r.skipped && r.written > 0)
+      if (!r.skipped && (r.written > 0 || r.reversed > 0))
         log(
           `pos.mirror.sync: pages=${r.pages} scanned=${r.scanned} written=${r.written} ` +
-            `skipped=${r.skippedRows}`
+            `skipped=${r.skippedRows}` +
+            (r.reversed > 0 ? ` reversed=${r.reversed}` : "")
         );
     } catch (e) {
       await captureError(e, { where: "pos.mirror.sync" });

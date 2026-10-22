@@ -1,5 +1,6 @@
 import { flags } from "@/lib/env";
 import { getSetting } from "@/lib/settings";
+import { prisma } from "@/lib/db";
 import { getPosTransactions } from "@/lib/partners/sameday-pos";
 import { upsertMirrorFromFeed } from "@/lib/pos/mirror";
 import { handlePosReversal } from "@/lib/settlement/pos";
@@ -114,6 +115,59 @@ export async function runPosMirrorSweep(opts?: {
     }
 
     if (!res.data.pagination?.has_next || rows.length === 0) break;
+  }
+
+  // ── Post-sweep reconciliation (TOCTOU race guard) ─────────────────────────
+  // The mirror-settle sweep (POS_INGEST, every 10 min) reads CAPTURED mirror
+  // rows and creates PENDING settlement entries. This mirror sync (every 2 min)
+  // detects CAPTURED→FAILED transitions and calls handlePosReversal. A race
+  // exists: if the settle sweep reads a CAPTURED row and starts creating the
+  // entry at the same moment this sync detects the reversal, handlePosReversal
+  // finds NO_ENTRY (entry not yet committed), and the entry is created moments
+  // later — orphaned as PENDING on a non-CAPTURED mirror row. Subsequent syncs
+  // see FAILED→FAILED (no transition), so the reversal is never re-triggered.
+  //
+  // This second pass catches ALL such orphans: a single indexed JOIN finds
+  // PENDING entries whose mirror is no longer CAPTURED and cancels them. Cheap
+  // (the PENDING set is small) and runs every 2 min, so orphans are cleaned up
+  // within one sweep cycle instead of waiting for the T+1 cron or manual admin.
+  // A 2-minute age gate avoids catching entries that are mid-creation (e.g. the
+  // webhook creates the entry then updates the mirror in the same request).
+  try {
+    const cutoff = new Date(Date.now() - 2 * 60_000); // 2 min grace
+    const orphaned = await prisma.$queryRaw<
+      { transactionRef: string; mirrorStatus: string }[]
+    >`
+      SELECT e."transactionRef", m."status" AS "mirrorStatus"
+      FROM "PosSettlementEntry" e
+      JOIN "PosTransactionMirror" m ON m."transactionRef" = e."transactionRef"
+      WHERE e."status" = 'PENDING'
+        AND e."createdAt" < ${cutoff}
+        AND UPPER(m."status") <> 'CAPTURED'
+      LIMIT 100
+    `;
+    for (const o of orphaned) {
+      try {
+        const revStatus: "VOIDED" | "REFUNDED" | "FAILED" =
+          o.mirrorStatus === "REFUNDED"
+            ? "REFUNDED"
+            : o.mirrorStatus === "VOIDED"
+              ? "VOIDED"
+              : "FAILED";
+        await handlePosReversal({
+          transactionRef: o.transactionRef,
+          status: revStatus,
+          reason: `auto-reconcile: entry PENDING but mirror ${o.mirrorStatus}`,
+          reversedAt: null,
+          source: "SWEEP",
+        });
+        base.reversed++;
+      } catch (e) {
+        console.error("[pos mirror sweep] orphan reconcile failed:", o.transactionRef, e);
+      }
+    }
+  } catch (e) {
+    console.error("[pos mirror sweep] orphan reconciliation query failed:", e);
   }
 
   return base;

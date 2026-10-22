@@ -556,10 +556,10 @@ async function distributeCommissionForPos(
   // attribute POS correctly (platform revenue = fee − commission = margin −
   // commission), matching the Revenue Wallet.
   const mdr = await getEffectiveMdr(userId, "POS" as MdrServiceKind, grossAmount, mdrDims);
-  // `fee` is the GST-INCLUSIVE margin (mirrors BBPS); `gstFee` is the GST carved
-  // from it — the output-tax the GST report files. Revenue is booked ex-GST.
+  // POS transactions do NOT attract GST — no invoice is generated and no
+  // output-tax is filed. The full margin is company revenue.
   const marginFee = round(mdr.margin);
-  const gstFee = round(mdr.gst);
+  const gstFee = dec(0);
 
   // We need a Transaction row for the CommissionCredit FK. Create a synthetic
   // settlement entry keyed 1:1 with the canonical capture ref (NO truncation —
@@ -757,6 +757,30 @@ async function settleEntry(
       // Attribution no longer holds — refuse to credit; leave PENDING for admin.
       return null;
     }
+  }
+
+  // Defense-in-depth: verify the underlying transaction is still a genuine
+  // capture in the mirror before crediting. Catches the TOCTOU race between
+  // the mirror sync (detects CAPTURED→FAILED and fires handlePosReversal) and
+  // the mirror-settle sweep (reads a CAPTURED row and creates the entry): if
+  // the two interleave, the entry can be created AFTER the reversal was already
+  // processed as NO_ENTRY — orphaning it as PENDING on a failed/voided capture.
+  // This gate catches that class of bug and auto-reverses the entry so the T+1
+  // cron / instant sweep never credits a non-captured transaction.
+  const mirrorRow = await prisma.posTransactionMirror.findUnique({
+    where: { transactionRef: entry.transactionRef },
+    select: { status: true },
+  });
+  if (mirrorRow && mirrorRow.status !== "CAPTURED") {
+    await prisma.posSettlementEntry.update({
+      where: { id: entry.id },
+      data: {
+        status: "REVERSED",
+        reversedAt: new Date(),
+        reversalReason: `auto: mirror status ${mirrorRow.status} at settlement time`,
+      },
+    });
+    return null;
   }
 
   const gross = dec(entry.grossAmount as never);

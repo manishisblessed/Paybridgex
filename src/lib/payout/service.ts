@@ -471,7 +471,9 @@ export async function recoverPayoutReference(payoutRequestId: string): Promise<s
   const WINDOW_MS = 48 * 3_600_000; // 48h — covers delayed settlement + long weekends
 
   const candidates = list.data.filter((rec) => {
-    if (Math.abs(rec.amount - targetAmount) > 0.009) return false;
+    // SameDay may round the transfer amount (±₹1 observed in production),
+    // so allow a small tolerance rather than exact-match only.
+    if (Math.abs(rec.amount - targetAmount) > 2) return false;
     if (last4 && rec.accountLast4 && rec.accountLast4 !== last4) return false;
     if (rec.createdAt) {
       const t = new Date(rec.createdAt).getTime();
@@ -672,7 +674,8 @@ export async function fuzzyMatchHeldPayoutFromWebhook(
   });
 
   const matched = candidates.filter((c) => {
-    if (Math.abs(toNumber(c.amount) - webhookAmount) > 0.01) return false;
+    // SameDay may round the transfer amount (±₹1 observed), so use ₹2 tolerance.
+    if (Math.abs(toNumber(c.amount) - webhookAmount) > 2) return false;
     if (webhookAccountLast4.length === 4 && c.accountLast4 && c.accountLast4 !== webhookAccountLast4) return false;
     return true;
   });
