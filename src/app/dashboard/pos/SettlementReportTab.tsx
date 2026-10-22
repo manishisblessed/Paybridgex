@@ -183,7 +183,15 @@ function fmtTime(iso: string) {
 function settlementBadge(status: string) {
   if (status === "SETTLED") return <Badge variant="success">Settled</Badge>;
   if (status === "FAILED") return <Badge variant="danger">Failed</Badge>;
-  return <Badge variant="warning">Pending · T+1</Badge>;
+  // A capture that was voided / refunded / declined upstream is cancelled on the
+  // settlement side (status REVERSED) and will NEVER be paid — it must never read
+  // as "Pending". VOIDED/REFUNDED are defensive in case a raw mirror status ever
+  // reaches here. Everything genuinely awaiting the T+1 sweep stays PENDING.
+  if (status === "REVERSED" || status === "VOIDED" || status === "REFUNDED")
+    return <Badge variant="danger">Reversed</Badge>;
+  if (status === "PENDING") return <Badge variant="warning">Pending · T+1</Badge>;
+  // Unknown/other states — show the raw status rather than mislabel it as pending.
+  return <Badge variant="default">{status}</Badge>;
 }
 
 /** Human label for the audit `settledVia` enum (used in the export). */

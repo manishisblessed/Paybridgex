@@ -321,11 +321,18 @@ async function loadSummary(
   where: Prisma.PosSettlementEntryWhereInput,
   totalCommission: number | null
 ): Promise<PosSettlementReportSummary> {
-  const [agg, byStatus, byLeg] = await Promise.all([
+  const [agg, settledAgg, byStatus, byLeg] = await Promise.all([
     prisma.posSettlementEntry.aggregate({
       where,
       _sum: { grossAmount: true, mdrAmount: true, netAmount: true },
       _count: { _all: true },
+    }),
+    // "Amount Settled" must reflect only money actually credited — net of
+    // PENDING (not yet paid), FAILED (settlement errored) and REVERSED (capture
+    // voided/refunded/declined, never paid). Scope this sum to SETTLED alone.
+    prisma.posSettlementEntry.aggregate({
+      where: { ...where, status: "SETTLED" },
+      _sum: { netAmount: true },
     }),
     prisma.posSettlementEntry.groupBy({
       by: ["status"],
@@ -352,7 +359,7 @@ async function loadSummary(
     totalTransactions: agg._count._all,
     totalGross: toNumber(agg._sum.grossAmount ?? 0),
     totalMdr: toNumber(agg._sum.mdrAmount ?? 0),
-    totalSettled: toNumber(agg._sum.netAmount ?? 0),
+    totalSettled: toNumber(settledAgg._sum.netAmount ?? 0),
     totalCommission,
     settledCount: counts.SETTLED ?? 0,
     pendingCount: counts.PENDING ?? 0,
