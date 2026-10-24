@@ -252,7 +252,7 @@ export type CorrectOneResult =
  */
 export async function correctOneTransaction(
   ref: string,
-  opts: { actorId: string; providerRef?: string; source?: string; remarks?: string }
+  opts: { actorId: string; providerRef?: string; source?: string; remarks?: string; forceRefundNotFound?: boolean }
 ): Promise<CorrectOneResult> {
   const source = opts.source ?? "admin_resolve";
   const needle = ref.trim();
@@ -288,12 +288,49 @@ export async function correctOneTransaction(
     )
   );
 
+  const isTerminalFailed = txn.status === "FAILED" || txn.status === "REFUNDED";
+
   const resolved = candidates.length ? await resolveProviderStatus(rail, candidates) : null;
   if (!resolved) {
+    // When the admin has confirmed the transaction does not exist in the
+    // provider panel AND the provider's status API agrees (ORDER_NOT_FOUND for
+    // every candidate ref), it is safe to refund the held reserve. This covers
+    // the edge case where a 429/timeout left a blank partnerTxnId and the
+    // provider never processed the payment — ORDER_NOT_FOUND is itself the
+    // authoritative answer that no money moved.
+    if (opts.forceRefundNotFound && !isTerminalFailed) {
+      log.info(
+        { refId: txn.refId, source, candidates },
+        "admin force-refund: provider has no record (ORDER_NOT_FOUND on all refs)"
+      );
+      const res = await finalizeServiceTransaction({
+        txn,
+        status: "FAILED",
+        errorCode: "PROVIDER_NOT_FOUND",
+        errorMessage: "Provider has no record of this payment — refunded by admin after verification",
+        source: `${source}_not_found`,
+      });
+      if (res.finalized) {
+        await prisma.auditLog.create({
+          data: {
+            userId: opts.actorId,
+            action: "txn.resolve.force_refund_not_found",
+            entity: "Transaction",
+            entityId: txn.id,
+            meta: {
+              refId: txn.refId,
+              source,
+              candidates,
+              note: "Provider returned ORDER_NOT_FOUND for all refs — admin confirmed not in panel",
+            },
+          },
+        });
+      }
+      return { found: true, refId: txn.refId, rail, status: txn.status, providerStatus: "UNRESOLVED", outcome: res.finalized ? "refunded" : "noop" };
+    }
     return { found: true, refId: txn.refId, rail, status: txn.status, providerStatus: "UNRESOLVED", outcome: "unresolved" };
   }
 
-  const isTerminalFailed = txn.status === "FAILED" || txn.status === "REFUNDED";
   const partnerTxnId = txn.partnerTxnId ?? resolved.payRef ?? resolved.ref;
 
   // Provider confirms the money DID move.

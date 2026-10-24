@@ -30,6 +30,13 @@ const Body = z
     /** Pay-step order_id / request_id recovered from the provider panel. */
     providerRef: z.string().trim().min(3).max(120).optional(),
     remarks: z.string().trim().max(500).optional(),
+    /**
+     * When the admin confirms the transaction does NOT exist in the provider
+     * panel (ORDER_NOT_FOUND), this flag authorizes a safe refund of the held
+     * reserve. The API still re-verifies that the provider returns NOT_FOUND
+     * for every candidate ref before acting — it never blind-refunds.
+     */
+    forceRefundNotFound: z.boolean().optional(),
   })
   .strict();
 
@@ -51,6 +58,7 @@ export async function POST(req: Request) {
       providerRef: parsed.data.providerRef,
       remarks: parsed.data.remarks,
       source: "admin_resolve",
+      forceRefundNotFound: parsed.data.forceRefundNotFound,
     });
 
     if (!result.found)

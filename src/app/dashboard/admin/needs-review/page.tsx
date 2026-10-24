@@ -47,6 +47,7 @@ export default function NeedsReviewPage() {
   // collect the pay-step reference read from the provider panel.
   const [confirmRef, setConfirmRef] = useState<string | null>(null);
   const [needProviderRef, setNeedProviderRef] = useState<string | null>(null);
+  const [confirmNotFound, setConfirmNotFound] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
 
   const load = useCallback(async () => {
@@ -68,6 +69,35 @@ export default function NeedsReviewPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Force-refund a txn whose provider has no record (ORDER_NOT_FOUND).
+  const runForceRefundNotFound = useCallback(
+    async (refId: string): Promise<boolean> => {
+      setResolving(true);
+      try {
+        const res = await fetch("/api/admin/transactions/resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refId, forceRefundNotFound: true }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Refund failed");
+        if (d.outcome === "refunded") {
+          toast.success(`${refId}: provider confirmed no record — held reserve refunded to wallet.`);
+        } else {
+          toast.info(`${refId}: ${d.outcome ?? "no change"}.`);
+        }
+        await load();
+        return true;
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Force refund failed");
+        return false;
+      } finally {
+        setResolving(false);
+      }
+    },
+    [load]
+  );
 
   // Calls the API-verified resolver. Returns true when the row left the queue so
   // the dialogs can close; false when the provider needs a manual pay-step ref.
@@ -282,6 +312,12 @@ export default function NeedsReviewPage() {
             The provider couldn&apos;t confirm <span className="font-mono text-xs">{needProviderRef}</span> from any
             stored reference. Open it in the provider panel, copy its pay-step order_id / request_id, and paste it
             below to verify and resolve.
+            <br />
+            <br />
+            <span className="text-amber-600">
+              If the transaction does <strong>not exist</strong> in the provider panel at all, use
+              &quot;Not found — refund&quot; to release the held funds.
+            </span>
           </>
         }
         confirmLabel="Verify with this ref"
@@ -291,6 +327,45 @@ export default function NeedsReviewPage() {
           if (needProviderRef && providerRef) {
             const done = await runResolve(needProviderRef, providerRef);
             if (done) setNeedProviderRef(null);
+          }
+        }}
+        extraActions={
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={resolving}
+            className="text-red-600 border-red-200 hover:bg-red-50"
+            onClick={() => {
+              const ref = needProviderRef;
+              setNeedProviderRef(null);
+              setConfirmNotFound(ref);
+            }}
+          >
+            Not found — refund
+          </Button>
+        }
+      />
+
+      {/* Step 3 — final confirmation for force-refund when provider has no record. */}
+      <ConfirmDialog
+        open={confirmNotFound !== null}
+        onClose={() => setConfirmNotFound(null)}
+        busy={resolving}
+        tone="danger"
+        title="Confirm: provider has no record"
+        description={
+          <>
+            You are confirming that <span className="font-mono text-xs">{confirmNotFound}</span> does{" "}
+            <strong>not exist</strong> in the provider panel. The system will re-verify that the provider returns
+            &quot;not found&quot; for all known references, then refund the held reserve to the retailer&apos;s wallet.
+          </>
+        }
+        confirmLabel="Confirm refund"
+        cancelLabel="Go back"
+        onConfirm={async () => {
+          if (confirmNotFound) {
+            await runForceRefundNotFound(confirmNotFound);
+            setConfirmNotFound(null);
           }
         }}
       />
