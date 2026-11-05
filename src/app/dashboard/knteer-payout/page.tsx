@@ -183,11 +183,16 @@ export default function KnteerPayoutPage() {
     try {
       setFetching(true);
       const res = await fetch("/api/knteer-payout/status");
-      if (!res.ok) throw new Error("Failed to fetch transfers");
+      if (!res.ok) {
+        // 503 = feature flag off on server — not a user-facing error; show empty state
+        if (res.status === 503) { setTransfers([]); return; }
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? "Failed to fetch transfers");
+      }
       const json = await res.json();
       setTransfers((json.transfers as KnteerTransfer[]) ?? []);
-    } catch {
-      setError("Could not load transfer history.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load transfer history.");
     } finally {
       setFetching(false);
     }
@@ -211,7 +216,8 @@ export default function KnteerPayoutPage() {
     try {
       setFetchingBalance(true);
       const res = await fetch("/api/knteer-payout/balance");
-      if (!res.ok) throw new Error();
+      // 503 = feature flag off — wallet panel shows "—" naturally; no crash
+      if (!res.ok) { setWallet(null); return; }
       const json = await res.json();
       setWallet(json.wallet as WalletBalances);
     } catch {
@@ -1392,7 +1398,8 @@ function AddKnteerBeneficiaryPanel({
     !submitting &&
     canVerify &&
     accountHolderName.trim().length >= 3 &&
-    /^\d{10}$/.test(mobile);
+    /^\d{10}$/.test(mobile) &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   async function handleVerify() {
     onError(null);
@@ -1673,9 +1680,10 @@ function AddKnteerBeneficiaryPanel({
               />
             </div>
             <div>
-              <Label>Email (optional)</Label>
+              <Label>Email *</Label>
               <Input
                 type="email"
+                required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="contact@example.com"

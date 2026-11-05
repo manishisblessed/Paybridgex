@@ -18,7 +18,7 @@ import {
   EmptyState,
   ModalShell,
 } from "@/components/dashboard/ui";
-import { SERVICE_CODES, serviceGroup } from "@/lib/scheme/constants";
+import { SERVICE_CODES, serviceGroup, serviceLabel } from "@/lib/scheme/constants";
 import { BBPS_PRICE_SCOPE_OPTIONS, bbpsProvidersForService } from "@/lib/services/priceScope";
 import {
   ArrowLeft,
@@ -236,7 +236,7 @@ export default function SchemeEditorPage() {
             {grouped.map(([service, list]) => (
               <TablePro
                 key={service}
-                title={service.replace(/_/g, " ")}
+                title={serviceLabel(service)}
                 description={serviceGroup(service)}
                 action={<Badge variant="brand">{list.length} slabs</Badge>}
               >
@@ -584,7 +584,7 @@ function SlabModal({
             <Select value={service} onChange={(e) => setService(e.target.value)} disabled={isEdit}>
               {SERVICE_CODES.map((c) => (
                 <option key={c} value={c}>
-                  {c.replace(/_/g, " ")}
+                  {serviceLabel(c)}
                 </option>
               ))}
             </Select>

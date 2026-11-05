@@ -35,6 +35,19 @@ export const SERVICE_CODES = [
 
 export type ServiceCodeValue = (typeof SERVICE_CODES)[number];
 
+/**
+ * Human-friendly display label for a service code.
+ * Use this instead of `code.replace(/_/g, " ")` so sensitive internal names
+ * (e.g. "KNTEER PAYOUT") never appear in the UI.
+ */
+const SERVICE_LABEL_MAP: Record<string, string> = {
+  KNTEER_PAYOUT: "Bank Transfer",
+};
+
+export function serviceLabel(code: string): string {
+  return SERVICE_LABEL_MAP[code] ?? code.replace(/_/g, " ");
+}
+
 /** Human-friendly grouping label for a service code (for the UI). */
 export function serviceGroup(code: string): string {
   if (code.startsWith("AEPS")) return "AePS";

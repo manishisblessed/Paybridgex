@@ -21,7 +21,7 @@ import {
 } from "@/components/dashboard/ui";
 import { Reveal } from "@/components/motion";
 import { Button } from "@/components/ui/Button";
-import { SERVICE_FAMILIES, familyOf, schemeAssignerLabel, type ServiceFamily } from "@/lib/scheme/constants";
+import { SERVICE_FAMILIES, familyOf, schemeAssignerLabel, serviceLabel, type ServiceFamily } from "@/lib/scheme/constants";
 
 type RateType = "FLAT" | "PERCENT";
 
@@ -260,7 +260,7 @@ export default function MyAssignedSchemePage() {
                       <tbody>
                         {list.map((s) => (
                           <tr key={s.id}>
-                            <td className="font-medium text-ink-900">{s.service.replace(/_/g, " ")}</td>
+                            <td className="font-medium text-ink-900">{serviceLabel(s.service)}</td>
                             <td className="text-xs text-ink-600">{s.provider ?? "All"}</td>
                             <td className="text-ink-600">{fmtBand(s.minAmount, s.maxAmount)}</td>
                             <td className="text-right text-ink-900">{fmtServiceRate(s.chargeType, s.chargeValue)}</td>

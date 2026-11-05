@@ -96,8 +96,12 @@ export function Sidebar({
       )}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-[#0b1030] text-white transition-transform duration-300 lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:translate-x-0",
-          open ? "translate-x-0" : "-translate-x-full"
+          // Mobile: fixed overlay, slides in/out via transform
+          "fixed inset-y-0 left-0 z-50 flex flex-col bg-[#0b1030] text-white transition-all duration-300 w-72",
+          open ? "translate-x-0" : "-translate-x-full",
+          // Desktop: sticky in-flow panel, width animates to 0 when collapsed
+          "lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 lg:overflow-hidden",
+          open ? "lg:w-72" : "lg:w-0"
         )}
       >
         {/* Subtle brand glow at the top of the rail */}

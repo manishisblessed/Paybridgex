@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useRef } from "react";
+import { Suspense, useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Toaster } from "sonner";
 import { Sidebar } from "@/components/dashboard/Sidebar";
@@ -22,6 +22,12 @@ export default function DashboardLayout({
 }) {
   const { data: session, status, update } = useSession({ required: true });
   const [open, setOpen] = useState(false);
+
+  // Start the sidebar open on desktop (≥1024 px) but closed on mobile.
+  useLayoutEffect(() => {
+    if (window.innerWidth >= 1024) setOpen(true);
+  }, []);
+
   // Whether we've re-validated a "2FA appears off" session against the server.
   const [twoFAChecked, setTwoFAChecked] = useState(false);
   const revalidatingRef = useRef(false);
@@ -77,7 +83,7 @@ export default function DashboardLayout({
       </Suspense>
       <Sidebar open={open} onClose={() => setOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onOpenSidebar={() => setOpen(true)} />
+        <Topbar onOpenSidebar={() => setOpen((o) => !o)} />
         <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-10">
           <div className="mx-auto w-full max-w-[1400px] min-w-0">
             <SliderSurface />

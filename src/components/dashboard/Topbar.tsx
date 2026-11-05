@@ -200,12 +200,12 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-ink-100 bg-white/85 px-4 backdrop-blur-xl md:h-20 md:px-8">
-      <div className="flex items-center gap-3 lg:hidden">
+      <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={onOpenSidebar}
           className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-ink-200 text-ink-700 transition-colors hover:border-brand-300 hover:text-brand-700"
-          aria-label="Open menu"
+          aria-label="Toggle sidebar"
         >
           <Menu className="h-5 w-5" />
         </button>

@@ -40,7 +40,7 @@ const RegisterBody = z
       .string()
       .trim()
       .regex(/^\d{10}$/, "Enter a valid 10-digit mobile number"),
-    email: z.string().email("Invalid email").optional(),
+    email: z.string().trim().email("Invalid email").min(1, "Email is required"),
   })
   .strict();
 
