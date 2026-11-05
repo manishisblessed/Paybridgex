@@ -1292,10 +1292,24 @@ function LiensTab({
   const [liens, setLiens] = useState<Lien[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [status, setStatus] = useState("ACTIVE");
+  // Default to ALL so a per-user search surfaces liens in EVERY state
+  // (ACTIVE/RECOVERED/RELEASED) — a RECOVERED lien is otherwise hidden.
+  const [status, setStatus] = useState("all");
+  // Free-text filter for the LIST (by user name / code / email / shop), debounced.
+  const [listQuery, setListQuery] = useState("");
+  const [debouncedListQuery, setDebouncedListQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
   const pageSize = 25;
+
+  // Debounce the list search and reset to page 1 on a new query.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedListQuery(listQuery.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [listQuery]);
 
   useEffect(() => {
     if (selected) {
@@ -1332,6 +1346,7 @@ function LiensTab({
         page: String(page),
         pageSize: String(pageSize),
       });
+      if (debouncedListQuery) params.set("q", debouncedListQuery);
       const res = await fetch(`/api/admin/wallet/liens?${params}`);
       const data = await res.json();
       if (res.ok) {
@@ -1341,7 +1356,7 @@ function LiensTab({
     } finally {
       setLoading(false);
     }
-  }, [status, page]);
+  }, [status, page, debouncedListQuery]);
 
   useEffect(() => {
     loadLiens();
@@ -1722,6 +1737,12 @@ function LiensTab({
       {/* Liens list */}
       <div className="space-y-3">
         <FilterBar>
+          <input
+            value={listQuery}
+            onChange={(e) => setListQuery(e.target.value)}
+            placeholder="Search user — name, code (e.g. RT0110), email or shop"
+            className={`${inputCls} w-auto min-w-[20rem] flex-1`}
+          />
           <select
             value={status}
             onChange={(e) => { setStatus(e.target.value); setPage(1); }}
