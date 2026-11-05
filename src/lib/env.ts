@@ -84,6 +84,14 @@ const schema = z.object({
   SAMEDAY_RECHARGEKIT_API_KEY: z.string().min(1).optional(),
   SAMEDAY_RECHARGEKIT_API_SECRET: z.string().min(1).optional(),
 
+  // Deferred-refund cooling-off window (minutes) for SameDay recon-capable rails
+  // (RechargeKit CC-2 + BBPS/Pay2New). A provider pay failure NEVER instant-
+  // refunds the retailer's reserve; the first confirmed failure schedules the
+  // refund this many minutes out, and the reserve is released only after the
+  // window passes AND a fresh provider status re-check still reports a non-
+  // success (double-checked). Default 30.
+  REFUND_HOLD_MINUTES: z.coerce.number().int().min(0).default(30),
+
   // Phase 3 — settlement automation. A daily worker job sweeps the Same Day
   // partner-wallet balance above the float you keep, into a verified account.
   // All values in rupees. Requires flags.settlement + the account id from

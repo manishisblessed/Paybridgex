@@ -252,7 +252,7 @@ export const REPORTS: Record<ReportType, ReportConfig> = {
     type: "pg",
     title: "Payment Gateway Report",
     short: "Payment Gateway",
-    description: "Online collections via Razorpay / UPI collect, with fees and success rate.",
+    description: "Online collections via Chagans PG, Razorpay, or UPI collect, with MDR fees and settlement.",
     icon: CreditCard,
     accent: "emerald",
     columns: [

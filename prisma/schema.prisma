@@ -669,6 +669,15 @@ model Transaction {
   // refunds
   refundedAt   DateTime?
   refundRefId  String?
+  // Deferred-refund cooling-off (SameDay recon-capable rails). A provider
+  // "failure" on a card-push rail can arrive while the payment was ACTUALLY
+  // charged (SameDay reverses our float only later), so the reserve is NEVER
+  // released on the first failure signal. The first confirmed failure stamps
+  // this timestamp (now + REFUND_HOLD_MINUTES); the reserve is credited back
+  // only after it passes AND a fresh provider status re-check still reports a
+  // non-success (double-checked) AND no REVERSAL was already posted. While set
+  // and in the future the row stays HELD (NEEDS_REVIEW). Cleared on settle.
+  refundEligibleAt DateTime?
 
   ipAddress String?
   device    String?

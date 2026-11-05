@@ -48,6 +48,7 @@ export async function GET(req: Request) {
         errorMessage: true,
         createdAt: true,
         partnerTxnId: true,
+        refundEligibleAt: true,
         request: true,
         operator: true,
         customer: true,
@@ -67,6 +68,9 @@ export async function GET(req: Request) {
     errorMessage: r.errorMessage,
     createdAt: r.createdAt.toISOString(),
     partnerTxnId: r.partnerTxnId,
+    // When set, this row is a provider-confirmed failure whose refund is holding
+    // in the cooling-off window; the reserve releases after this time + re-check.
+    refundEligibleAt: r.refundEligibleAt?.toISOString() ?? null,
     billFetchRef: deriveTxnRefs({ request: r.request }).find(Boolean) ?? null,
     operator: r.operator,
     customer: r.customer,

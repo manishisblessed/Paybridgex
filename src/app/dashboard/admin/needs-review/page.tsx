@@ -21,11 +21,20 @@ type Row = {
   errorMessage: string | null;
   createdAt: string;
   partnerTxnId: string | null;
+  refundEligibleAt: string | null;
   billFetchRef: string | null;
   operator: string | null;
   customer: string | null;
   user: { name: string; email: string; userCode: string | null } | null;
 };
+
+/** Short "in 24m" / "due now" label for a scheduled-refund timestamp. */
+function etaLabel(iso: string): string {
+  const mins = Math.round((new Date(iso).getTime() - Date.now()) / 60_000);
+  if (mins <= 0) return "due now";
+  if (mins < 60) return `in ${mins}m`;
+  return `in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
 
 function ageLabel(iso: string): string {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -207,11 +216,21 @@ export default function NeedsReviewPage() {
     {
       key: "status",
       header: "Status",
-      render: () => (
-        <StatusPill status="NEEDS_REVIEW" tone="warning">
-          Under review
-        </StatusPill>
-      ),
+      render: (r) =>
+        r.refundEligibleAt ? (
+          <div>
+            <StatusPill status="REFUND_SCHEDULED" tone="warning">
+              Refund scheduled
+            </StatusPill>
+            <p className="mt-0.5 text-[11px] text-ink-400">
+              provider-confirmed failure · {etaLabel(r.refundEligibleAt)}
+            </p>
+          </div>
+        ) : (
+          <StatusPill status="NEEDS_REVIEW" tone="warning">
+            Under review
+          </StatusPill>
+        ),
     },
     {
       key: "actions",

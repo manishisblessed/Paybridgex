@@ -1,6 +1,13 @@
 import type { WalletLien } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { placeLienHold, releaseLienHold, sweepLiensForUser } from "@/lib/ledger";
+import {
+  creditWallet,
+  debitWallet,
+  placeLienHold,
+  releaseLienHold,
+  sweepLiensForUser,
+} from "@/lib/ledger";
+import { getSuspenseAccountId } from "@/lib/wallet/suspense";
 import { dec, gt, sub, toNumber } from "@/lib/money";
 
 /**
@@ -178,6 +185,98 @@ export async function releaseWalletLien(
         releasedAt: new Date(),
         closedAt: new Date(),
         remarks: note?.trim() ? `${lien.remarks} | Released: ${note.trim()}` : lien.remarks,
+      },
+    });
+  });
+}
+
+/**
+ * REVERSE an (over-)recovered lien — return the money ALREADY swept to the
+ * Company Suspense account back to the user's wallet, and free any still-frozen
+ * outstanding portion.
+ *
+ * Use when a recovery turned out to be wrong — e.g. we lien-recovered an instant
+ * refund, then the provider (SameDay) separately refunded our float for the same
+ * transaction: keeping the recovery would leave the retailer charged twice. Plain
+ * `releaseWalletLien` only frees the never-recovered portion (and refuses a
+ * non-ACTIVE lien), so it cannot undo a RECOVERED lien — this is the path that
+ * can. Idempotent per lien via deterministic ledger keys; the suspense debit and
+ * the user credit are one double-entry so balances stay consistent.
+ */
+export async function reverseWalletLien(
+  lienId: string,
+  actorId: string,
+  note?: string
+): Promise<WalletLien> {
+  return prisma.$transaction(async (tx) => {
+    const lien = await tx.walletLien.findUnique({ where: { id: lienId } });
+    if (!lien) throw new WalletLienError("NOT_FOUND", "Lien not found", 404);
+    if (lien.status === "RELEASED")
+      throw new WalletLienError("BAD_STATE", "Lien is already RELEASED");
+
+    const recovered = toNumber(dec(lien.recoveredAmount));
+    const outstanding = sub(lien.amount, lien.recoveredAmount);
+
+    // 1. Return any still-frozen (never-recovered) portion to spendable.
+    if (gt(outstanding, 0)) {
+      await releaseLienHold(lien.targetUserId, outstanding, tx);
+    }
+
+    // 2. Return the already-recovered money: debit the Company Suspense account
+    //    (where the sweep parked it) and credit it back to the user. Keyed so a
+    //    retry can never double-return.
+    if (recovered > 0) {
+      const suspenseId = await getSuspenseAccountId(tx);
+      await debitWallet(
+        {
+          userId: suspenseId,
+          amount: recovered,
+          reason: "REVERSAL",
+          refType: "WalletLien",
+          refId: lien.id,
+          note: `Lien reversal — recovered funds returned to ${lien.targetUserId} (lien ${lien.id})`,
+          idempotencyKey: `lien:${lien.id}:reverse:suspense`,
+        },
+        tx
+      );
+      // NOTE: this PRIMARY credit will be re-swept by any OTHER still-ACTIVE lien
+      // on the user (correct — they still owe those); THIS lien is RECOVERED/non-
+      // ACTIVE here so it can never re-capture its own reversal.
+      await creditWallet(
+        {
+          userId: lien.targetUserId,
+          amount: recovered,
+          reason: "REVERSAL",
+          refType: "WalletLien",
+          refId: lien.id,
+          note: `Lien reversal — recovered funds returned${note?.trim() ? `: ${note.trim()}` : ""}`,
+          idempotencyKey: `lien:${lien.id}:reverse:user`,
+        },
+        tx
+      );
+
+      await tx.notification.create({
+        data: {
+          userId: lien.targetUserId,
+          title: "A recovery hold was reversed",
+          body: `₹${recovered.toFixed(2)} previously recovered under a wallet hold has been returned to your wallet.`,
+          channel: "INAPP",
+          href: "/dashboard/wallet",
+        },
+      });
+    }
+
+    // Keep `recoveredAmount` as the historical record of what was swept; the
+    // matching REVERSAL ledger legs above net it back out. Status RELEASED closes
+    // the lien so it no longer burdens the wallet or appears as open exposure.
+    return tx.walletLien.update({
+      where: { id: lien.id },
+      data: {
+        status: "RELEASED",
+        releasedById: actorId,
+        releasedAt: new Date(),
+        closedAt: new Date(),
+        remarks: `${lien.remarks} | Reversed (recovered funds returned)${note?.trim() ? `: ${note.trim()}` : ""}`,
       },
     });
   });

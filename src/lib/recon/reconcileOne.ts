@@ -309,6 +309,9 @@ export async function correctOneTransaction(
         errorCode: "PROVIDER_NOT_FOUND",
         errorMessage: "Provider has no record of this payment — refunded by admin after verification",
         source: `${source}_not_found`,
+        // Explicit operator-verified decision (ORDER_NOT_FOUND on every ref) —
+        // bypass the deferred cooling-off window and refund now.
+        immediate: true,
       });
       if (res.finalized) {
         await prisma.auditLog.create({

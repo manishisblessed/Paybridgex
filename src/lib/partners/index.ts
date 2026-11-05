@@ -9,6 +9,7 @@ import { flags, isProd } from "../env";
 import * as mock from "./mock";
 import { paysprintAeps, paysprintConfigured, paysprintDmt } from "./paysprint";
 import { razorpayPayout, razorpayPayoutConfigured, razorpayUpi, razorpayUpiConfigured } from "./razorpay";
+import { chagansConfigured, chagansUpi, resolveChagansGateway, randomizeChagansAmount } from "./chagans-pg";
 import { samedayBbps, samedayBbpsConfigured } from "./sameday-bbps";
 import { samedaySettlementConfigured } from "./sameday-settlement";
 import { samedaySettlementPayout } from "./sameday-payout";
@@ -108,7 +109,10 @@ export function getPartner<V extends Vertical>(v: V): ProviderMap[V] {
     case "dmt":
       return (flags.dmt && paysprintConfigured() ? paysprintDmt : mock.mockDmt) as ProviderMap[V];
     case "upi":
-      // UPI collect / hosted checkout rides Razorpay when configured, else MOCK.
+      // DEFAULT provider. Both Chagans and Razorpay are selectable at collect
+      // time (see resolveUpiSelection); this only decides the fallback.
+      // Prefer Chagans (primary PG rail); then Razorpay; else mock.
+      if (flags.upi && chagansConfigured()) return chagansUpi as ProviderMap[V];
       if (flags.upi && razorpayUpiConfigured()) return razorpayUpi as ProviderMap[V];
       return mock.mockUpi as ProviderMap[V];
     case "payout":
@@ -194,7 +198,14 @@ export function partnerStatus() {
   return {
     aeps:     { live: flags.aeps && paysprintConfigured(), provider: flags.aeps && paysprintConfigured() ? "PAYSPRINT" : "MOCK" },
     dmt:      { live: flags.dmt && paysprintConfigured(), provider: flags.dmt && paysprintConfigured() ? "PAYSPRINT" : "MOCK" },
-    upi:      { live: flags.upi && razorpayUpiConfigured(), provider: flags.upi && razorpayUpiConfigured() ? "RAZORPAY" : "MOCK" },
+    upi:      (() => {
+      const live = flags.upi && (chagansConfigured() || razorpayUpiConfigured());
+      const names = [
+        flags.upi && chagansConfigured() ? "CHAGANS_PG" : null,
+        flags.upi && razorpayUpiConfigured() ? "RAZORPAY" : null,
+      ].filter(Boolean) as string[];
+      return { live, provider: names.length ? names.join("+") : "MOCK" };
+    })(),
     payout:   (() => {
       const p = resolvePayout();
       const live = p.name !== "MOCK-PAYOUT";
@@ -216,6 +227,77 @@ export function partnerStatus() {
     rechargekit: { live: flags.rechargekit && rechargekitConfigured(), provider: flags.rechargekit && rechargekitConfigured() ? "SAMEDAY_RECHARGEKIT" : "NONE" },
     esign:    { live: flags.esign && leegalityConfigured(), provider: flags.esign && leegalityConfigured() ? "LEEGALITY" : "NONE" }
   };
+}
+
+/**
+ * Resolve the UPI provider + collect parameters for a user-selected gateway.
+ *
+ * The wallet "add money" selector uses a `<provider>:<gateway>` channel id
+ * (e.g. "chagans:comet"). This maps that id to the concrete provider, the raw
+ * gateway token to pass to collect(), an amount-preparation step (Chagans
+ * needs a unique-to-paise amount), and the gateway's rupee cap. Legacy bare
+ * ids (no prefix) and a missing id both fall back to the default provider.
+ */
+export type UpiSelection = {
+  provider: UpiProvider;
+  channel?: string;
+  prepareAmount: (amount: number) => number;
+  maxAmount?: number;
+};
+
+export function resolveUpiSelection(channelId?: string): UpiSelection {
+  const idx = (channelId || "").indexOf(":");
+  const prefix = idx >= 0 ? channelId!.slice(0, idx) : "";
+  const sub = idx >= 0 ? channelId!.slice(idx + 1) : "";
+
+  // Explicit Chagans selection.
+  if (prefix === "chagans" && flags.upi && chagansConfigured()) {
+    const gw = resolveChagansGateway(sub);
+    return {
+      provider: chagansUpi,
+      channel: gw.id,
+      prepareAmount: gw.requiresRandom ? randomizeChagansAmount : (a) => a,
+      maxAmount: gw.maxAmount,
+    };
+  }
+  // Explicit Razorpay selection.
+  if (prefix === "razorpay" && flags.upi && razorpayUpiConfigured()) {
+    return { provider: razorpayUpi, channel: sub || undefined, prepareAmount: (a) => a };
+  }
+
+  // Default / legacy (bare channel id or none): the priority provider. If that
+  // happens to be Chagans, still apply its unique-amount + cap rules.
+  const provider = getPartner("upi");
+  if (provider.name === "CHAGANS_PG") {
+    const gw = resolveChagansGateway(channelId);
+    return {
+      provider,
+      channel: gw.id,
+      prepareAmount: gw.requiresRandom ? randomizeChagansAmount : (a) => a,
+      maxAmount: gw.maxAmount,
+    };
+  }
+  return { provider, channel: channelId || undefined, prepareAmount: (a) => a };
+}
+
+/**
+ * Resolve the EXACT UPI provider that originated a transaction, by the
+ * `Transaction.partner` name we persisted at initiate time. The settle layer
+ * MUST route through this (not the default `getPartner("upi")`) so a Chagans
+ * payin is never verified against Razorpay, and vice-versa. Falls back to the
+ * default provider for an unknown/missing name.
+ */
+export function getUpiProviderByName(name?: string | null): UpiProvider {
+  switch ((name || "").toUpperCase()) {
+    case "CHAGANS_PG": return chagansUpi;
+    case "RAZORPAY-UPI": return razorpayUpi;
+    default: return getPartner("upi");
+  }
+}
+
+/** True when the named provider settles via webhook only (no status pull). */
+export function isWebhookOnlyPartner(name?: string | null): boolean {
+  return getUpiProviderByName(name).webhookOnly === true;
 }
 
 export type * from "./types";

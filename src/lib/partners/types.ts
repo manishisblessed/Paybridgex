@@ -86,7 +86,10 @@ export interface UpiCollectInput extends IdempotencyContext {
   note?: string;
   customerEmail?: string;
   customerPhone: string;
+  customerName?: string;
   callbackUrl: string;
+  /** Gateway channel sub-selection (e.g. "comet", "star"). Provider-specific. */
+  channel?: string;
 }
 export interface UpiCollectOutput {
   orderId: string;
@@ -98,6 +101,12 @@ export interface UpiProvider {
   name: string;
   collect(input: UpiCollectInput): Promise<PartnerResult<UpiCollectOutput>>;
   status(orderId: string): Promise<PartnerResult<{ status: "CREATED" | "PAID" | "FAILED" | "EXPIRED"; paidAt?: string }>>;
+  /**
+   * When true the provider sends a webhook on capture and has no usable status
+   * poll API. The settle layer must never call status() for webhook-only
+   * providers; the only crediting path is the webhook handler.
+   */
+  webhookOnly?: boolean;
 }
 
 // ---------- Payouts ----------

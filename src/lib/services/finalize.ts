@@ -6,9 +6,15 @@ import { isChargeDrivenService } from "@/lib/scheme/constants";
 import { emitWebhookEvent } from "@/lib/platform/webhooks";
 import { friendlyPartnerError } from "@/lib/partners/friendlyError";
 import { add, sub, round, dec } from "@/lib/money";
+import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 
 const log = logger.child({ module: "services/finalize" });
+
+/** Deferred-refund cooling-off window (ms). Env-tunable; defaults to 30 min. */
+function refundHoldMs(): number {
+  return Math.max(0, env.REFUND_HOLD_MINUTES) * 60_000;
+}
 
 /**
  * True when a write failed because it would create a SECOND SUCCESS row on the
@@ -80,6 +86,14 @@ export async function finalizeServiceTransaction(opts: {
   raw?: unknown;
   /** Provenance for the audit trail, e.g. "webhook" | "recon". */
   source: string;
+  /**
+   * Bypass the deferred-refund cooling-off window and release the reserve NOW.
+   * Reserved for provably-safe or operator-authorized refunds (duplicate-leg
+   * phantom reversal, admin force-refund after manual verification). Never set
+   * by the ordinary webhook / recon / status-poll finalizers — those MUST go
+   * through the double-checked 30-min hold.
+   */
+  immediate?: boolean;
 }): Promise<{ finalized: boolean; outcome: FinalizeOutcome }> {
   const { txn, status, source } = opts;
   const partnerTxnId = opts.partnerTxnId ?? txn.partnerTxnId ?? null;
@@ -113,6 +127,9 @@ export async function finalizeServiceTransaction(opts: {
           errorMessage: `Duplicate of ${dup.refId} on provider order ${partnerTxnId}`,
           raw: opts.raw,
           source: `${source}_dup`,
+          // Provably safe: the real money is accounted under the other SUCCESS
+          // leg, so this phantom reserve is released immediately (no cooling-off).
+          immediate: true,
         });
       }
     }
@@ -122,7 +139,9 @@ export async function finalizeServiceTransaction(opts: {
       await prisma.$transaction(async (tx) => {
         const claim = await tx.transaction.updateMany({
           where: { id: txn.id, status: { in: NON_TERMINAL } },
-          data: { status: "SUCCESS", partnerTxnId, response: raw },
+          // Clear any pending refund schedule: the provider confirmed the money
+          // DID move, so a refund must never fire for this row.
+          data: { status: "SUCCESS", partnerTxnId, response: raw, refundEligibleAt: null },
         });
         if (claim.count === 0) return; // someone finalized first
         finalized = true;
@@ -163,6 +182,8 @@ export async function finalizeServiceTransaction(opts: {
           errorMessage: `Duplicate provider order ${partnerTxnId}`,
           raw: opts.raw,
           source: `${source}_dup`,
+          // Provably safe duplicate (another leg owns the order) → immediate.
+          immediate: true,
         });
       }
       throw e;
@@ -179,9 +200,100 @@ export async function finalizeServiceTransaction(opts: {
     return { finalized, outcome: finalized ? "settled" : "noop" };
   }
 
-  // ── FAILED / REFUNDED — refund the held reserve (amount + fee) ────────────
+  // ── FAILED / REFUNDED — DEFERRED, DOUBLE-CHECKED refund of the reserve ─────
+  // CRITICAL: on the SameDay rails a provider "failure" can arrive while the
+  // payment was ACTUALLY charged (a card-push decline that SameDay reverses to
+  // our float only later). So we NEVER release the retailer's reserve on the
+  // first failure signal. The lifecycle is:
+  //   1. first confirmed failure → stamp refundEligibleAt = now + REFUND_HOLD,
+  //      keep the row HELD (NEEDS_REVIEW), move NO money.
+  //   2. still inside the window  → wait (the 5-min recon sweep revisits).
+  //   3. window elapsed AND the caller's fresh provider re-poll STILL reports
+  //      FAILED/REFUNDED (the double-check — every out-of-band finalizer re-polls
+  //      the status API before calling us) → mark terminal + credit the reserve.
+  // Idempotent throughout: a pre-existing REVERSAL short-circuits to terminal.
   const reserveAmount = round(add(txn.amount.toNumber(), txn.fee.toNumber()));
   const terminal: TxnStatus = status === "REFUNDED" ? "REFUNDED" : "FAILED";
+  const immediate = opts.immediate === true;
+
+  // ── Refund-not-previously-done guard ──────────────────────────────────────
+  // If the reserve was ever credited back for this txn, NEVER credit again —
+  // just ensure the row is terminal and return a no-op.
+  const priorReversal = await prisma.walletTxn.findFirst({
+    where: {
+      userId: txn.userId,
+      direction: "CREDIT",
+      reason: "REVERSAL",
+      refType: "Transaction",
+      refId: txn.id,
+    },
+    select: { id: true },
+  });
+  if (priorReversal) {
+    await prisma.transaction.updateMany({
+      where: { id: txn.id, status: { in: NON_TERMINAL } },
+      data: { status: terminal, partnerTxnId, refundedAt: new Date(), refundEligibleAt: null },
+    });
+    return { finalized: false, outcome: "noop" };
+  }
+
+  // ── Cooling-off gate (skipped only for immediate/duplicate/admin refunds) ──
+  if (!immediate) {
+    const current = await prisma.transaction.findUnique({
+      where: { id: txn.id },
+      select: { status: true, refundEligibleAt: true },
+    });
+    if (!current || !NON_TERMINAL.includes(current.status)) {
+      return { finalized: false, outcome: "noop" }; // already terminal / gone
+    }
+    const now = Date.now();
+    if (!current.refundEligibleAt) {
+      // First confirmed failure → schedule the refund and HOLD the reserve.
+      const eligibleAt = new Date(now + refundHoldMs());
+      const scheduled = await prisma.transaction.updateMany({
+        where: { id: txn.id, status: { in: NON_TERMINAL }, refundEligibleAt: null },
+        data: {
+          status: "NEEDS_REVIEW",
+          refundEligibleAt: eligibleAt,
+          partnerTxnId,
+          errorCode: opts.errorCode ?? `PROVIDER_${status}`,
+          errorMessage:
+            "Payment failed at the provider and is being verified with SameDay before any refund. Your funds are safe and held until it is confirmed — no action needed.",
+          response: raw,
+        },
+      });
+      if (scheduled.count > 0) {
+        await prisma.auditLog.create({
+          data: {
+            userId: txn.userId,
+            action: `txn.${source}_refund_scheduled`,
+            entity: "Transaction",
+            entityId: txn.id,
+            meta: {
+              refId: txn.refId,
+              source,
+              providerStatus: status,
+              eligibleAt: eligibleAt.toISOString(),
+              holdMinutes: Math.round(refundHoldMs() / 60_000),
+              partner: txn.partner,
+            },
+          },
+        });
+        log.info(
+          { refId: txn.refId, source, eligibleAt: eligibleAt.toISOString() },
+          "refund scheduled — reserve HELD pending double-check"
+        );
+      }
+      return { finalized: false, outcome: "noop" };
+    }
+    if (current.refundEligibleAt.getTime() > now) {
+      // Still cooling off — the next sweep re-poll (after the window) releases it.
+      return { finalized: false, outcome: "noop" };
+    }
+    // Window elapsed AND this caller just re-polled the provider → this call IS
+    // the double-check. Fall through and release the reserve.
+  }
+
   let finalized = false;
   await prisma.$transaction(async (tx) => {
     const claim = await tx.transaction.updateMany({
@@ -189,6 +301,8 @@ export async function finalizeServiceTransaction(opts: {
       data: {
         status: terminal,
         partnerTxnId,
+        refundedAt: new Date(),
+        refundEligibleAt: null,
         errorCode: opts.errorCode ?? `PROVIDER_${status}`,
         // Never persist raw provider text on the user-visible field — the full
         // payload is kept in `response` for support/recon.
@@ -291,7 +405,7 @@ export async function correctTerminalToSuccess(opts: {
     // Claim ONLY a genuinely terminal-failed row → SUCCESS. At-most-once.
     const claim = await tx.transaction.updateMany({
       where: { id: txn.id, status: { in: ["FAILED", "REFUNDED"] } },
-      data: { status: "SUCCESS", partnerTxnId, errorCode: null, errorMessage: null, response: raw },
+      data: { status: "SUCCESS", partnerTxnId, errorCode: null, errorMessage: null, response: raw, refundEligibleAt: null },
     });
     if (claim.count === 0) return; // already corrected / not a terminal-failed row
     corrected = true;

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Server-side report query layer.
  *
  * One pure function per report. Every query is:
@@ -643,8 +643,10 @@ async function reportPushPull(user: SessionUser, params: ReportParams): Promise<
 async function reportPg(user: SessionUser, params: ReportParams): Promise<ReportResult> {
   const ids = await allowedUserIds(user);
   const createdAt = dateFilter(params);
+  // PG partners: all providers that go through a payment gateway collect flow.
+  const PG_PARTNERS = ["RAZORPAY", "CHAGANS_PG", "VIABLE_PG", "BULKPE_PG"];
   const pgMatch: Prisma.TransactionWhereInput = {
-    OR: [{ partner: "RAZORPAY" }, { service: "UPI_COLLECT" }],
+    OR: [{ partner: { in: PG_PARTNERS } }, { service: "UPI_COLLECT" }],
   };
   const where: Prisma.TransactionWhereInput = {
     AND: [
@@ -689,7 +691,7 @@ async function reportPg(user: SessionUser, params: ReportParams): Promise<Report
   const trend = trendToSeries(
     await dailyTrend({
       table: "Transaction", dateCol: "createdAt", valueExpr: `"amount"`, userCol: "userId",
-      ids, from, to, extra: Prisma.sql`AND ("partner" = 'RAZORPAY' OR "service" = 'UPI_COLLECT')`,
+      ids, from, to, extra: Prisma.sql`AND ("partner" IN ('RAZORPAY','CHAGANS_PG','VIABLE_PG','BULKPE_PG') OR "service" = 'UPI_COLLECT')`,
     }),
     "Daily collections", "#185df5"
   );
@@ -2179,3 +2181,4 @@ const RUNNERS: Record<ReportType, (u: SessionUser, p: ReportParams) => Promise<R
 export function runReport(type: ReportType, user: SessionUser, params: ReportParams): Promise<ReportResult> {
   return RUNNERS[type](user, params);
 }
+

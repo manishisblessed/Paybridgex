@@ -22,7 +22,10 @@ const Body = z.object({
   amount: z.number().positive().max(200000),
   vpa: z.string().regex(/^[\w.\-]{2,}@[a-zA-Z]{2,}$/).optional(),
   note: z.string().max(80).optional(),
-  idempotencyKey: z.string().min(8)
+  idempotencyKey: z.string().min(8),
+  /** "<provider>:<gateway>" channel selection, e.g. "chagans:comet" */
+  channel: z.string().max(40).optional(),
+  customerName: z.string().max(80).optional(),
 }).strict();
 
 export const fetchCache = "force-no-store";
@@ -51,8 +54,10 @@ export async function POST(req: Request) {
           amount: parsed.data.amount,
           vpa: parsed.data.vpa,
           note: parsed.data.note,
+          channel: parsed.data.channel,
           customerPhone: user.phone,
           customerEmail: user.email || undefined,
+          customerName: parsed.data.customerName,
           ip: clientIp(req),
         })
     );

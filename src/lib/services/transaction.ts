@@ -342,14 +342,20 @@ export async function runTransaction<TIn, TOut>(
     return { status: "SUCCESS", refId, data: result.data };
   }
 
-  // 4b. INDETERMINATE path — a transport/gateway failure (NETWORK / HTTP 5xx /
-  // timeout / exception) where we got NO definitive answer and the provider MAY
-  // have charged. For rails we can reconcile (BBPS/Pay2New, RechargeKit CC-2) we
-  // HOLD the reserve (NO refund) and park the txn in NEEDS_REVIEW. The provider
-  // status API / recon sweep / admin resolver settles or refunds it once the
-  // authoritative outcome is known — so a payment that actually succeeded is
-  // never wrongly refunded (the exact direct-loss bug this prevents).
-  if (!result.ok && result.indeterminate && railSupportsHoldAndRecon(input.partner, input.service)) {
+  // 4b. HOLD path — NEVER instant-refund on a SameDay recon-capable rail.
+  //
+  // A pay failure here is either INDETERMINATE (transport error — network drop,
+  // HTTP 5xx/408/429, timeout, exception — where the provider MAY have charged)
+  // OR a provider "definitive" decline. On the card-push rails (RechargeKit CC-2)
+  // a synchronous decline can STILL have debited our float, with SameDay
+  // reversing it only later — so a "definitive" failure is NOT safe to refund
+  // either. We therefore HOLD the reserve (NEEDS_REVIEW) for BOTH cases and let
+  // the status API / recon sweep release it only after the double-checked
+  // REFUND_HOLD_MINUTES window (see finalizeServiceTransaction). This both
+  // prevents refunding a payment that actually succeeded AND guarantees the txn
+  // surfaces in Needs-Review instead of being silently refunded.
+  if (!result.ok && railSupportsHoldAndRecon(input.partner, input.service)) {
+    const indeterminate = result.indeterminate === true;
     await prisma.transaction.update({
       where: { id: txn.id },
       data: {
@@ -361,7 +367,9 @@ export async function runTransaction<TIn, TOut>(
       },
     });
     void sendOpsAlert({
-      title: "Indeterminate payment HELD for review (funds NOT refunded)",
+      title: indeterminate
+        ? "Indeterminate payment HELD for review (funds NOT refunded)"
+        : "Provider-declined payment HELD for review (funds NOT auto-refunded)",
       severity: "critical",
       details: {
         refId,
@@ -369,6 +377,7 @@ export async function runTransaction<TIn, TOut>(
         partner: input.partner,
         code: result.code ?? null,
         amount: input.amount,
+        indeterminate,
       },
     });
     await prisma.auditLog.create({
@@ -377,13 +386,22 @@ export async function runTransaction<TIn, TOut>(
         action: "txn.held_for_review",
         entity: "Transaction",
         entityId: txn.id,
-        meta: { refId, code: result.code, reason: "indeterminate_partner_result" },
+        meta: {
+          refId,
+          code: result.code,
+          reason: indeterminate
+            ? "indeterminate_partner_result"
+            : "provider_declined_pending_double_check",
+        },
       },
     });
     return { status: "NEEDS_REVIEW" as const, refId, error: "Payment under verification" };
   }
 
   // Failure path — refund the reserved money via the ledger (REVERSAL credit).
+  // Reached ONLY by rails WITHOUT a status API to double-check against (no
+  // recon coverage); SameDay recon-capable rails are held above and refunded
+  // only through the deferred, double-checked finalizer.
   //
   // The user only ever sees a sanitized, friendly message; the RAW partner
   // code + full response JSON stay on the row (and in the audit log) for

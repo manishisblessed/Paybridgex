@@ -30,6 +30,12 @@ export type MdrDimensions = {
   classification?: string | null;
   /** T0 = instant settlement (uses mdrValueT0 when set); T1 = standard. */
   settlementType?: "T0" | "T1";
+  /**
+   * When true, skip the paymentMode instrument pair entirely.
+   * Useful for PG top-ups where the instrument is unknown at quote/init time
+   * — mode-pinned slabs are excluded from matching, wildcard slabs still match.
+   */
+  anyPaymentMode?: boolean;
 };
 
 export type EffectiveMdr = {
@@ -115,16 +121,28 @@ function slabScore(slab: MdrSlab, dims: MdrDimensions, useClassification: boolea
   // platform-wide, the tier dimension is dropped entirely — pricing resolves on
   // Card Category (cardType) + network + company, and tier-pinned slabs match as
   // if their tier were a wildcard.
-  const pairs: Array<[string | null, string | null | undefined, (v: string | null | undefined) => string]> = [
-    [slab.paymentMode === "*" ? null : slab.paymentMode, dims.paymentMode === "*" ? null : dims.paymentMode, norm],
-    // Company (acquirer) is free-text the partner reformats over time; match on a
-    // canonical token set so e.g. "Sameday-AVIKA-AXIS" and "Sameday-AVIKA - AXIS"
-    // resolve to the same slab, while AXIS vs HDFC stay distinct. See
-    // canonicalCompany — a format drift here previously stranded settlements.
+  const pairs: Array<[string | null, string | null | undefined, (v: string | null | undefined) => string]> = [];
+
+  // When anyPaymentMode is true we're pricing a PG collect where the instrument
+  // is not yet known (quote/init time). Skip mode-pinned slabs; only wildcards
+  // (null / "*") can match so we don't accidentally price against an instrument
+  // the customer hasn't used yet.
+  if (dims.anyPaymentMode) {
+    const slabMode = slab.paymentMode === "*" ? null : slab.paymentMode;
+    if (slabMode !== null) return -1; // pinned to a specific mode → ineligible
+  } else {
+    pairs.push([slab.paymentMode === "*" ? null : slab.paymentMode, dims.paymentMode === "*" ? null : dims.paymentMode, norm]);
+  }
+
+  // Company (acquirer) is free-text the partner reformats over time; match on a
+  // canonical token set so e.g. "Sameday-AVIKA-AXIS" and "Sameday-AVIKA - AXIS"
+  // resolve to the same slab, while AXIS vs HDFC stay distinct. See
+  // canonicalCompany — a format drift here previously stranded settlements.
+  pairs.push(
     [slab.company, dims.company, canonicalCompany],
     [slab.cardType, dims.cardType, norm],
     [slab.brandType, dims.brandType, norm],
-  ];
+  );
   if (useClassification) {
     pairs.push([slab.classification, dims.classification, canonicalCardLevel]);
   }

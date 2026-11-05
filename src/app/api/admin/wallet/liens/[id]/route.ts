@@ -9,6 +9,7 @@ import { toErrorResponse } from "@/lib/security/apiErrors";
 import {
   recoverWalletLien,
   releaseWalletLien,
+  reverseWalletLien,
   serializeLien,
   canManageLiens,
   WalletLienError,
@@ -19,7 +20,10 @@ export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
 
 const ActionBody = z.object({
-  action: z.enum(["recover", "release"]),
+  // recover = force a sweep now; release = free the still-outstanding portion;
+  // reverse = RETURN already-recovered funds to the user (undo an over-recovery,
+  // e.g. the provider later refunded our float for the same transaction).
+  action: z.enum(["recover", "release", "reverse"]),
   note: z.string().max(500).optional(),
 });
 
@@ -57,7 +61,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const lien =
       parsed.data.action === "recover"
         ? await recoverWalletLien(params.id)
-        : await releaseWalletLien(params.id, admin.id, parsed.data.note);
+        : parsed.data.action === "reverse"
+          ? await reverseWalletLien(params.id, admin.id, parsed.data.note)
+          : await releaseWalletLien(params.id, admin.id, parsed.data.note);
 
     await prisma.auditLog.create({
       data: {

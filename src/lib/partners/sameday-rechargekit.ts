@@ -249,9 +249,41 @@ export async function rechargekitPay(input: {
     return r;
   }
 
+  // Normalize the provider's payment-level status. NOTE: the HTTP call can come
+  // back `success:true` while the PAYMENT itself is FAILED/REFUNDED — those must
+  // NOT be treated as `ok: true` (which runTransaction would settle as SUCCESS).
+  const providerStatus = normalizeStatus(r.data.status); // SUCCESS|PENDING|FAILED|REFUNDED
+
+  log.info(
+    {
+      txnId: r.data.txn_id ?? "",
+      requestId: r.data.request_id ?? "",
+      status: providerStatus,
+      amount: r.data.amount ?? input.amount,
+    },
+    "RechargeKit pay response"
+  );
+
+  // A synchronous terminal NON-SUCCESS from the pay call is surfaced as a
+  // (definitive) FAILURE, not data. On this card-PUSH rail SameDay can report
+  // FAILED/REFUNDED while still having debited our float, so runTransaction must
+  // HOLD the reserve (NEEDS_REVIEW) and let the double-checked deferred finalizer
+  // settle or refund it — NEVER mark it SUCCESS or instant-refund. The raw
+  // response (carrying txn_id/request_id) is retained so the status API can
+  // re-verify the true outcome during the hold.
+  if (providerStatus === "FAILED" || providerStatus === "REFUNDED") {
+    return {
+      ok: false,
+      code: `PROVIDER_${providerStatus}`,
+      message: r.data.message || `Payment ${providerStatus.toLowerCase()} at provider`,
+      raw: r.raw,
+      indeterminate: false,
+    };
+  }
+
   const result: RechargekitPayResult = {
     success: true,
-    status: normalizeStatus(r.data.status) as "SUCCESS" | "PENDING" | "FAILED",
+    status: providerStatus as "SUCCESS" | "PENDING",
     txnId: r.data.txn_id ?? "",
     operatorReference: r.data.operator_reference,
     amount: r.data.amount ?? input.amount,
@@ -259,16 +291,6 @@ export async function rechargekitPay(input: {
     requestId: r.data.request_id ?? "",
     message: r.data.message,
   };
-
-  log.info(
-    {
-      txnId: result.txnId,
-      requestId: result.requestId,
-      status: result.status,
-      amount: result.amount,
-    },
-    "RechargeKit pay response"
-  );
 
   return {
     ok: true,

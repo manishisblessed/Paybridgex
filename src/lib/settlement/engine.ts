@@ -91,6 +91,11 @@ export async function priceSchemeSettlement(args: {
    * CompanyMdrFloor applies. Omit for a rail-wide floor check.
    */
   scopeKey?: string | null;
+  /**
+   * When true, skip instrument-pinned slabs entirely. Used for PG top-up quotes
+   * at init time before we know which payment mode the customer will use.
+   */
+  anyPaymentMode?: boolean;
 }): Promise<SchemeSettlementPrice | null> {
   const gross = round(args.grossAmount);
   const paymentMode = args.paymentMode ?? "UPI";
@@ -107,6 +112,7 @@ export async function priceSchemeSettlement(args: {
     brandType: args.brandType ?? null,
     classification: args.classification ?? null,
     settlementType: args.settlementType,
+    anyPaymentMode: args.anyPaymentMode,
   });
   if (mdr.source === "NONE") return null;
 

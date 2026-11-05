@@ -1394,7 +1394,14 @@ function LiensTab({
     }
   };
 
-  const act = async (id: string, action: "recover" | "release") => {
+  const act = async (id: string, action: "recover" | "release" | "reverse") => {
+    if (
+      action === "reverse" &&
+      !window.confirm(
+        "Reverse this lien? Any already-recovered money will be RETURNED to the user's wallet and the lien will be closed. Use this only when the recovery was wrong (e.g. the provider later refunded our float for the same transaction)."
+      )
+    )
+      return;
     setActing(id);
     try {
       const res = await fetch(`/api/admin/wallet/liens/${id}`, {
@@ -1404,7 +1411,14 @@ function LiensTab({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "Action failed");
-      onDone(action === "recover" ? "Recovery sweep run." : "Lien released.", true);
+      onDone(
+        action === "recover"
+          ? "Recovery sweep run."
+          : action === "reverse"
+            ? "Lien reversed — recovered funds returned to the user."
+            : "Lien released.",
+        true
+      );
       loadLiens();
     } catch (e) {
       onDone(e instanceof Error ? e.message : "Action failed", false);
@@ -1510,22 +1524,42 @@ function LiensTab({
     {
       key: "actions",
       header: "",
-      render: (r) =>
-        r.status === "ACTIVE" ? (
+      // ACTIVE → Recover / Release. Any lien that has swept money (recoveredAmount
+      // > 0) and isn't already RELEASED → Reverse, which RETURNS the recovered
+      // funds to the user (undo an over-recovery, e.g. provider refunded us too).
+      render: (r) => {
+        const canReverse = r.status !== "RELEASED" && r.recoveredAmount > 0;
+        if (r.status !== "ACTIVE" && !canReverse) return null;
+        return (
           <div className="flex gap-1.5">
-            <Button size="sm" disabled={acting === r.id} onClick={() => act(r.id, "recover")}>
-              Recover
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={acting === r.id}
-              onClick={() => act(r.id, "release")}
-            >
-              Release
-            </Button>
+            {r.status === "ACTIVE" && (
+              <>
+                <Button size="sm" disabled={acting === r.id} onClick={() => act(r.id, "recover")}>
+                  Recover
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={acting === r.id}
+                  onClick={() => act(r.id, "release")}
+                >
+                  Release
+                </Button>
+              </>
+            )}
+            {canReverse && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={acting === r.id}
+                onClick={() => act(r.id, "reverse")}
+              >
+                Reverse
+              </Button>
+            )}
           </div>
-        ) : null,
+        );
+      },
     },
   ];
 

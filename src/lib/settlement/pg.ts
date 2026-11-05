@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+﻿import { prisma } from "@/lib/db";
 import { creditWallet } from "@/lib/ledger";
 import { distributeMdrCommission } from "@/lib/commission/distribute";
 import { getEffectiveMdr } from "@/lib/mdr/resolver";
@@ -552,3 +552,141 @@ export async function runPgInstantSettlementSweep(): Promise<{
 
   return { processed: entries.length, settled, failed, totalAmount };
 }
+
+
+/* -----------------------------------------------------------------------------
+ *  handleTopupCapture � instant T0 PG settlement for top-up collections.
+ *
+ *  Called by the webhook handler the moment Chagans confirms a collect.
+ *  Prices the gross against the retailer's assigned PG scheme, credits NET
+ *  to the wallet, distributes upline commission, and writes a PgSettlementEntry
+ *  for reconciliation.  Because Chagans has no status-poll API this is the
+ *  ONLY crediting path � no T1 sweep, no retry pipeline.
+ * -----------------------------------------------------------------------------
+ */
+
+export type TopupCaptureInput = {
+  /** Our canonical top-up transaction id (Transaction.id). */
+  transactionId: string;
+  /** Provider-confirmed gross amount in rupees. */
+  grossAmount: number;
+  /** UPI / CARD / NETBANKING / WALLET � as reported in the webhook. */
+  paymentMode?: string;
+  /** Chagans' own reference (for audit). */
+  providerRef?: string;
+  /** scopeKey used to match MDR slabs (e.g. "CHAGANS_PG"). */
+  scopeKey: string;
+};
+
+export type TopupCaptureResult = {
+  status: "SETTLED" | "DUPLICATE" | "NO_SCHEME";
+  netAmount?: number;
+  mdrAmount?: number;
+};
+
+export async function handleTopupCapture(
+  input: TopupCaptureInput,
+): Promise<TopupCaptureResult> {
+  // Idempotency � one credit per transaction.
+  const existing = await prisma.pgSettlementEntry.findUnique({
+    where: { transactionRef: input.transactionId },
+  });
+  if (existing) return { status: "DUPLICATE", netAmount: existing.netAmount?.toNumber() };
+
+  const tx = await prisma.transaction.findUnique({
+    where: { id: input.transactionId },
+    include: { user: true },
+  });
+  if (!tx) throw new Error(`handleTopupCapture: transaction ${input.transactionId} not found`);
+
+  const gross = round(input.grossAmount);
+  const paymentMode = input.paymentMode ?? "UPI";
+
+  // Price against the retailer's assigned PG scheme slab (T0 = instant).
+  const price = await priceSchemeSettlement({
+    userId: tx.userId,
+    serviceKind: "PG",
+    grossAmount: gross,
+    paymentMode,
+    scopeKey: input.scopeKey,
+    settlementType: "T0",
+  });
+
+  if (!price) {
+    // No scheme assigned or no matching slab ? leave transaction; ops must
+    // re-price and re-settle manually. Do NOT credit an unpriced collection.
+    await prisma.transaction.update({
+      where: { id: input.transactionId },
+      data: { status: "FAILED", errorMessage: "No PG MDR scheme — unpriced, requires ops review" },
+    });
+    return { status: "NO_SCHEME" };
+  }
+
+  const net = price.netAmount;
+  const mdrAmount = price.mdrAmount;
+
+  // Write the settlement ledger entry + credit in a transaction.
+  await prisma.$transaction(async (p) => {
+    await p.pgSettlementEntry.create({
+      data: {
+        transactionRef: input.transactionId,
+        orderId: input.providerRef ?? null,
+        userId: tx.userId,
+        grossAmount: dec(gross),
+        mdrAmount: dec(mdrAmount),
+        netAmount: dec(net),
+        vendorAmount: dec(price.vendorAmount ?? 0),
+        status: "SETTLED",
+        mode: "INSTANT",
+        settledVia: SETTLED_VIA.INSTANT_AUTO,
+        paymentMode,
+        provider: input.scopeKey,
+        settledAt: new Date(),
+      },
+    });
+
+    await p.transaction.update({
+      where: { id: input.transactionId },
+      data: {
+        status: "SUCCESS",
+        amount: dec(gross),
+        fee: dec(mdrAmount),
+      },
+    });
+
+    await creditWallet(
+      {
+        userId: tx.userId,
+        amount: net,
+        reason: "TOPUP",
+        refType: "Transaction",
+        refId: input.transactionId,
+        idempotencyKey: `topup:${input.transactionId}`,
+        note: `Wallet top-up via PG (net ₹${net.toFixed(2)})`,
+      },
+      p
+    );
+  });
+
+  // Distribute upline MDR-margin commission outside the main transaction.
+  // Margin = scheme MDR - acquirer cost (vendor amount).
+  const marginAmount = toNumber(mdrAmount) - toNumber(price.vendorAmount ?? 0);
+  if (marginAmount > 0) {
+    try {
+      await distributeMdrCommission(
+        input.transactionId,
+        tx.userId,
+        "PG",
+        gross,
+        "WALLET_TOPUP",
+        { paymentMode, company: input.scopeKey },
+      );
+    } catch {
+      // Commission distribution failure must NOT roll back the customer credit.
+    }
+  }
+
+  return { status: "SETTLED", netAmount: toNumber(net), mdrAmount: toNumber(mdrAmount) };
+}
+
+

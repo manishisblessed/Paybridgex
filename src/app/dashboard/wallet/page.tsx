@@ -73,6 +73,23 @@ type PendingTopup = {
   amount: number;
   paymentUrl?: string;
   upiIntent?: string;
+  provider?: string;
+};
+
+type PgChannel = {
+  id: string;
+  provider: string;
+  label: string;
+  maxAmount?: number;
+  primary?: boolean;
+  available: boolean;
+};
+
+type TopupQuote = {
+  priceable: boolean;
+  gross?: number;
+  mdr?: number;
+  net?: number;
 };
 
 export default function WalletPage() {
@@ -89,6 +106,13 @@ export default function WalletPage() {
   const [result, setResult] = useState<TxnResult>(null);
   const [stmtPeriod, setStmtPeriod] = useState<"this-month" | "last-month" | "last-90">("this-month");
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Chagans gateway channels
+  const [channels, setChannels] = useState<PgChannel[]>([]);
+  const [selectedChannel, setSelectedChannel] = useState<string>(""); // "" = default
+  const [quote, setQuote] = useState<TopupQuote | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const quoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function statementUrl(format: "pdf" | "csv") {
     const now = new Date();
@@ -107,6 +131,16 @@ export default function WalletPage() {
     return `/api/wallet/statement?from=${iso(from)}&to=${iso(to)}&format=${format}`;
   }
 
+  /** Remove the ?topup= param after a successful redirect-back, without re-navigation. */
+  function clearTopupParam() {
+    if (typeof window === "undefined") return;
+    const u = new URL(window.location.href);
+    if (u.searchParams.has("topup")) {
+      u.searchParams.delete("topup");
+      window.history.replaceState({}, "", u.toString());
+    }
+  }
+
   const fetchWallet = useCallback(async () => {
     try {
       setFetching(true);
@@ -117,6 +151,20 @@ export default function WalletPage() {
     }
   }, []);
 
+  // Load gateway channels once.
+  useEffect(() => {
+    fetch("/api/wallet/topup/channels")
+      .then((r) => r.json())
+      .then((d) => {
+        const chs: PgChannel[] = d.channels ?? [];
+        setChannels(chs);
+        // Pre-select primary (Comet).
+        const primary = chs.find((c) => c.primary);
+        if (primary) setSelectedChannel(primary.id);
+      })
+      .catch(() => {/* channels stay empty — no Chagans */});
+  }, []);
+
   const stopPolling = useCallback(() => {
     if (pollTimer.current) {
       clearInterval(pollTimer.current);
@@ -124,26 +172,58 @@ export default function WalletPage() {
     }
   }, []);
 
+  // Debounced MDR quote for PG channels.
+  useEffect(() => {
+    const amt = Number(amount);
+    if (!amt || amt <= 0 || !selectedChannel.startsWith("chagans:")) {
+      setQuote(null);
+      return;
+    }
+    if (quoteTimer.current) clearTimeout(quoteTimer.current);
+    quoteTimer.current = setTimeout(async () => {
+      setQuoteLoading(true);
+      try {
+        const res = await fetch(
+          `/api/wallet/topup/quote?amount=${amt}&gateway=${encodeURIComponent(selectedChannel)}`
+        );
+        if (res.ok) setQuote(await res.json());
+      } finally {
+        setQuoteLoading(false);
+      }
+    }, 400);
+    return () => {
+      if (quoteTimer.current) clearTimeout(quoteTimer.current);
+    };
+  }, [amount, selectedChannel]);
+
   const checkTopup = useCallback(
     async (topup: PendingTopup): Promise<boolean> => {
       try {
         const res = await fetch(`/api/wallet/topup?refId=${encodeURIComponent(topup.refId)}`);
         if (!res.ok) return false;
-        const d = (await res.json()) as { status: string };
+        const d = (await res.json()) as { status: string; amount?: number; net?: number };
         if (d.status === "SUCCESS") {
           stopPolling();
+          clearTopupParam();
           setPending(null);
+          const credited = d.net ?? d.amount ?? topup.amount;
           setResult({
             refId: topup.refId,
             service: "Wallet top-up",
-            amount: topup.amount,
-            meta: { Status: "Credited to wallet" },
+            amount: credited,
+            meta: {
+              Status: "Credited to wallet",
+              ...(d.net != null && d.amount != null && d.net !== d.amount
+                ? { "Gateway fee": `₹${(d.amount - d.net).toFixed(2)}` }
+                : {}),
+            },
           });
           fetchWallet();
           return true;
         }
         if (d.status === "FAILED") {
           stopPolling();
+          clearTopupParam();
           setPending(null);
           setError("Payment failed or expired. No amount was credited — try again.");
           return true;
@@ -153,6 +233,7 @@ export default function WalletPage() {
         return false;
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fetchWallet, stopPolling]
   );
 
@@ -173,7 +254,7 @@ export default function WalletPage() {
   useEffect(() => {
     fetchWallet();
     // Resume a top-up when redirected back from the payment page
-    // (?topup=TOPUPXXXX in the callback URL).
+    // (?topup=TOPUPXXXX in the callback URL from /pay/return).
     const params = new URLSearchParams(window.location.search);
     const refId = params.get("topup");
     if (refId?.startsWith("TOPUP")) {
@@ -181,6 +262,7 @@ export default function WalletPage() {
       setPending(resumed);
       checkTopup(resumed);
       startPolling(resumed);
+      clearTopupParam();
     }
     return stopPolling;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -194,12 +276,14 @@ export default function WalletPage() {
     if (!amt || amt <= 0) return;
     setLoading(true);
     setError(null);
+    setQuote(null);
     try {
       const res = await fetch("/api/wallet/topup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount: amt,
+          ...(selectedChannel ? { channel: selectedChannel } : {}),
           ...(payVia === "vpa" && vpa ? { vpa } : {}),
           idempotencyKey: generateRefId("TOPREQ"),
         }),
@@ -214,10 +298,19 @@ export default function WalletPage() {
         amount: amt,
         paymentUrl: d.paymentUrl,
         upiIntent: d.upiIntent,
+        provider: d.provider,
       };
       setPending(topup);
       setAmount("");
-      if (d.paymentUrl) window.open(d.paymentUrl, "_blank", "noopener");
+      if (d.paymentUrl) {
+        // Chagans Comet: full-page redirect (returns to /pay/return?ref=…)
+        // Other PGs: open a new tab so the user stays on the wallet page.
+        if ((d.provider ?? "").toUpperCase() === "CHAGANS_PG") {
+          window.location.assign(d.paymentUrl);
+        } else {
+          window.open(d.paymentUrl, "_blank", "noopener");
+        }
+      }
       startPolling(topup);
     } catch {
       setError("Network error — check your connection and try again.");
@@ -358,6 +451,40 @@ export default function WalletPage() {
             </div>
           ) : (
             <form onSubmit={submitTopup} className="mt-5 grid gap-4 sm:grid-cols-2">
+              {/* Gateway selector (Chagans channels) */}
+              {channels.length > 0 && (
+                <div className="sm:col-span-2">
+                  <Label>Gateway</Label>
+                  <div className="mt-1 grid gap-2" style={{ gridTemplateColumns: `repeat(${channels.length}, minmax(0, 1fr))` }}>
+                    {channels.map((ch) => (
+                      <button
+                        key={ch.id}
+                        type="button"
+                        disabled={!ch.available}
+                        onClick={() => setSelectedChannel(ch.id)}
+                        className={`rounded-xl border-2 px-3 py-2 text-xs font-semibold transition ${
+                          selectedChannel === ch.id
+                            ? "border-brand-500 bg-brand-50 text-brand-700"
+                            : ch.available
+                            ? "border-ink-100 bg-white text-ink-700 hover:border-ink-200"
+                            : "border-ink-100 bg-ink-50 text-ink-400 cursor-not-allowed"
+                        }`}
+                      >
+                        {ch.label}
+                        {!ch.available && (
+                          <span className="block text-[10px] text-rose-500 mt-0.5">Unavailable</span>
+                        )}
+                        {ch.maxAmount && (
+                          <span className="block text-[10px] text-ink-400 mt-0.5">
+                            Up to {formatINR(ch.maxAmount)}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="sm:col-span-2">
                 <Label htmlFor="amount">Amount (₹)</Label>
                 <Input
@@ -365,7 +492,7 @@ export default function WalletPage() {
                   type="number"
                   required
                   min={1}
-                  max={200000}
+                  max={channels.find((c) => c.id === selectedChannel)?.maxAmount ?? 200000}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="Enter amount"
@@ -383,6 +510,32 @@ export default function WalletPage() {
                   ))}
                 </div>
               </div>
+
+              {/* MDR quote panel */}
+              {selectedChannel.startsWith("chagans:") && Number(amount) > 0 && (
+                <div className="sm:col-span-2 rounded-xl border border-ink-100 bg-ink-50/60 p-3 text-xs">
+                  {quoteLoading ? (
+                    <span className="text-ink-400">Calculating…</span>
+                  ) : quote?.priceable ? (
+                    <div className="grid gap-1">
+                      <div className="flex justify-between text-ink-700">
+                        <span>You pay</span>
+                        <span className="font-medium">{formatINR(quote.gross!)}</span>
+                      </div>
+                      <div className="flex justify-between text-amber-700">
+                        <span>Gateway fee ({((quote.mdr! / quote.gross!) * 100).toFixed(2)}%)</span>
+                        <span>−{formatINR(quote.mdr!)}</span>
+                      </div>
+                      <div className="flex justify-between font-semibold text-emerald-700 border-t border-ink-200 pt-1 mt-1">
+                        <span>Wallet credit</span>
+                        <span>+{formatINR(quote.net!)}</span>
+                      </div>
+                    </div>
+                  ) : quote && !quote.priceable ? (
+                    <span className="text-ink-500">No MDR scheme — full amount credited</span>
+                  ) : null}
+                </div>
+              )}
 
               <div className="sm:col-span-2">
                 <Label>Payment method</Label>
