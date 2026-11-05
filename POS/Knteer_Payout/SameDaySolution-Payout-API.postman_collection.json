@@ -1,0 +1,774 @@
+{
+	"info": {
+		"_postman_id": "sameday-knteer-payout-api",
+		"name": "Same Day Solution — Payout API",
+		"description": "## Same Day Solution — Payout API\n\nThis collection enables **Same Day Solution partners** to integrate the account transfer (payout) service into their applications.\n\nAll requests go through **Same Day Solution's servers** — you do not call any third-party provider directly. Same Day Solution handles routing, wallet management, charges, and callbacks internally.\n\n---\n\n### Pre-requisites\n\n1. **API Key & Secret** — Generated from the Partner API panel in your Same Day Solution dashboard (Settings → API Management). You receive a public `api_key` and a private `api_secret`.\n2. **IP Whitelisting** — Your server's IP must be whitelisted. Go to Partner API panel → Manage IP Whitelist, or contact admin.\n3. **Settlement / Payout Enabled** — Admin must enable the **Settlement / Payout** toggle on your partner account before calls are accepted.\n4. **Wallet Balance** — Admin must credit your partner wallet before you can initiate payouts.\n5. **Scheme Assigned** — Admin must assign a payout scheme to your account (determines charges per transfer).\n\n---\n\n### Authentication\n\nAll requests require three headers:\n\n| Header | Description |\n|--------|-------------|\n| `x-api-key` | Your public API key |\n| `x-signature` | HMAC-SHA256 signature (see below) |\n| `x-timestamp` | Unix timestamp in milliseconds |\n\n**Signature computation:**\n\n```javascript\n// For POST requests:\nconst bodyObject = { accountNumber: '...', amount: 1000, ... };\nconst bodyString = JSON.stringify(bodyObject);   // COMPACT — no extra spaces\nconst payload = bodyString + timestamp;\nconst signature = crypto.createHmac('sha256', apiSecret).update(payload).digest('hex');\n\n// For GET requests (no body):\nconst payload = '' + timestamp;\nconst signature = crypto.createHmac('sha256', apiSecret).update(payload).digest('hex');\n```\n\n> ⚠️ **IMPORTANT:** The signature must be computed on **compact (minified) JSON** — no extra whitespace or newlines. Use `JSON.stringify(object)` directly. Formatted/indented JSON will fail signature verification.\n\nThe pre-request scripts in this collection **auto-compute the signature** for testing in Postman. In production, compute the signature on your server.\n\n---\n\n### Integration Flow\n\n```\n1. Get Balance          → Check wallet balance\n         ↓\n2. Get Banks (optional) → GET /banks — list supported banks\n         ↓\n3. Verify Account       → POST /verify — eKYC Hub penny-drop (FREE) → get bank-verified name\n         ↓\n4. Register Account     → POST /accounts\n                            registration_type: \"verify\"  → eKYC Hub + ₹4.72 → is_bank_verified: true\n                            registration_type: \"register\" → Knteer only + ₹4.72 → is_bank_verified: false\n         ↓\n5. Transfer (Payout)    → POST /transfer — account must be pre-registered (slab charge only)\n         ↓\n6. Check Status         → Poll for PENDING transactions every 2–5 min\n7. List Accounts        → GET /accounts — saved beneficiaries\n8. List Transactions    → GET /status?list=true\n```\n\n**Charges:**\n- **Account verification:** ₹4 + 18% GST = **₹4.72** — charged once when registering a new account via `POST /accounts`\n- **Transfer charge:** Per-transaction per your assigned scheme\n- Repeat transfers to an already-registered account have **no** verification fee\n\n**Webhooks:** Subscribe to `payout.*` events in admin to receive callbacks on account registration and transfer status changes.\n\n---\n\n### Transaction Status Values\n\n| Status | Description | Wallet Impact |\n|--------|-------------|---------------|\n| `PENDING` | Processing — call Check Status to get final result | Held |\n| `SUCCESS` | Transfer completed — UTR available | Debited |\n| `FAILED` | Transfer failed — amount refunded to your wallet | Refunded |\n\n---\n\n### Webhook Events\n\nSubscribe your endpoint in the admin panel → tick **Knteer Payout** checkbox. All events are signed with `X-Sameday-Signature`.\n\n| Event | When fired |\n|-------|------------|\n| `payout.account_registered` | After `POST /accounts` — new bene registered, ₹4.72 charged |\n| `payout.success` | Transfer completed, UTR available |\n| `payout.failed` | Transfer failed, wallet auto-refunded |\n| `payout.pending` | Transfer initiated but not yet confirmed |\n\n---\n\n### Notes\n\n- **Transfer charges** are determined by your assigned scheme — use Get Balance to see your available balance.\n- **Duplicate prevention:** Transfers to the same account have a 60-second cooldown after SUCCESS. Additionally, if a PENDING transfer exists for the same account within 15 minutes, new transfers are blocked with a `TRANSFER_IN_PROGRESS` error (includes existing transaction details).\n- **PENDING → final:** For PENDING transactions, call Check Status every 2–5 minutes. Do NOT retry Transfer with the same parameters.\n- **Auto-refund:** Failed transfers are automatically refunded to your wallet.\n- **Amount limits:** Minimum ₹100 — Maximum ₹2,00,000.\n- **Idempotency:** Pass `x-idempotency-key` header (any unique string) to prevent accidental double-submission on network retries.\n\n> **Base URL:** `https://api.samedaysolution.in`",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Get Balance",
+			"request": {
+				"method": "GET",
+				"header": [
+					{ "key": "x-api-key",   "value": "{{api_key}}",   "type": "text" },
+					{ "key": "x-signature", "value": "{{signature}}", "type": "text" },
+					{ "key": "x-timestamp", "value": "{{timestamp}}", "type": "text" }
+				],
+				"url": {
+					"raw": "{{base_url}}/api/partner/payout/balance",
+					"host": ["{{base_url}}"],
+					"path": ["api", "partner", "payout", "balance"]
+				},
+				"description": "Check your partner wallet balance before initiating transfers.\n\n**Authentication:** HMAC-SHA256 (auto-computed by pre-request script)\n\n**Response Fields:**\n| Field | Type | Description |\n|-------|------|-------------|\n| `balance` | number | Available wallet balance (usable for payouts) |\n| `is_frozen` | boolean | Whether the wallet is frozen |\n| `freeze_reason` | string \\| null | Reason if frozen — contact admin |\n\n**Tip:** Ensure `balance` ≥ (amount + charges) before calling Transfer."
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"const timestamp = Date.now().toString();",
+							"pm.collectionVariables.set('timestamp', timestamp);",
+							"",
+							"const apiSecret = pm.collectionVariables.get('api_secret');",
+							"const payload = '' + timestamp;   // GET — empty body",
+							"const signature = CryptoJS.HmacSHA256(payload, apiSecret).toString(CryptoJS.enc.Hex);",
+							"pm.collectionVariables.set('signature', signature);",
+							"",
+							"console.log('Timestamp:', timestamp);",
+							"console.log('Signature payload: (empty body + timestamp)');"
+						]
+					}
+				}
+			],
+			"response": [
+				{
+					"name": "200 OK — Balance",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{base_url}}/api/partner/payout/balance", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "balance"] }
+					},
+					"status": "OK", "code": 200, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"balance\": 9850.00,\n    \"is_frozen\": false,\n    \"freeze_reason\": null\n}"
+				},
+				{
+					"name": "403 Forbidden — Feature Not Enabled",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{base_url}}/api/partner/payout/balance", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "balance"] }
+					},
+					"status": "Forbidden", "code": 403, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"FORBIDDEN\",\n        \"message\": \"Settlement / Payout is not enabled for this partner account. Contact admin.\"\n    }\n}"
+				},
+				{
+					"name": "401 Unauthorized — Invalid API Key / Signature",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{base_url}}/api/partner/payout/balance", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "balance"] }
+					},
+					"status": "Unauthorized", "code": 401, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"UNAUTHORIZED\",\n        \"message\": \"Invalid signature\"\n    }\n}"
+				}
+			]
+		},
+		{
+			"name": "2. Get Banks",
+			"request": {
+				"method": "GET",
+				"header": [
+					{ "key": "x-api-key",   "value": "{{api_key}}",   "type": "text" },
+					{ "key": "x-signature", "value": "{{signature}}", "type": "text" },
+					{ "key": "x-timestamp", "value": "{{timestamp}}", "type": "text" }
+				],
+				"url": {
+					"raw": "{{base_url}}/api/partner/payout/banks",
+					"host": ["{{base_url}}"],
+					"path": ["api", "partner", "payout", "banks"],
+					"query": [
+						{ "key": "imps",    "value": "true", "description": "Filter IMPS-enabled banks only", "disabled": true },
+						{ "key": "neft",    "value": "true", "description": "Filter NEFT-enabled banks only", "disabled": true },
+						{ "key": "popular", "value": "true", "description": "Show only popular banks", "disabled": true },
+						{ "key": "search",  "value": "",     "description": "Search by bank name (e.g. AXIS)", "disabled": true }
+					]
+				},
+				"description": "Get the list of supported banks for payout transfers.\n\n**Query Parameters (all optional):**\n| Parameter | Description |\n|-----------|-------------|\n| `imps` | Set `true` for IMPS-enabled banks only |\n| `neft` | Set `true` for NEFT-enabled banks only |\n| `popular` | Set `true` for popular/common banks |\n| `search` | Search bank name (e.g. `AXIS`) |\n\nUse this to populate a bank picker UI or validate bank name before registration."
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"const ts = Date.now().toString();",
+							"pm.collectionVariables.set('timestamp', ts);",
+							"const secret = pm.collectionVariables.get('api_secret');",
+							"const sig = CryptoJS.HmacSHA256('' + ts, secret).toString(CryptoJS.enc.Hex);",
+							"pm.collectionVariables.set('signature', sig);"
+						]
+					}
+				}
+			],
+			"response": [
+				{
+					"name": "200 OK — Bank List",
+					"originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/banks", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "banks"] } },
+					"status": "OK", "code": 200, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"banks\": [\n        { \"id\": 1, \"name\": \"AXIS BANK\", \"ifsc_prefix\": \"UTIB\", \"imps\": true, \"neft\": true },\n        { \"id\": 2, \"name\": \"STATE BANK OF INDIA\", \"ifsc_prefix\": \"SBIN\", \"imps\": true, \"neft\": true },\n        { \"id\": 3, \"name\": \"HDFC BANK\", \"ifsc_prefix\": \"HDFC\", \"imps\": true, \"neft\": true }\n    ],\n    \"total\": 150,\n    \"imps_enabled\": 142,\n    \"neft_enabled\": 148\n}"
+				}
+			]
+		},
+		{
+			"name": "3. Verify Account (eKYC Hub Penny-Drop)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{ "key": "x-api-key",    "value": "{{api_key}}",   "type": "text" },
+					{ "key": "x-signature",  "value": "{{signature}}", "type": "text" },
+					{ "key": "x-timestamp",  "value": "{{timestamp}}", "type": "text" },
+					{ "key": "Content-Type", "value": "application/json", "type": "text" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"accountNumber\": \"924020056452946\",\n    \"ifscCode\": \"UTIB0000248\",\n    \"bankName\": \"AXIS BANK\"\n}",
+					"options": { "raw": { "language": "json" } }
+				},
+				"url": {
+					"raw": "{{base_url}}/api/partner/payout/verify",
+					"host": ["{{base_url}}"],
+					"path": ["api", "partner", "payout", "verify"]
+				},
+				"description": "Validate a bank account via **eKYC Hub penny-less**.\n\n**Charges ₹4.72 (₹4 + 18% GST) on success. No charge on invalid account or service error.**\n\nReturns the **bank-verified account holder name** so you can confirm account details before `POST /accounts`.\n\n**Request Body:**\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `accountNumber` | string | Yes | Bank account number (9–18 digits) |\n| `ifscCode` | string | Yes | IFSC code (e.g. SBIN0001234) |\n| `bankName` | string | No | Bank name (for reference in response) |\n\n**Recommended flow:** Call this first (₹4.72) → show `account_holder_name` to user → if correct, call `POST /accounts` with `registration_type: \"register\"` (₹4.72, no eKYC repeat) or `registration_type: \"verify\"` (₹4.72, eKYC runs again for bank-verified beneficiary)."
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"const ts = Date.now().toString();",
+							"pm.collectionVariables.set('timestamp', ts);",
+							"const secret = pm.collectionVariables.get('api_secret');",
+							"const body = pm.request.body.raw;",
+							"const payload = body + ts;",
+							"const sig = CryptoJS.HmacSHA256(payload, secret).toString(CryptoJS.enc.Hex);",
+							"pm.collectionVariables.set('signature', sig);"
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"try {",
+							"    const res = pm.response.json();",
+							"    if (res.success && res.account_holder_name) {",
+							"        pm.collectionVariables.set('verified_name', res.account_holder_name);",
+							"        console.log('✅ Bank-verified name:', res.account_holder_name);",
+							"    }",
+							"} catch (e) {}"
+						]
+					}
+				}
+			],
+			"response": [
+				{
+					"name": "200 OK — Account Valid (eKYC Hub)",
+					"originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/verify", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "verify"] } },
+					"status": "OK", "code": 200, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"is_valid\": true,\n    \"account_holder_name\": \"RAHUL SHARMA\",\n    \"bank_name\": \"AXIS BANK\",\n    \"branch_name\": null,\n    \"verification_charges\": 4.72,\n    \"verification_charges_detail\": \"₹4 + ₹0.72 GST\",\n    \"message\": \"Account verified successfully via eKYC Hub. ₹4.72 charged.\",\n    \"reference_id\": \"PTNR_VFY_1729083450123\"\n}"
+				},
+				{
+					"name": "400 Bad Request — Account Invalid",
+					"originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/verify", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "verify"] } },
+					"status": "Bad Request", "code": 400, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"VALIDATION_FAILED\",\n        \"message\": \"Account validation failed — check account number and IFSC code.\"\n    },\n    \"is_valid\": false,\n    \"verification_charges\": 0\n}"
+				},
+				{
+					"name": "400 Bad Request — Insufficient Balance",
+					"originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/verify", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "verify"] } },
+					"status": "Bad Request", "code": 400, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"INSUFFICIENT_BALANCE\",\n        \"message\": \"Insufficient balance. Account verification fee is ₹4.72 (₹4 + ₹0.72 GST). Available: ₹2.00\"\n    },\n    \"wallet_balance\": 2.00,\n    \"verification_fee\": 4.72\n}"
+				},
+				{
+					"name": "503 Service Unavailable — eKYC Hub Down",
+					"originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/verify", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "verify"] } },
+					"status": "Service Unavailable", "code": 503, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"SERVICE_UNAVAILABLE\",\n        \"message\": \"Account verification service temporarily unavailable. Please try again later.\"\n    },\n    \"is_valid\": false,\n    \"verification_charges\": 0\n}"
+				}
+			]
+		},
+		{
+			"name": "4a. Register Account (register / verify)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{ "key": "x-api-key",      "value": "{{api_key}}",   "type": "text" },
+					{ "key": "x-signature",    "value": "{{signature}}", "type": "text" },
+					{ "key": "x-timestamp",    "value": "{{timestamp}}", "type": "text" },
+					{ "key": "Content-Type",   "value": "application/json", "type": "text" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"accountNumber\": \"924020056452946\",\n    \"ifscCode\": \"UTIB0000248\",\n    \"accountHolderName\": \"Rahul Sharma\",\n    \"bankName\": \"AXIS BANK\",\n    \"mobile\": \"9876543210\",\n    \"email\": \"rahul@example.com\",\n    \"registration_type\": \"verify\"\n}",
+					"options": { "raw": { "language": "json" } }
+				},
+				"url": {
+					"raw": "{{base_url}}/api/partner/payout/accounts",
+					"host": ["{{base_url}}"],
+					"path": ["api", "partner", "payout", "accounts"]
+				},
+				"description": "Register a bank account as a beneficiary before making transfers.\n\n**Two modes via `registration_type`:**\n\n| Mode | eKYC Hub | Charge | `is_bank_verified` |\n|------|----------|--------|--------------------|\n| `register` (default) | No | ₹4.72 | `false` |\n| `verify` | ✅ eKYC Hub penny-less | ₹4.72 | `true` |\n\n**Upgrade:** Account registered (unverified) + `registration_type: \"verify\"` → runs eKYC, marks bank-verified, charges ₹4.72.\n\n**Already-verified:** Returns success, no charge.\n\n**Recommended flow:** `POST /verify` (free) → confirm name → `POST /accounts` with `registration_type: \"verify\"`\n\n**Request Body:**\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `accountNumber` | string | Yes | Bank account number (9–18 digits) |\n| `ifscCode` | string | Yes | IFSC code (e.g. `UTIB0000248`) |\n| `accountHolderName` | string | Yes for `register` | Required for plain register; eKYC fills it for verify |\n| `bankName` | string | Yes | Bank name |\n| `mobile` | string | Yes | 10-digit Indian mobile number |\n| `email` | string | No | Email address |\n| `registration_type` | string | No | `\"register\"` (default) or `\"verify\"` |\n\n**Webhook:** Fires `payout.account_registered` event."
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"const ts = Date.now().toString();",
+							"pm.collectionVariables.set('timestamp', ts);",
+							"const secret = pm.collectionVariables.get('api_secret');",
+							"const body = pm.request.body.raw;",
+							"const payload = body + ts;",
+							"const sig = CryptoJS.HmacSHA256(payload, secret).toString(CryptoJS.enc.Hex);",
+							"pm.collectionVariables.set('signature', sig);"
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"try {",
+							"    const res = pm.response.json();",
+							"    if (res.success && res.reference_id) {",
+							"        pm.collectionVariables.set('account_ref_id', res.reference_id);",
+							"        console.log('Account registered. reference_id:', res.reference_id, '| is_bank_verified:', res.account?.is_bank_verified);",
+							"    }",
+							"} catch (e) {}"
+						]
+					}
+				}
+			],
+			"response": [
+				{
+					"name": "200 OK — Verified Register (eKYC Hub, ₹4.72)",
+					"originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/accounts", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "accounts"] } },
+					"status": "OK", "code": 200,
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"registration_type\": \"verify\",\n    \"message\": \"Account verified and registered. ₹4.72 (₹4 + ₹0.72 GST) charged.\",\n    \"verification_charge\": 4.72,\n    \"reference_id\": \"KBENE_VFY_1729083450123_AB3XY\",\n    \"account\": {\n        \"account_number\": \"***********2946\",\n        \"ifsc_code\": \"UTIB0000248\",\n        \"account_holder_name\": \"RAHUL SHARMA\",\n        \"bank_name\": \"AXIS BANK\",\n        \"is_registered\": true,\n        \"is_bank_verified\": true\n    }\n}"
+				},
+				{
+					"name": "200 OK — Plain Register (no eKYC, ₹4.72)",
+					"originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/accounts", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "accounts"] } },
+					"status": "OK", "code": 200,
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"registration_type\": \"register\",\n    \"message\": \"Account registered successfully. ₹4.72 (₹4 + ₹0.72 GST) charged.\",\n    \"verification_charge\": 4.72,\n    \"reference_id\": \"KBENE_1729083450123_AB3XY\",\n    \"account\": {\n        \"account_number\": \"***********2946\",\n        \"ifsc_code\": \"UTIB0000248\",\n        \"account_holder_name\": \"Rahul Sharma\",\n        \"bank_name\": \"AXIS BANK\",\n        \"is_registered\": true,\n        \"is_bank_verified\": false\n    }\n}"
+				},
+				{
+					"name": "200 OK — Already Registered (no charge)",
+					"originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/accounts", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "accounts"] } },
+					"status": "OK", "code": 200,
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"already_registered\": true,\n    \"registration_type\": \"register\",\n    \"verification_charge\": 0,\n    \"message\": \"Account is already registered. No charge applied. Use registration_type=\\\"verify\\\" to bank-verify this account.\",\n    \"account\": {\n        \"account_number\": \"***********2946\",\n        \"ifsc_code\": \"UTIB0000248\",\n        \"account_holder_name\": \"Rahul Sharma\",\n        \"bank_name\": \"AXIS BANK\",\n        \"is_registered\": true,\n        \"is_bank_verified\": false\n    }\n}"
+				},
+				{
+					"name": "400 Bad Request — Bank Verification Failed",
+					"originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/accounts", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "accounts"] } },
+					"status": "Bad Request", "code": 400,
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"BANK_VERIFICATION_FAILED\",\n        \"message\": \"Bank account verification failed. Check account number and IFSC code.\"\n    }\n}"
+				},
+				{
+					"name": "400 Insufficient Balance",
+					"originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/accounts", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "accounts"] } },
+					"status": "Bad Request", "code": 400,
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"INSUFFICIENT_BALANCE\",\n        \"message\": \"Insufficient balance. Account registration fee is ₹4.72 (₹4 + ₹0.72 GST). Available: ₹2.50\"\n    },\n    \"wallet_balance\": 2.50,\n    \"verification_fee\": 4.72\n}"
+				},
+				{
+					"name": "502 Registration Failed (Knteer error)",
+					"originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/accounts", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "accounts"] } },
+					"status": "Bad Gateway", "code": 502,
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"REGISTRATION_FAILED\",\n        \"message\": \"Failed to register account with Knteer. Check account details and try again.\"\n    }\n}"
+				}
+			]
+		},
+		{
+			"name": "4b. List Registered Accounts",
+			"request": {
+				"method": "GET",
+				"header": [
+					{ "key": "x-api-key",   "value": "{{api_key}}",   "type": "text" },
+					{ "key": "x-signature", "value": "{{signature}}", "type": "text" },
+					{ "key": "x-timestamp", "value": "{{timestamp}}", "type": "text" }
+				],
+				"url": {
+					"raw": "{{base_url}}/api/partner/payout/accounts",
+					"host": ["{{base_url}}"],
+					"path": ["api", "partner", "payout", "accounts"]
+				},
+				"description": "List all registered beneficiary accounts for your partner account."
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"const ts = Date.now().toString();",
+							"pm.collectionVariables.set('timestamp', ts);",
+							"const secret = pm.collectionVariables.get('api_secret');",
+							"const sig = CryptoJS.HmacSHA256('' + ts, secret).toString(CryptoJS.enc.Hex);",
+							"pm.collectionVariables.set('signature', sig);"
+						]
+					}
+				}
+			],
+			"response": [
+				{
+					"name": "200 OK — Accounts List",
+					"originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{base_url}}/api/partner/payout/accounts", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "accounts"] } },
+					"status": "OK", "code": 200,
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"count\": 1,\n    \"accounts\": [\n        {\n            \"id\": \"uuid-bene-id\",\n            \"account_number\": \"***********2946\",\n            \"ifsc_code\": \"UTIB0000248\",\n            \"account_holder_name\": \"Rahul Sharma\",\n            \"bank_name\": \"AXIS BANK\",\n            \"mobile\": \"9876543210\",\n            \"is_registered\": true,\n            \"created_at\": \"2026-10-26T10:00:00.000Z\"\n        }\n    ]\n}"
+				}
+			]
+		},
+		{
+			"name": "5. Transfer (Payout)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{ "key": "x-api-key",        "value": "{{api_key}}",        "type": "text" },
+					{ "key": "x-signature",       "value": "{{signature}}",      "type": "text" },
+					{ "key": "x-timestamp",       "value": "{{timestamp}}",      "type": "text" },
+					{ "key": "Content-Type",      "value": "application/json",   "type": "text" },
+					{ "key": "x-idempotency-key", "value": "{{idempotency_key}}", "type": "text", "description": "Optional: unique key to prevent double-submission on network retries" }
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"accountNumber\": \"123456789012345\",\n    \"ifscCode\": \"UTIB0000248\",\n    \"accountHolderName\": \"BENEFICIARY FULL NAME\",\n    \"bankName\": \"AXIS BANK\",\n    \"email\": \"beneficiary@example.com\",\n    \"mobile\": \"9099999999\",\n    \"amount\": 1000,\n    \"paymentMode\": \"IMPS\",\n    \"remarks\": \"Payout transfer\"\n}",
+					"options": { "raw": { "language": "json" } }
+				},
+				"url": {
+					"raw": "{{base_url}}/api/partner/payout/transfer",
+					"host": ["{{base_url}}"],
+					"path": ["api", "partner", "payout", "transfer"]
+				},
+				"description": "Initiate a bank account transfer (payout). The amount and applicable charges are debited from your partner wallet.\n\n**Pre-requisites:**\n- Bank account must be **pre-registered** via `POST /api/partner/payout/accounts` (step 2)\n- Sufficient wallet balance (balance ≥ amount + transfer charges)\n- Settlement / Payout enabled for your account\n- Payout scheme assigned by admin\n\n**Note:** The ₹4.72 verification fee is charged at **account registration** (step 2), NOT here. Transfer only deducts the slab-based transfer charge.\n\n**Webhook:** Fires `payout.success`, `payout.failed`, or `payout.pending` events after transfer.\n\n**Request Body:**\n| Field | Type | Required | Description |\n|-------|------|----------|-------------|\n| `accountNumber` | string | Yes | Beneficiary bank account number |\n| `ifscCode` | string | Yes | Bank IFSC code (e.g., `UTIB0000248`) |\n| `accountHolderName` | string | Yes | Beneficiary full name |\n| `bankName` | string | Yes | Bank name (e.g., `AXIS BANK`) |\n| `email` | string | No | Beneficiary email address |\n| `mobile` | string | Yes | Beneficiary mobile number (10-digit Indian) |\n| `amount` | number | Yes | Transfer amount in rupees (₹100 – ₹2,00,000) |\n| `paymentMode` | string | No | `IMPS` (default) or `NEFT` |\n| `remarks` | string | No | Transaction narration |\n\n**Response Fields:**\n| Field | Type | Description |\n|-------|------|-------------|\n| `transaction_id` | string | Same Day Solution internal transaction UUID — save for status checks |\n| `partner_trans_id` | string | Internal reference sent to the payout provider |\n| `status` | string | `SUCCESS`, `PENDING`, or `FAILED` |\n| `utr` | string \\| null | Bank UTR number (available when `status = SUCCESS`) |\n| `amount` | number | Transfer amount |\n| `charges` | number | Transfer charge per your scheme |\n| `total_debited` | number | Total debited from wallet (amount + charges). Verification fee is charged separately at account registration. |\n\n**Handling each status:**\n- `SUCCESS` — Transfer done. Use `utr` as proof of payment.\n- `PENDING` — Transfer is being processed. Call **Check Status** (step 3) every 2–5 min. Do NOT retry Transfer.\n- `FAILED` — Transfer failed. Amount is **automatically refunded** to your wallet.\n\n> ⚠️ **Network safety:** If you get no response (timeout), call Check Status with the `transaction_id` to verify if the transaction was processed — do NOT re-call Transfer, as it may cause a double debit."
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"const timestamp = Date.now().toString();",
+							"pm.collectionVariables.set('timestamp', timestamp);",
+							"",
+							"const apiSecret = pm.collectionVariables.get('api_secret');",
+							"// Resolve variables, parse, re-stringify → compact JSON (must match server verification)",
+							"const rawBody = pm.variables.replaceIn(pm.request.body.raw);",
+							"const compactBody = JSON.stringify(JSON.parse(rawBody));",
+							"const payload = compactBody + timestamp;",
+							"const signature = CryptoJS.HmacSHA256(payload, apiSecret).toString(CryptoJS.enc.Hex);",
+							"pm.collectionVariables.set('signature', signature);",
+							"",
+							"// Auto-generate idempotency key for this request",
+							"if (!pm.collectionVariables.get('idempotency_key')) {",
+							"    pm.collectionVariables.set('idempotency_key', 'idem-' + Date.now());",
+							"}",
+							"",
+							"console.log('Timestamp:', timestamp);",
+							"console.log('Body (compact):', compactBody);"
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"try {",
+							"    const res = pm.response.json();",
+							"    if (res.transaction_id) {",
+							"        pm.collectionVariables.set('transaction_id', res.transaction_id);",
+							"        console.log('✅ transaction_id saved:', res.transaction_id);",
+							"    }",
+							"    if (res.partner_trans_id) {",
+							"        pm.collectionVariables.set('partner_trans_id', res.partner_trans_id);",
+							"    }",
+							"    const statusMsg = { SUCCESS: '✅ SUCCESS', PENDING: '⏳ PENDING — call Check Status', FAILED: '❌ FAILED (refunded)' };",
+							"    if (res.status) console.log('Status:', statusMsg[res.status] || res.status);",
+							"    if (res.utr) console.log('UTR:', res.utr);",
+							"    // Reset idempotency key for next call",
+							"    pm.collectionVariables.set('idempotency_key', 'idem-' + Date.now());",
+							"} catch (e) {",
+							"    console.error('Could not parse response:', e.message);",
+							"}"
+						]
+					}
+				}
+			],
+			"response": [
+				{
+					"name": "200 OK — Transfer Successful",
+					"originalRequest": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"accountNumber\": \"924020056452946\",\n    \"ifscCode\": \"UTIB0000248\",\n    \"accountHolderName\": \"BENEFICIARY FULL NAME\",\n    \"bankName\": \"AXIS BANK\",\n    \"email\": \"beneficiary@example.com\",\n    \"mobile\": \"9099999999\",\n    \"amount\": 1000,\n    \"paymentMode\": \"IMPS\",\n    \"remarks\": \"Payout transfer\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{base_url}}/api/partner/payout/transfer", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "transfer"] }
+					},
+					"status": "OK", "code": 200, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"message\": \"Transfer successful\",\n    \"transaction_id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n    \"partner_trans_id\": \"KNT17290834501234\",\n    \"knteer_trans_id\": \"KSPH01035852600003\",\n    \"utr\": \"565685855656\",\n    \"status\": \"SUCCESS\",\n    \"amount\": 1000,\n    \"charges\": 10,\n    \"total_debited\": 1010,\n    \"payment_mode\": \"IMPS\",\n    \"account_number\": \"***********2946\",\n    \"account_holder_name\": \"BENEFICIARY FULL NAME\",\n    \"bank_name\": \"AXIS BANK\",\n    \"is_bank_verified\": true,\n    \"remarks\": \"Payout transfer\",\n    \"created_at\": \"2026-10-25T11:15:00.000Z\",\n    \"created_at_ist\": \"25/10/2026, 4:45:00 pm\",\n    \"completed_at\": \"2026-10-25T11:15:12.000Z\",\n    \"completed_at_ist\": \"25/10/2026, 4:45:12 pm\"\n}"
+				},
+				{
+					"name": "200 OK — Transfer Pending (Poll Check Status)",
+					"originalRequest": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"accountNumber\": \"924020056452946\",\n    \"ifscCode\": \"UTIB0000248\",\n    \"accountHolderName\": \"BENEFICIARY FULL NAME\",\n    \"bankName\": \"AXIS BANK\",\n    \"mobile\": \"9099999999\",\n    \"amount\": 1000,\n    \"paymentMode\": \"IMPS\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{base_url}}/api/partner/payout/transfer", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "transfer"] }
+					},
+					"status": "OK", "code": 200, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"message\": \"Transfer initiated. Processing may take a few minutes.\",\n    \"transaction_id\": \"b2c3d4e5-f6a7-8901-bcde-f12345678901\",\n    \"partner_trans_id\": \"KNT17290834506789\",\n    \"knteer_trans_id\": \"KSPH09152600003\",\n    \"utr\": null,\n    \"status\": \"PENDING\",\n    \"amount\": 1000,\n    \"charges\": 10,\n    \"total_debited\": 1010,\n    \"payment_mode\": \"IMPS\",\n    \"account_number\": \"***********2946\",\n    \"account_holder_name\": \"BENEFICIARY FULL NAME\",\n    \"bank_name\": \"AXIS BANK\",\n    \"remarks\": null,\n    \"created_at\": \"2026-10-25T11:18:00.000Z\",\n    \"created_at_ist\": \"25/10/2026, 4:48:00 pm\",\n    \"completed_at\": null,\n    \"completed_at_ist\": null\n}"
+				},
+				{
+					"name": "400 Bad Request — Transfer Failed (Auto-Refunded)",
+					"originalRequest": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{base_url}}/api/partner/payout/transfer", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "transfer"] }
+					},
+					"status": "Bad Request", "code": 400, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"message\": \"Transfer failed\",\n    \"transaction_id\": \"c3d4e5f6-a7b8-9012-cdef-012345678902\",\n    \"partner_trans_id\": \"KNT17290834509876\",\n    \"knteer_trans_id\": null,\n    \"utr\": null,\n    \"status\": \"FAILED\",\n    \"amount\": 1000,\n    \"charges\": 10,\n    \"total_debited\": 1010,\n    \"payment_mode\": \"IMPS\",\n    \"account_number\": \"***********2946\",\n    \"account_holder_name\": \"BENEFICIARY FULL NAME\",\n    \"bank_name\": \"AXIS BANK\",\n    \"remarks\": null,\n    \"created_at\": \"2026-10-25T11:19:00.000Z\",\n    \"created_at_ist\": \"25/10/2026, 4:49:00 pm\",\n    \"completed_at\": null,\n    \"completed_at_ist\": null\n}"
+				},
+				{
+					"name": "400 Bad Request — Insufficient Balance",
+					"originalRequest": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{base_url}}/api/partner/payout/transfer", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "transfer"] }
+					},
+					"status": "Bad Request", "code": 400, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"INSUFFICIENT_BALANCE\",\n        \"message\": \"Insufficient balance. Required: ₹1010.00 (₹1000 + ₹10 charges). Available: ₹500.00\"\n    },\n    \"wallet_balance\": 500.00,\n    \"required\": 1010,\n    \"charges\": 10\n}"
+				},
+				{
+					"name": "429 Too Many Requests — Transfer In Progress (15-min cooldown)",
+					"originalRequest": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{base_url}}/api/partner/payout/transfer", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "transfer"] }
+					},
+					"status": "Too Many Requests", "code": 429, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"TRANSFER_IN_PROGRESS\",\n        \"message\": \"A payout to this account is already processing. Please wait for it to complete or check its status before retrying.\"\n    },\n    \"existing_transaction_id\": \"4e537f55-3f68-4ad8-bb55-374c4887082e\",\n    \"existing_partner_trans_id\": \"KNT17290834501234\",\n    \"existing_amount\": 49969\n}"
+				},
+				{
+					"name": "429 Too Many Requests — Duplicate (Cooldown)",
+					"originalRequest": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{base_url}}/api/partner/payout/transfer", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "transfer"] }
+					},
+					"status": "Too Many Requests", "code": 429, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"DUPLICATE\",\n        \"message\": \"Please wait 45 seconds before making another transfer to this account.\"\n    },\n    \"wait_seconds\": 45\n}"
+				},
+				{
+					"name": "400 Bad Request — Account Not Registered",
+					"originalRequest": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{base_url}}/api/partner/payout/transfer", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "transfer"] }
+					},
+					"status": "Bad Request", "code": 400, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"ACCOUNT_NOT_REGISTERED\",\n        \"message\": \"This account is not registered. Please register it via POST /api/partner/payout/accounts before transferring.\"\n    }\n}"
+				},
+				{
+					"name": "400 Bad Request — Validation Error",
+					"originalRequest": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{ \"accountNumber\": \"123456789\" }", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{base_url}}/api/partner/payout/transfer", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "transfer"] }
+					},
+					"status": "Bad Request", "code": 400, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"BAD_REQUEST\",\n        \"message\": \"mobile (beneficiary mobile number) is required\"\n    }\n}"
+				}
+			]
+		},
+		{
+			"name": "6. Check Status",
+			"request": {
+				"method": "GET",
+				"header": [
+					{ "key": "x-api-key",   "value": "{{api_key}}",   "type": "text" },
+					{ "key": "x-signature", "value": "{{signature}}", "type": "text" },
+					{ "key": "x-timestamp", "value": "{{timestamp}}", "type": "text" }
+				],
+				"url": {
+					"raw": "{{base_url}}/api/partner/payout/status?transactionId={{transaction_id}}",
+					"host": ["{{base_url}}"],
+					"path": ["api", "partner", "payout", "status"],
+					"query": [
+						{ "key": "transactionId", "value": "{{transaction_id}}", "description": "UUID from Transfer response — auto-filled from collection variable" },
+						{ "key": "partnerTransId", "value": "", "description": "Alternatively, use your internal reference ID from Transfer response", "disabled": true }
+					]
+				},
+				"description": "Check the status of a payout transaction. For PENDING transactions, this also fetches live status from the provider and updates the record.\n\n**When to use:**\n- After Transfer returns `PENDING` status — poll every 2–5 minutes\n- After a network timeout on Transfer — verify if it was processed before retrying\n\n**Query Parameters (use one):**\n| Parameter | Description |\n|-----------|-------------|\n| `transactionId` | UUID from Transfer response (auto-saved to `transaction_id` collection variable) |\n| `partnerTransId` | Internal reference from Transfer response (`partner_trans_id` field) |\n\n**Response Fields:**\n| Field | Description |\n|-------|-------------|\n| `transaction.status` | `SUCCESS`, `PENDING`, or `FAILED` |\n| `transaction.utr` | UTR number — available when `status = SUCCESS` |\n| `transaction.knteer_trans_id` | Provider internal transaction ID |\n| `transaction.transaction_id` | Same Day Solution UUID |\n| `transaction.total_debited` | Total amount debited from wallet |\n\n**Polling strategy:**\n- Poll every 2–5 minutes for PENDING\n- Stop when status is `SUCCESS` or `FAILED`\n- If PENDING beyond 30 minutes, contact Same Day Solution support with `transaction_id`"
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"const timestamp = Date.now().toString();",
+							"pm.collectionVariables.set('timestamp', timestamp);",
+							"",
+							"const apiSecret = pm.collectionVariables.get('api_secret');",
+							"const payload = '' + timestamp;   // GET — empty body",
+							"const signature = CryptoJS.HmacSHA256(payload, apiSecret).toString(CryptoJS.enc.Hex);",
+							"pm.collectionVariables.set('signature', signature);",
+							"",
+							"console.log('Timestamp:', timestamp);"
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"try {",
+							"    const res = pm.response.json();",
+							"    if (res.success && res.transaction) {",
+							"        const t = res.transaction;",
+							"        const statusMsg = { SUCCESS: '✅ SUCCESS', PENDING: '⏳ PENDING — poll again', FAILED: '❌ FAILED (refunded)' };",
+							"        console.log('Status:', statusMsg[t.status] || t.status);",
+							"        if (t.utr) console.log('UTR:', t.utr);",
+							"        if (t.knteer_trans_id) console.log('Provider Txn ID:', t.knteer_trans_id);",
+							"    }",
+							"} catch (e) {",
+							"    console.error('Could not parse response:', e.message);",
+							"}"
+						]
+					}
+				}
+			],
+			"response": [
+				{
+					"name": "200 OK — Status: SUCCESS",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{base_url}}/api/partner/payout/status?transactionId=a1b2c3d4-e5f6-7890-abcd-ef1234567890", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "status"], "query": [{ "key": "transactionId", "value": "a1b2c3d4-e5f6-7890-abcd-ef1234567890" }] }
+					},
+					"status": "OK", "code": 200, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"transaction\": {\n        \"transaction_id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n        \"partner_trans_id\": \"KNT17290834501234\",\n        \"knteer_trans_id\": \"KSPH01035852600003\",\n        \"utr\": \"565685855656\",\n        \"status\": \"SUCCESS\",\n        \"amount\": 1000,\n        \"charges\": 10,\n        \"total_debited\": 1010,\n        \"payment_mode\": \"IMPS\",\n        \"account_number\": \"***********2946\",\n        \"account_holder_name\": \"BENEFICIARY FULL NAME\",\n        \"bank_name\": \"AXIS BANK\",\n        \"ifsc_code\": \"UTIB0000248\",\n        \"remarks\": \"Payout transfer\",\n        \"created_at\": \"2026-10-25T11:15:00.000Z\",\n        \"created_at_ist\": \"25/10/2026, 4:45:00 pm\",\n        \"completed_at\": \"2026-10-25T11:15:12.000Z\",\n        \"completed_at_ist\": \"25/10/2026, 4:45:12 pm\"\n    }\n}"
+				},
+				{
+					"name": "200 OK — Status: PENDING (Still Processing)",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{base_url}}/api/partner/payout/status?transactionId=b2c3d4e5-f6a7-8901-bcde-f12345678901", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "status"], "query": [{ "key": "transactionId", "value": "b2c3d4e5-f6a7-8901-bcde-f12345678901" }] }
+					},
+					"status": "OK", "code": 200, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"transaction\": {\n        \"transaction_id\": \"b2c3d4e5-f6a7-8901-bcde-f12345678901\",\n        \"partner_trans_id\": \"KNT17290834506789\",\n        \"knteer_trans_id\": \"KSPH09152600003\",\n        \"utr\": null,\n        \"status\": \"PENDING\",\n        \"amount\": 1000,\n        \"charges\": 10,\n        \"total_debited\": 1010,\n        \"payment_mode\": \"IMPS\",\n        \"account_number\": \"***********2946\",\n        \"account_holder_name\": \"BENEFICIARY FULL NAME\",\n        \"bank_name\": \"AXIS BANK\",\n        \"ifsc_code\": \"UTIB0000248\",\n        \"created_at\": \"2026-10-25T11:15:00.000Z\",\n        \"created_at_ist\": \"25/10/2026, 4:45:00 pm\",\n        \"completed_at\": null,\n        \"completed_at_ist\": null\n    }\n}"
+				},
+				{
+					"name": "200 OK — Status: FAILED (Auto-Refunded)",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{base_url}}/api/partner/payout/status?transactionId=c3d4e5f6-a7b8-9012-cdef-012345678902", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "status"], "query": [{ "key": "transactionId", "value": "c3d4e5f6-a7b8-9012-cdef-012345678902" }] }
+					},
+					"status": "OK", "code": 200, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"transaction\": {\n        \"transaction_id\": \"c3d4e5f6-a7b8-9012-cdef-012345678902\",\n        \"partner_trans_id\": \"KNT17290834509876\",\n        \"knteer_trans_id\": \"KSPH091025600003\",\n        \"utr\": null,\n        \"status\": \"FAILED\",\n        \"amount\": 1000,\n        \"charges\": 10,\n        \"total_debited\": 1010,\n        \"payment_mode\": \"IMPS\",\n        \"account_number\": \"***********2946\",\n        \"account_holder_name\": \"BENEFICIARY FULL NAME\",\n        \"bank_name\": \"AXIS BANK\",\n        \"ifsc_code\": \"UTIB0000248\",\n        \"created_at\": \"2026-10-25T11:16:00.000Z\",\n        \"created_at_ist\": \"25/10/2026, 4:46:00 pm\",\n        \"completed_at\": \"2026-10-25T11:16:08.000Z\",\n        \"completed_at_ist\": \"25/10/2026, 4:46:08 pm\"\n    }\n}"
+				},
+				{
+					"name": "404 Not Found — Transaction Not Found",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{base_url}}/api/partner/payout/status?transactionId=invalid-id", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "status"], "query": [{ "key": "transactionId", "value": "invalid-id" }] }
+					},
+					"status": "Not Found", "code": 404, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": false,\n    \"error\": {\n        \"code\": \"NOT_FOUND\",\n        \"message\": \"Transaction not found\"\n    }\n}"
+				}
+			]
+		},
+		{
+			"name": "7. List Transactions",
+			"request": {
+				"method": "GET",
+				"header": [
+					{ "key": "x-api-key",   "value": "{{api_key}}",   "type": "text" },
+					{ "key": "x-signature", "value": "{{signature}}", "type": "text" },
+					{ "key": "x-timestamp", "value": "{{timestamp}}", "type": "text" }
+				],
+				"url": {
+					"raw": "{{base_url}}/api/partner/payout/status?list=true&limit=20",
+					"host": ["{{base_url}}"],
+					"path": ["api", "partner", "payout", "status"],
+					"query": [
+						{ "key": "list",  "value": "true", "description": "Enable list mode" },
+						{ "key": "limit", "value": "20",   "description": "Number of transactions (max 50)" }
+					]
+				},
+				"description": "List your recent payout transactions.\n\n**Query Parameters:**\n| Parameter | Default | Description |\n|-----------|---------|-------------|\n| `list` | — | Must be `true` to enable list mode |\n| `limit` | `20` | Number of transactions to return (max 50) |\n\n**Response:**\n- `transactions[]`: Array of recent payout transactions\n- `count`: Number returned"
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"const timestamp = Date.now().toString();",
+							"pm.collectionVariables.set('timestamp', timestamp);",
+							"",
+							"const apiSecret = pm.collectionVariables.get('api_secret');",
+							"const payload = '' + timestamp;",
+							"const signature = CryptoJS.HmacSHA256(payload, apiSecret).toString(CryptoJS.enc.Hex);",
+							"pm.collectionVariables.set('signature', signature);",
+							"",
+							"console.log('Timestamp:', timestamp);"
+						]
+					}
+				}
+			],
+			"response": [
+				{
+					"name": "200 OK — Transactions List",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{base_url}}/api/partner/payout/status?list=true&limit=20", "host": ["{{base_url}}"], "path": ["api", "partner", "payout", "status"], "query": [{ "key": "list", "value": "true" }, { "key": "limit", "value": "20" }] }
+					},
+					"status": "OK", "code": 200, "_postman_previewlanguage": "json",
+					"header": [{ "key": "Content-Type", "value": "application/json" }],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"count\": 2,\n    \"transactions\": [\n        {\n            \"transaction_id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n            \"partner_trans_id\": \"KNT17290834501234\",\n            \"knteer_trans_id\": \"KSPH01035852600003\",\n            \"utr\": \"565685855656\",\n            \"status\": \"SUCCESS\",\n            \"amount\": 1000,\n            \"charges\": 10,\n            \"total_debited\": 1010,\n            \"payment_mode\": \"IMPS\",\n            \"account_number\": \"***********2946\",\n            \"account_holder_name\": \"BENEFICIARY FULL NAME\",\n            \"bank_name\": \"AXIS BANK\",\n            \"created_at\": \"2026-10-25T11:15:00.000Z\",\n            \"created_at_ist\": \"25/10/2026, 4:45:00 pm\",\n            \"completed_at\": \"2026-10-25T11:15:12.000Z\",\n            \"completed_at_ist\": \"25/10/2026, 4:45:12 pm\"\n        },\n        {\n            \"transaction_id\": \"b2c3d4e5-f6a7-8901-bcde-f12345678901\",\n            \"partner_trans_id\": \"KNT17290834506789\",\n            \"knteer_trans_id\": \"KSPH09152600003\",\n            \"utr\": null,\n            \"status\": \"PENDING\",\n            \"amount\": 500,\n            \"charges\": 10,\n            \"total_debited\": 510,\n            \"payment_mode\": \"IMPS\",\n            \"account_number\": \"***********1234\",\n            \"account_holder_name\": \"ANOTHER BENEFICIARY\",\n            \"bank_name\": \"SBI\",\n            \"created_at\": \"2026-10-25T11:18:00.000Z\",\n            \"created_at_ist\": \"25/10/2026, 4:48:00 pm\",\n            \"completed_at\": null,\n            \"completed_at_ist\": null\n        }\n    ]\n}"
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://api.samedaysolution.in",
+			"type": "string",
+			"description": "Same Day Solution API base URL. Do not modify."
+		},
+		{
+			"key": "api_key",
+			"value": "YOUR_API_KEY_HERE",
+			"type": "string",
+			"description": "Your partner API key — generated from Partner API panel (Settings → API Management)."
+		},
+		{
+			"key": "api_secret",
+			"value": "YOUR_API_SECRET_HERE",
+			"type": "string",
+			"description": "Your partner API secret — shown ONCE at key creation time. Keep confidential. Used to compute x-signature."
+		},
+		{
+			"key": "timestamp",
+			"value": "",
+			"type": "string",
+			"description": "Auto-generated Unix timestamp in ms. Set by pre-request scripts — do not edit."
+		},
+		{
+			"key": "signature",
+			"value": "",
+			"type": "string",
+			"description": "Auto-generated HMAC-SHA256 signature. Set by pre-request scripts — do not edit."
+		},
+		{
+			"key": "transaction_id",
+			"value": "",
+			"type": "string",
+			"description": "Auto-saved from Transfer response. Used for Check Status."
+		},
+		{
+			"key": "partner_trans_id",
+			"value": "",
+			"type": "string",
+			"description": "Auto-saved from Transfer response. Alternative key for Check Status."
+		},
+		{
+			"key": "idempotency_key",
+			"value": "",
+			"type": "string",
+			"description": "Auto-generated per Transfer request. Prevents double-submission on network retries."
+		}
+	]
+}

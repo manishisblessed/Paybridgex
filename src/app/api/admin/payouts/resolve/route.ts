@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAdminActivity } from "@/lib/security/adminActivity";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { toErrorResponse } from "@/lib/security/apiErrors";
-import { resolveOnePayout } from "@/lib/payout/service";
+import { resolveOnePayout, PayoutResolveGateError } from "@/lib/payout/service";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
@@ -66,6 +66,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json(result);
   } catch (e) {
+    if (e instanceof PayoutResolveGateError)
+      return NextResponse.json({ error: e.message, code: e.code }, { status: e.statusCode });
     return toErrorResponse(e);
   }
 }

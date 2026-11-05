@@ -82,6 +82,7 @@ const moneyInServices: NavItem[] = [
 const moneyOutServices: NavItem[] = [
   { href: "/dashboard/money-transfer", label: "Money Transfer", icon: Send },
   { href: "/dashboard/payout", label: "Bank Payouts", icon: Landmark },
+  { href: "/dashboard/knteer-payout", label: "Bank Transfer", icon: Landmark },
   { href: "/dashboard/aadhaar-pay", label: "AePS Banking", icon: Fingerprint },
   { href: "/dashboard/recharge/mobile", label: "Recharges", icon: Smartphone },
   { href: "/dashboard/travel/flight", label: "Travel Bookings", icon: Plane }

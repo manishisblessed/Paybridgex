@@ -177,6 +177,9 @@ async function main() {
     }
   });
   await boss.schedule(QUEUES.RECHARGEKIT_RECONCILE, "*/5 * * * *");
+  // NOTE: Bank Transfer (Knteer) rides the shared PayoutRequest lifecycle
+  // (rail="KNTEER"), so its PENDING/NEEDS_REVIEW rows are swept by the existing
+  // QUEUES.PAYOUT_RECONCILE job above — no dedicated Knteer poller needed.
 
   // QUEUES.RECON_HEARTBEAT — dead-man's-switch. Every 15 min, verify each
   // enabled rail's sweep actually ran recently (via its AuditLog completion

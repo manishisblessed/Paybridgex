@@ -5,6 +5,8 @@ import { decryptField } from "@/lib/crypto/fieldEncryption";
 import { toNumber, sub, round } from "@/lib/money";
 import { creditServiceMargin, reverseServiceMargin } from "@/lib/commission/revenue";
 import { getPartner, assertRealMoneyProvider } from "@/lib/partners";
+import { samedayKnteerPayout } from "@/lib/partners/sameday-knteer-payout";
+import type { PayoutProvider } from "@/lib/partners/types";
 import { friendlyPartnerError, isSensitivePartnerCode } from "@/lib/partners/friendlyError";
 import { sendOpsAlert } from "@/lib/monitoring/alerts";
 import { enqueue, QUEUES } from "@/lib/queue";
@@ -36,9 +38,41 @@ const HOLDABLE: PayoutStatus[] = ["APPROVED", "PROCESSING", "NEEDS_REVIEW"];
 
 const TERMINAL: PayoutStatus[] = ["SUCCESS", "FAILED", "REJECTED", "REVERSED"];
 
+/**
+ * Business rule (Bank Transfer / Knteer): a stuck transfer may only be manually
+ * refunded to the user AFTER this age, and only once a fresh rail re-check has
+ * confirmed the partner did not already pay/refund it. Env-tunable; 30 minutes.
+ */
+const KNTEER_MANUAL_REFUND_MIN_AGE_SEC = Number(
+  process.env.KNTEER_MANUAL_REFUND_MIN_AGE_SEC ?? 30 * 60
+);
+
+/** Raised when an operator resolution is blocked by a business-rule gate. */
+export class PayoutResolveGateError extends Error {
+  readonly statusCode: number;
+  readonly code: string;
+  constructor(message: string, code: string, statusCode = 409) {
+    super(message);
+    this.name = "PayoutResolveGateError";
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
+
 /** JSON-safe snapshot of a provider payload (never contains raw PII). */
 function asJson(value: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull {
   return (value ?? Prisma.JsonNull) as Prisma.InputJsonValue | typeof Prisma.JsonNull;
+}
+
+/**
+ * Select the disbursal rail for a payout row. `rail="KNTEER"` rides the Same Day
+ * Knteer Payout API (Bank Transfer product); everything else uses the default
+ * payout rail (Same Day Settlement / RazorpayX). Keeping this per-row means both
+ * products share one money-safety lifecycle while hitting different partner APIs.
+ */
+function payoutProviderForRow(row: { rail: string }): PayoutProvider {
+  if (row.rail === "KNTEER") return samedayKnteerPayout;
+  return getPartner("payout");
 }
 
 /** Enqueue the worker job that actually calls the payout rail. */
@@ -264,7 +298,11 @@ function payoutFailureReason(res: { code: string; message: string }): string {
 }
 
 /** Build the decrypted beneficiary block for the provider call. */
-function beneficiaryFor(row: PayoutRequest, contactMobile?: string) {
+function beneficiaryFor(
+  row: PayoutRequest,
+  contactMobile?: string,
+  knteer?: { bankName?: string; mobile?: string } | null
+) {
   if (row.mode === "UPI") {
     return { name: row.beneficiaryName, vpa: decryptField(row.accountNumber) };
   }
@@ -274,7 +312,9 @@ function beneficiaryFor(row: PayoutRequest, contactMobile?: string) {
     ifsc: row.ifsc ? decryptField(row.ifsc) : undefined,
     // Same Day requires a non-blank contact mobile on the registered account or
     // the transfer is rejected; the requester's own mobile is always present.
-    mobile: contactMobile,
+    // For the Knteer rail, prefer the beneficiary's registered mobile + bank name.
+    mobile: knteer?.mobile || contactMobile,
+    ...(knteer?.bankName ? { bankName: knteer.bankName } : {}),
   };
 }
 
@@ -320,7 +360,17 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
     select: { userCode: true, phone: true },
   });
 
-  const provider = getPartner("payout");
+  // Knteer rail needs the beneficiary's bank name + registered mobile, which
+  // live on the linked KnteerBeneficiary (not the PayoutRequest row itself).
+  const knteerBene =
+    row.rail === "KNTEER" && row.knteerBeneficiaryId
+      ? await prisma.knteerBeneficiary.findUnique({
+          where: { id: row.knteerBeneficiaryId },
+          select: { bankName: true, mobile: true },
+        })
+      : null;
+
+  const provider = payoutProviderForRow(row);
   // Never push real money through a mock in production. A mock "PAID" would
   // capture the hold (debit the user) without any bank transfer. Refuse instead
   // — the request stays PROCESSING (funds held) for ops/recon to resolve.
@@ -337,7 +387,7 @@ export async function processPayoutInitiate(payoutRequestId: string): Promise<vo
     userId: row.userId,
     mode: row.mode,
     amount: toNumber(row.amount),
-    beneficiary: beneficiaryFor(row, toContactMobile(user?.phone)),
+    beneficiary: beneficiaryFor(row, toContactMobile(user?.phone), knteerBene),
     purpose: user?.userCode
       ? `NxtGenPay RT-${user.userCode} ${narrationTag}`
       : `NxtGenPay ${narrationTag}`,
@@ -450,7 +500,7 @@ export async function recoverPayoutReference(payoutRequestId: string): Promise<s
     return row?.providerTxnId ?? null;
   }
 
-  const provider = getPartner("payout");
+  const provider = payoutProviderForRow(row);
   if (typeof provider.listRecent !== "function") return null;
   assertRealMoneyProvider(
     provider,
@@ -556,7 +606,7 @@ export async function reconcilePayout(payoutRequestId: string): Promise<void> {
     }
   }
 
-  const provider = getPartner("payout");
+  const provider = payoutProviderForRow(row);
   // A mock status poll unconditionally returns "PAID" — never let recon finalize
   // a phantom success (capture the hold with no real transfer) in production.
   assertRealMoneyProvider(
@@ -852,6 +902,58 @@ export async function resolveOnePayout(
   if (!row) throw new Error("Payout not found");
   if (row.status !== "NEEDS_REVIEW") {
     return { action: opts.action, status: row.status, changed: false };
+  }
+
+  // ── Rule #7 (Bank Transfer / Knteer): manual refund gate ───────────────────
+  // A stuck Knteer transfer may only be force-refunded AFTER 30 minutes, and
+  // only once a LIVE rail re-check confirms the partner did not already pay or
+  // refund it ("checked that this transaction is not refunded earlier"). This
+  // runs only for the manual-refund path (force_failed) on KNTEER rows; the
+  // force_paid / poll / recover paths are unaffected.
+  if (row.rail === "KNTEER" && opts.action === "force_failed") {
+    const ageSec = Math.floor((Date.now() - row.createdAt.getTime()) / 1000);
+    if (ageSec < KNTEER_MANUAL_REFUND_MIN_AGE_SEC) {
+      const waitMin = Math.ceil((KNTEER_MANUAL_REFUND_MIN_AGE_SEC - ageSec) / 60);
+      throw new PayoutResolveGateError(
+        `This transfer can only be manually refunded after ${Math.round(
+          KNTEER_MANUAL_REFUND_MIN_AGE_SEC / 60
+        )} minutes. Please re-check and retry in about ${waitMin} more minute${waitMin === 1 ? "" : "s"}.`,
+        "KNTEER_REFUND_TOO_EARLY",
+        409
+      );
+    }
+
+    // Live re-check: pull the latest partner status before releasing any money.
+    // If the partner has since paid or refunded it, reconcilePayout moves the
+    // row to a terminal state (SUCCESS / REVERSED) and the manual refund below
+    // is skipped — this is the "not refunded earlier" guarantee.
+    await reconcilePayout(row.id).catch(() => null);
+    const rechecked = await prisma.payoutRequest.findUnique({
+      where: { id: row.id },
+      select: { status: true, providerTxnId: true },
+    });
+    if (!rechecked || rechecked.status !== "NEEDS_REVIEW") {
+      await prisma.auditLog.create({
+        data: {
+          userId: opts.actorId,
+          action: "payout.resolve.force_failed.superseded",
+          entity: "PayoutRequest",
+          entityId: row.id,
+          meta: {
+            targetUserId: row.userId,
+            resolvedBy: "live_recheck",
+            status: rechecked?.status ?? null,
+            note: opts.note ?? null,
+          },
+        },
+      });
+      return {
+        action: opts.action,
+        status: rechecked?.status ?? row.status,
+        recoveredReference: rechecked?.providerTxnId ?? null,
+        changed: (rechecked?.status ?? row.status) !== "NEEDS_REVIEW",
+      };
+    }
   }
 
   await prisma.auditLog.create({

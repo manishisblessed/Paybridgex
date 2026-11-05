@@ -55,6 +55,7 @@ export const SERVICE_KEYS = {
   VERIFICATION: "verify_ekychub",
   VIRTUAL_ACCOUNT: "virtual_account",
   RECHARGEKIT_CC: "rechargekit_cc",
+  KNTEER_PAYOUT: "knteer_payout",
 } as const;
 
 export type ServiceKey = (typeof SERVICE_KEYS)[keyof typeof SERVICE_KEYS];
@@ -91,6 +92,7 @@ export const SERVICE_KEY_TO_HREF: Record<string, string> = {
   [SERVICE_KEYS.DMT]: "/dashboard/money-transfer",
   [SERVICE_KEYS.TRAVEL]: "/dashboard/travel/flight",
   [SERVICE_KEYS.VIRTUAL_ACCOUNT]: "/dashboard/virtual-account",
+  [SERVICE_KEYS.KNTEER_PAYOUT]: "/dashboard/knteer-payout",
 };
 
 /**
@@ -113,6 +115,7 @@ const SERVICE_HREF_PREFIXES: Array<[prefix: string, key: string]> = [
   ["/dashboard/money-transfer", SERVICE_KEYS.DMT],
   ["/dashboard/travel", SERVICE_KEYS.TRAVEL],
   ["/dashboard/virtual-account", SERVICE_KEYS.VIRTUAL_ACCOUNT],
+  ["/dashboard/knteer-payout", SERVICE_KEYS.KNTEER_PAYOUT],
 ];
 
 /**
@@ -141,6 +144,16 @@ export const KNOWN_SERVICE_ROUTES: ServiceRouteSeed[] = [
     enabled: true,
     note: "Bank / UPI disbursals via the Same Day settlement API. Turning this off blocks new payout submissions immediately.",
     sortOrder: 10,
+  },
+  {
+    key: SERVICE_KEYS.KNTEER_PAYOUT,
+    name: "Bank Transfer (Same Day)",
+    type: "SERVICE",
+    kind: "PAYOUT",
+    provider: "SAMEDAY",
+    enabled: false,
+    note: "Direct bank-account register + transfer via the Same Day partner Payout API. Enable once SAMEDAY_KNTEER_PAYOUT_API_KEY/SECRET are configured. Requires PARTNER_KNTEER_PAYOUT_ENABLED=true.",
+    sortOrder: 11,
   },
   {
     key: SERVICE_KEYS.PG,

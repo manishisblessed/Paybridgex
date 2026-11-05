@@ -449,7 +449,7 @@ function SlabModal({
   // Live vendor cost + minimum for the chosen product + amount (debounced).
   useEffect(() => {
     const serviceRail =
-      service.startsWith("BILL_") || service === "RECHARGE_BROADBAND" || service === "PAYOUT";
+      service.startsWith("BILL_") || service === "RECHARGE_BROADBAND" || service === "PAYOUT" || service === "KNTEER_PAYOUT";
     if (!serviceRail || !provider) {
       setVendorInfo(null);
       return;
@@ -669,7 +669,7 @@ function SlabModal({
           </div>
 
           {/* Live rate-card preview — vendor cost, minimum, and company revenue */}
-          {(isBbpsService || service === "PAYOUT") && provider && (
+          {(isBbpsService || service === "PAYOUT" || service === "KNTEER_PAYOUT") && provider && (
             <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-3">
               <p className="mb-2 text-xs font-bold uppercase tracking-widest text-brand-700">
                 Revenue preview {vendorLoading && <span className="text-ink-400">· loading…</span>}

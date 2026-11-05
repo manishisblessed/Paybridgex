@@ -84,6 +84,12 @@ const schema = z.object({
   SAMEDAY_RECHARGEKIT_API_KEY: z.string().min(1).optional(),
   SAMEDAY_RECHARGEKIT_API_SECRET: z.string().min(1).optional(),
 
+  // Same Day Solution — Knteer Payout API (bank account register + transfer).
+  // Falls back to POS key pair when unset. Gated by PARTNER_KNTEER_PAYOUT_ENABLED.
+  SAMEDAY_KNTEER_PAYOUT_API_KEY: z.string().min(1).optional(),
+  SAMEDAY_KNTEER_PAYOUT_API_SECRET: z.string().min(1).optional(),
+  PARTNER_KNTEER_PAYOUT_ENABLED: z.string().default("false"),
+
   // Deferred-refund cooling-off window (minutes) for SameDay recon-capable rails
   // (RechargeKit CC-2 + BBPS/Pay2New). A provider pay failure NEVER instant-
   // refunds the retailer's reserve; the first confirmed failure schedules the
@@ -256,6 +262,7 @@ export const flags = {
   settlement: env.PARTNER_SETTLEMENT_ENABLED === "true",
   settlementAutosweep: env.SETTLEMENT_AUTOSWEEP_ENABLED === "true",
   rechargekit: env.PARTNER_RECHARGEKIT_ENABLED === "true",
+  knteerPayout: env.PARTNER_KNTEER_PAYOUT_ENABLED === "true",
   esign: env.PARTNER_ESIGN_ENABLED === "true",
   // OFF by default — see SAMEDAY_PAY_IDEMPOTENCY_RECOVERY_ENABLED above.
   samedayPayIdempotencyRecovery: env.SAMEDAY_PAY_IDEMPOTENCY_RECOVERY_ENABLED === "true",

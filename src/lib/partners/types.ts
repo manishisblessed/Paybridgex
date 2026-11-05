@@ -113,7 +113,10 @@ export interface UpiProvider {
 export interface PayoutInput extends IdempotencyContext {
   mode: "IMPS" | "NEFT" | "RTGS" | "UPI";
   amount: Money;
-  beneficiary: { name: string; accountNumber?: string; ifsc?: string; vpa?: string; mobile?: string };
+  // `bankName` is required only by the Knteer rail (its transfer API needs it);
+  // the Settlement/RazorpayX rails ignore it. Additive + optional so existing
+  // callers are unaffected.
+  beneficiary: { name: string; accountNumber?: string; ifsc?: string; vpa?: string; mobile?: string; bankName?: string };
   purpose: string;
 }
 export interface PayoutOutput {

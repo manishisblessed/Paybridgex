@@ -13,6 +13,7 @@ export const SERVICE_CODES = [
   "UPI_COLLECT",
   "UPI_PAYOUT",
   "PAYOUT",
+  "KNTEER_PAYOUT",
   "WALLET_TOPUP",
   "WALLET_WITHDRAW",
   "RECHARGE_MOBILE",
@@ -37,6 +38,7 @@ export type ServiceCodeValue = (typeof SERVICE_CODES)[number];
 /** Human-friendly grouping label for a service code (for the UI). */
 export function serviceGroup(code: string): string {
   if (code.startsWith("AEPS")) return "AePS";
+  if (code === "KNTEER_PAYOUT") return "Bank Transfer";
   if (code === "PAYOUT") return "Payout";
   if (code.startsWith("DMT")) return "Money Transfer";
   if (code.startsWith("UPI")) return "UPI";
@@ -71,7 +73,10 @@ export const SERVICE_FAMILIES = [
     key: "PAYOUT",
     label: "Payout",
     routeKind: "PAYOUT",
-    services: ["PAYOUT"],
+    // Bank Transfer (Knteer) rides the PAYOUT rail-kind for vendor rate cards
+    // (serviceKind="PAYOUT"), but is priced from its OWN scheme slabs via the
+    // distinct KNTEER_PAYOUT ServiceCode — so admins add separate slabs for it.
+    services: ["PAYOUT", "KNTEER_PAYOUT"],
   },
 ] as const;
 
@@ -88,6 +93,7 @@ export type ServiceFamily = (typeof SERVICE_FAMILIES)[number];
 export const CHARGE_DRIVEN_SERVICE_CODES: ReadonlySet<string> = new Set<string>([
   ...(SERVICE_FAMILIES.find((f) => f.key === "BBPS")!.services as readonly string[]),
   "PAYOUT",
+  "KNTEER_PAYOUT",
 ]);
 
 /** True when a service uses the charge-markup-minus-commission margin model. */

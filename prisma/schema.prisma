@@ -182,6 +182,7 @@ model User {
   commissionSlabs      CommissionSlab[]
   payoutRequests       PayoutRequest[]  @relation("PayoutOwner")
   payoutBeneficiaries  PayoutBeneficiary[] @relation("PayoutBeneficiaries")
+  knteerBeneficiaries  KnteerBeneficiary[]
   schemesCreated       Scheme[]         @relation("SchemeCreator")
   posMachines          PosMachine[]     @relation("PosAssignee")
   slidersCreated       Slider[]         @relation("SliderCreator")
@@ -601,6 +602,10 @@ enum ServiceCode {
   INSURANCE
   POS // POS acquirer settlement (first-class so earnings/commission attribute per-service)
   QR  // Static QR collection settlement (first-class so revenue/commission attribute per-service, incl. per-leg split)
+  // Bank Transfer over the Same Day Knteer Payout rail. First-class so it is
+  // priced with its OWN scheme slabs + brand rate card, independent of the
+  // Settlement-based PAYOUT product.
+  KNTEER_PAYOUT
 }
 
 enum TxnStatus {
@@ -1419,6 +1424,18 @@ model PayoutRequest {
 
   mode PayoutMode
 
+  // Disbursal rail. "SETTLEMENT" = Same Day Settlement API (the original Bank
+  // Payouts product). "KNTEER" = Same Day Knteer Payout API (the Bank Transfer
+  // product). Drives provider routing in payout/service.ts and separates the
+  // two products for pricing, cooldown, and reporting. Defaults to SETTLEMENT so
+  // every existing row keeps its current behaviour.
+  rail String @default("SETTLEMENT")
+
+  // For rail=KNTEER: the registered Knteer beneficiary this payout targets.
+  // The transfer decrypts the full account number from this row server-side.
+  knteerBeneficiaryId String?
+  knteerBeneficiary   KnteerBeneficiary? @relation(fields: [knteerBeneficiaryId], references: [id], onDelete: SetNull)
+
   // Money (charge is ON TOP — beneficiary gets `amount`, user pays `totalDebit`).
   amount        Decimal @db.Decimal(14, 2)
   serviceCharge Decimal @db.Decimal(14, 2)
@@ -1460,6 +1477,9 @@ model PayoutRequest {
   @@index([userId, status])
   @@index([status, createdAt])
   @@index([checkerId, status])
+  // Rail-scoped same-account cooldown lookup (rule: no repeat to same account
+  // within the cooldown window) + per-rail reporting.
+  @@index([userId, rail, accountLast4, status, createdAt])
 }
 
 // ---------- Payout beneficiary book (penny-drop verified) ----------
@@ -1515,6 +1535,58 @@ model PayoutBeneficiary {
   @@unique([userId, accountNumber, ifsc])
   @@index([userId, isVerified])
   @@index([userId, verificationStatus])
+}
+
+// =====================================================================
+// Bank Transfer (Knteer) — beneficiary book
+//
+// KnteerBeneficiary stores every bank account a retailer has registered via
+// POST /api/partner/payout/accounts. The full account number is AES-256-GCM
+// encrypted at rest (fieldEncryption.ts) — same scheme as PayoutBeneficiary —
+// so the transfer decrypts it server-side without ever surfacing it to the
+// client. Scoped per owner (userId). The transfer ledger itself lives on
+// PayoutRequest (rail = "KNTEER"), NOT in a parallel table.
+// =====================================================================
+
+model KnteerBeneficiary {
+  id     String @id @default(cuid())
+
+  // Owner (the retailer/network user whose book this account belongs to).
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Full account number — AES-256-GCM encrypted (fieldEncryption.ts).
+  // Never stored in plain text. Decrypted server-side when initiating a transfer.
+  accountNumber     String // ENCRYPTED at rest
+  accountLast4      String // plain — display-only ("2946")
+  ifscCode          String
+  accountHolderName String // bank-verified name when isBankVerified = true
+  bankName          String
+  mobile            String
+
+  // Same Day partner reference id (KBENE_…). NOT unique — the partner registers
+  // accounts at the company level, so the same account registered by two
+  // retailers can carry the same reference. Kept as metadata only.
+  referenceId String?
+
+  // Registration state
+  registrationType   String  @default("register") // "register" | "verify"
+  verificationCharge Decimal @default(0) @db.Decimal(8, 2)
+  isRegistered       Boolean @default(true)
+  isBankVerified     Boolean @default(false) // true only when eKYC Hub verified
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Every Bank Transfer initiated to this account rides the shared PayoutRequest
+  // lifecycle (rail=KNTEER), so the ledger lives there — not in a parallel table.
+  payoutRequests PayoutRequest[]
+
+  // One book entry per (owner, account, ifsc) — re-registering updates in place.
+  @@unique([userId, accountLast4, ifscCode])
+  @@index([userId])
+  @@index([ifscCode])
+  @@map("knteer_beneficiaries")
 }
 
 // =====================================================================

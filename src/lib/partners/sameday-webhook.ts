@@ -94,7 +94,29 @@ export async function handleSamedayWebhook(req: Request): Promise<Response> {
     return processSamedayPosEvent(body, { verified, deliveryId, eventHeader });
   }
 
-  // ── 4b. Settlement / Payout / RechargeKit ─────────────────────────────────
+  // ── 4b. Bank Transfer (Knteer) channel ─────────────────────────────────────
+  // Intercepted BEFORE the Settlement/Payout reconciler because both channels
+  // use a "payout.*" event prefix. Knteer events carry a UUID `transaction_id`
+  // (persisted as PayoutRequest.providerTxnId for rail=KNTEER rows). We correlate
+  // to the PayoutRequest and drive the SAME reconcile/reverse path as Settlement
+  // payouts — the rail-aware provider router re-polls Knteer before moving money,
+  // so a forged/stale payload can never finalize a transfer.
+  if (isKnteerPayoutEvent(eventType, body)) {
+    const knteerRefs = collectRefs(body);
+    const isRefund = eventType === "payout.refunded";
+    const r = await reconcilePayoutFromWebhook(knteerRefs, {
+      reversal: isRefund,
+      response: body,
+    });
+    await auditWebhook(
+      { channel: "knteer_payout", eventType, action: r.action, matched: r.matched, verified, deliveryId },
+      "PayoutRequest",
+      r.payoutRequestId
+    );
+    return NextResponse.json({ ok: true, channel: "knteer_payout", ...r });
+  }
+
+  // ── 4c. Settlement / Payout / RechargeKit ─────────────────────────────────
   // Correlate the event to our row by the references it carries, then re-fetch
   // the authoritative status from the provider API before finalising.
   const refs = collectRefs(body);
@@ -175,6 +197,24 @@ export async function handleSamedayWebhook(req: Request): Promise<Response> {
 // Channel detection & reference extraction
 // ---------------------------------------------------------------------------
 
+/**
+ * Knteer Payout events carry `transaction_id` (UUID, NOT the Settlement
+ * `reference_id`), or the event name is `payout.account_registered`.
+ * They must be intercepted BEFORE the Settlement/Payout reconciler because
+ * both channels share the `payout.*` event-name prefix.
+ */
+function isKnteerPayoutEvent(eventType: string, body: Record<string, unknown>): boolean {
+  if (eventType === "payout.account_registered") return true;
+  if (
+    /^payout\.(success|failed|pending|refunded)$/.test(eventType) &&
+    typeof body.transaction_id === "string" &&
+    // Knteer IDs are UUIDs (xxxxxxxx-xxxx-...); Settlement uses numeric reference_id.
+    /^[0-9a-f-]{36}$/i.test(body.transaction_id)
+  )
+    return true;
+  return false;
+}
+
 /** POS events are name-prefixed `pos.*`, carry a terminal id / mappedStatus, or
  *  a reversal `action: "remove"`. Settlement/RechargeKit payloads never do. */
 function isPosEvent(eventType: string, body: Record<string, unknown>): boolean {
@@ -216,6 +256,9 @@ function collectRefs(body: Record<string, unknown>): string[] {
     "request_id", "requestId",
     "order_id", "orderId",
     "bill_fetch_ref", "billFetchRef",
+    // Bank Transfer (Knteer) correlation keys → PayoutRequest.providerTxnId.
+    "transaction_id", "transactionId",
+    "partner_trans_id", "partnerTransId",
     "id",
   ];
   const out: string[] = [];

@@ -326,17 +326,19 @@ export async function samedayRequest<T extends { success?: boolean }>(
  * key pair per partner account.
  */
 export function samedayCredentials(
-  product: "BBPS" | "SETTLEMENT" | "RECHARGEKIT"
+  product: "BBPS" | "SETTLEMENT" | "RECHARGEKIT" | "KNTEER_PAYOUT"
 ): SamedayCredentials | null {
   const keyMap = {
     BBPS: env.SAMEDAY_BBPS_API_KEY,
     SETTLEMENT: env.SAMEDAY_SETTLEMENT_API_KEY,
     RECHARGEKIT: env.SAMEDAY_RECHARGEKIT_API_KEY,
+    KNTEER_PAYOUT: env.SAMEDAY_KNTEER_PAYOUT_API_KEY,
   };
   const secretMap = {
     BBPS: env.SAMEDAY_BBPS_API_SECRET,
     SETTLEMENT: env.SAMEDAY_SETTLEMENT_API_SECRET,
     RECHARGEKIT: env.SAMEDAY_RECHARGEKIT_API_SECRET,
+    KNTEER_PAYOUT: env.SAMEDAY_KNTEER_PAYOUT_API_SECRET,
   };
   const apiKey = keyMap[product] || env.SAMEDAY_POS_API_KEY;
   const apiSecret = secretMap[product] || env.SAMEDAY_POS_API_SECRET;
