@@ -415,3 +415,97 @@ export async function correctOneTransaction(
   });
   return { found: true, refId: txn.refId, rail, status: txn.status, providerStatus: resolved.status, outcome: res.finalized ? "refunded" : "noop" };
 }
+
+export type LiveStatusResult =
+  | { found: false }
+  | {
+      found: true;
+      refId: string;
+      /** Our current DB status for the row. */
+      status: string;
+      rail: "rechargekit" | "bbps" | "unsupported";
+      /** True when we hold at least one reference the provider API can be keyed on. */
+      pollable: boolean;
+      /**
+       * Authoritative provider status. "UNRESOLVED" means every reference we hold
+       * returned ORDER_NOT_FOUND (or the poll failed) — the signal that the
+       * provider has no record and a "Not found — refund" may be appropriate.
+       */
+      providerStatus: ProviderStatus | "UNRESOLVED" | "NOT_POLLED";
+      /** Pay-step reference recovered from the poll (order_id ?? request_id). */
+      requestId: string | null;
+      /** Which of our candidate refs the provider answered on. */
+      matchedRef: string | null;
+      /** Provider-reported amount, when present. */
+      amount: number | null;
+      /** All candidate references we polled with. */
+      candidates: string[];
+    };
+
+/**
+ * READ-ONLY live provider status probe for a single transaction. Mutates
+ * NOTHING — no ledger movement, no status transition. It re-polls the rail's
+ * status API across every reference we hold (partnerTxnId + refs mined from the
+ * request/response + the durable PartnerApiLog) and reports the authoritative
+ * provider status plus the recovered pay-step reference.
+ *
+ * Powers the admin "Fetch live status" action: it lets ops SEE the current
+ * provider verdict (and recover the request_id for a row whose pay response was
+ * lost) before deciding to Resolve/verify or, when the provider has no record,
+ * force a "Not found — refund". MUST run on the IP-whitelisted host.
+ */
+export async function checkProviderStatusOne(ref: string): Promise<LiveStatusResult> {
+  const needle = ref.trim();
+  if (!needle) return { found: false };
+
+  const row = await prisma.transaction.findFirst({
+    where: { OR: [{ refId: needle }, { partnerTxnId: needle }] },
+    select: { ...FINALIZABLE_TXN_SELECT, request: true, response: true },
+  });
+  if (!row) return { found: false };
+
+  const { request, response, ...txn } = row;
+  const rail: "rechargekit" | "bbps" | "unsupported" =
+    txn.partner === RK_PARTNER
+      ? "rechargekit"
+      : BBPS_SERVICES.has(txn.service)
+        ? "bbps"
+        : "unsupported";
+
+  if (rail === "unsupported") {
+    return {
+      found: true, refId: txn.refId, status: txn.status, rail, pollable: false,
+      providerStatus: "NOT_POLLED", requestId: null, matchedRef: null, amount: null, candidates: [],
+    };
+  }
+
+  const candidates = Array.from(
+    new Set(
+      [
+        ...deriveTxnRefs({ partnerTxnId: txn.partnerTxnId, request, response }),
+        ...(await recoverRefsFromApiLog(txn.refId)),
+      ].filter((s) => s && s.length > 0)
+    )
+  );
+
+  const resolved = candidates.length ? await resolveProviderStatus(rail, candidates) : null;
+  if (!resolved) {
+    return {
+      found: true, refId: txn.refId, status: txn.status, rail, pollable: candidates.length > 0,
+      providerStatus: "UNRESOLVED", requestId: null, matchedRef: null, amount: null, candidates,
+    };
+  }
+
+  return {
+    found: true,
+    refId: txn.refId,
+    status: txn.status,
+    rail,
+    pollable: true,
+    providerStatus: resolved.status,
+    requestId: resolved.payRef,
+    matchedRef: resolved.ref,
+    amount: resolved.amount,
+    candidates,
+  };
+}

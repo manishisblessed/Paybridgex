@@ -21,8 +21,13 @@ import { getEffectiveRate, PricingUnavailableError } from "@/lib/scheme/resolver
 
 export const GST_PERCENT = 18;
 
-/** Provider tag the Knteer scheme slabs are resolved against. */
-export const KNTEER_PROVIDER = "SAMEDAY";
+/**
+ * Provider tag the Knteer scheme slabs + vendor rate card are resolved against.
+ * Distinct from plain "SAMEDAY" so Bank Transfer has its OWN vendor/minimum
+ * card under Services → Payout (scopeKey "SAMEDAY_KNTEER") and its own slab
+ * pin, independent of the settlement-based Payout product.
+ */
+export const KNTEER_PROVIDER = "SAMEDAY_KNTEER";
 
 export type KnteerQuote = {
   amount: Money;

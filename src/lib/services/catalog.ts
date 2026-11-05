@@ -147,10 +147,14 @@ export const KNOWN_SERVICE_ROUTES: ServiceRouteSeed[] = [
   },
   {
     key: SERVICE_KEYS.KNTEER_PAYOUT,
-    name: "Bank Transfer (Same Day)",
+    name: "Payout-2 (Same Day)",
     type: "SERVICE",
     kind: "PAYOUT",
-    provider: "SAMEDAY",
+    // Distinct provider tag so Bank Transfer gets its OWN vendor/minimum rate
+    // card under Services → Payout, separate from the settlement-based "Payout
+    // (Same Day)" card. normalizeProviderTag collapses it to SAMEDAY only
+    // within the KNTEER_PAYOUT service, so there is no slab collision.
+    provider: "SAMEDAY_KNTEER",
     enabled: false,
     note: "Direct bank-account register + transfer via the Same Day partner Payout API. Enable once SAMEDAY_KNTEER_PAYOUT_API_KEY/SECRET are configured. Requires PARTNER_KNTEER_PAYOUT_ENABLED=true.",
     sortOrder: 11,

@@ -6,10 +6,11 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { DataTable, type Column } from "@/components/dashboard/DataTable";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Modal } from "@/components/ui/Modal";
 import { Panel, StatusPill } from "@/components/dashboard/ui";
 import { Reveal } from "@/components/motion";
 import { formatINR, formatNumber, formatIST } from "@/lib/utils";
-import { RefreshCw, ShieldQuestion } from "lucide-react";
+import { RefreshCw, ShieldQuestion, Copy, Check, FileSearch } from "lucide-react";
 
 type Row = {
   refId: string;
@@ -22,11 +23,77 @@ type Row = {
   createdAt: string;
   partnerTxnId: string | null;
   refundEligibleAt: string | null;
+  requestId: string | null;
   billFetchRef: string | null;
+  orderId: string | null;
   operator: string | null;
+  billerName: string | null;
   customer: string | null;
-  user: { name: string; email: string; userCode: string | null } | null;
+  customerMobile: string | null;
+  cardholderName: string | null;
+  user: { name: string; email: string; userCode: string | null; phone?: string | null } | null;
 };
+
+/** Read-only live provider probe result (from /api/admin/transactions/status-check). */
+type LiveStatus = {
+  providerStatus: "SUCCESS" | "FAILED" | "REFUNDED" | "PENDING" | "UNRESOLVED" | "NOT_POLLED";
+  requestId: string | null;
+  matchedRef: string | null;
+  amount: number | null;
+  pollable: boolean;
+  rail: string;
+};
+
+/** Exact IST date + time (with seconds) — the authoritative attempt timestamp. */
+function istFull(iso: string): string {
+  return formatIST(iso, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/** One-tap copy chip for a provider reference (request_id / bill_fetch_ref). */
+function CopyChip({ value, mono = true }: { value: string; mono?: boolean }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      title="Copy"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setDone(true);
+          toast.success("Copied");
+          setTimeout(() => setDone(false), 1200);
+        } catch {
+          toast.error("Copy failed");
+        }
+      }}
+      className="group inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-ink-100"
+    >
+      <span className={`truncate ${mono ? "font-mono text-[11px]" : "text-xs"} text-ink-700`}>{value}</span>
+      {done ? (
+        <Check className="h-3 w-3 shrink-0 text-emerald-600" />
+      ) : (
+        <Copy className="h-3 w-3 shrink-0 text-ink-400 group-hover:text-ink-600" />
+      )}
+    </button>
+  );
+}
+
+/** A label + copyable reference (or an em-dash when absent). */
+function RefLine({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-ink-400">{label}</span>
+      {value ? <CopyChip value={value} /> : <span className="text-xs text-ink-300">—</span>}
+    </div>
+  );
+}
 
 /** Short "in 24m" / "due now" label for a scheduled-refund timestamp. */
 function etaLabel(iso: string): string {
@@ -58,6 +125,43 @@ export default function NeedsReviewPage() {
   const [needProviderRef, setNeedProviderRef] = useState<string | null>(null);
   const [confirmNotFound, setConfirmNotFound] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
+  // Read-only verification sheet for a single held row.
+  const [detailsRow, setDetailsRow] = useState<Row | null>(null);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<LiveStatus | null>(null);
+
+  /** Open the details sheet for a row with a clean live-status slate. */
+  const openDetails = useCallback((r: Row) => {
+    setLiveStatus(null);
+    setDetailsRow(r);
+  }, []);
+
+  /** Read-only: poll the provider live and show the authoritative status + recovered request_id. */
+  const fetchLiveStatus = useCallback(async (refId: string) => {
+    setLiveLoading(true);
+    try {
+      const res = await fetch("/api/admin/transactions/status-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refId }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof d?.error === "string" ? d.error : "Status check failed");
+      setLiveStatus({
+        providerStatus: d.providerStatus,
+        requestId: d.requestId ?? null,
+        matchedRef: d.matchedRef ?? null,
+        amount: typeof d.amount === "number" ? d.amount : null,
+        pollable: !!d.pollable,
+        rail: d.rail,
+      });
+      toast.success(`Provider status: ${d.providerStatus}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Status check failed");
+    } finally {
+      setLiveLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -171,8 +275,9 @@ export default function NeedsReviewPage() {
         <div>
           <p className="font-mono text-xs font-medium text-ink-900">{r.refId}</p>
           <p className="text-xs text-ink-400">
-            {r.service.replace(/_/g, " ").toLowerCase()} · {r.partner ?? "—"} · {formatIST(r.createdAt)}
+            {r.service.replace(/_/g, " ").toLowerCase()} · {r.partner ?? "—"}
           </p>
+          <p className="text-[11px] text-ink-400">{istFull(r.createdAt)} IST</p>
         </div>
       ),
     },
@@ -183,6 +288,20 @@ export default function NeedsReviewPage() {
         <div>
           <p className="font-medium text-ink-900">{r.user?.name ?? "—"}</p>
           <p className="text-xs text-ink-400">{r.user?.userCode ?? r.user?.email ?? "—"}</p>
+          {r.user?.phone && <p className="text-xs text-ink-400">{r.user.phone}</p>}
+        </div>
+      ),
+    },
+    {
+      key: "biller",
+      header: "Biller / Card",
+      render: (r) => (
+        <div>
+          <p className="font-medium text-ink-900">{r.billerName ?? r.operator ?? "—"}</p>
+          <p className="text-xs text-ink-400">
+            {r.operator ? `code ${r.operator}` : "—"} · card ••{r.customer ?? "—"}
+          </p>
+          {r.customerMobile && <p className="text-xs text-ink-400">mob {r.customerMobile}</p>}
         </div>
       ),
     },
@@ -203,13 +322,17 @@ export default function NeedsReviewPage() {
     },
     {
       key: "provref",
-      header: "Provider ref",
+      header: "Verify refs",
       render: (r) => (
-        <div className="max-w-[200px]">
-          <p className="truncate font-mono text-xs text-ink-600" title={r.billFetchRef ?? undefined}>
-            {r.billFetchRef ?? "—"}
-          </p>
-          {r.errorCode && <p className="truncate text-xs text-amber-600" title={r.errorMessage ?? undefined}>{r.errorCode}</p>}
+        <div className="max-w-[260px] space-y-0.5">
+          <RefLine label="Req ID" value={r.requestId} />
+          <RefLine label="Bill ref" value={r.billFetchRef} />
+          {r.partnerTxnId && <RefLine label="Order" value={r.partnerTxnId} />}
+          {r.errorCode && (
+            <p className="truncate text-xs text-amber-600" title={r.errorMessage ?? undefined}>
+              {r.errorCode}
+            </p>
+          )}
         </div>
       ),
     },
@@ -236,7 +359,10 @@ export default function NeedsReviewPage() {
       key: "actions",
       header: "",
       render: (r) => (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={() => openDetails(r)}>
+            <FileSearch className="mr-1 h-4 w-4" /> Details
+          </Button>
           <Button size="sm" onClick={() => setConfirmRef(r.refId)}>
             Resolve / verify
           </Button>
@@ -388,6 +514,185 @@ export default function NeedsReviewPage() {
           }
         }}
       />
+
+      {/* Read-only verification sheet — full biller details, timing & provider refs. */}
+      <Modal
+        open={detailsRow !== null}
+        onClose={() => setDetailsRow(null)}
+        eyebrow="Verify with provider"
+        title={detailsRow?.refId ?? "Transaction"}
+        subtitle={
+          detailsRow
+            ? `${detailsRow.service.replace(/_/g, " ").toLowerCase()} · ${detailsRow.partner ?? "—"}`
+            : undefined
+        }
+        size="lg"
+        footer={
+          detailsRow && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => setDetailsRow(null)}>
+                Close
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  const ref = detailsRow.refId;
+                  setDetailsRow(null);
+                  setConfirmRef(ref);
+                }}
+              >
+                Resolve / verify
+              </Button>
+            </>
+          )
+        }
+      >
+        {detailsRow && (
+          <div className="space-y-5 text-sm text-ink-800">
+            {/* Biller + customer */}
+            <section>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-brand-700">Biller &amp; customer</p>
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
+                <DetailRow label="Biller" value={detailsRow.billerName ?? "—"} />
+                <DetailRow label="Biller code" value={detailsRow.operator ?? "—"} />
+                <DetailRow label="Card (last 4)" value={detailsRow.customer ? `•• ${detailsRow.customer}` : "—"} />
+                <DetailRow label="Cardholder" value={detailsRow.cardholderName ?? "—"} />
+                <DetailRow label="Customer mobile" value={detailsRow.customerMobile ?? "—"} />
+              </dl>
+            </section>
+
+            {/* Retailer */}
+            <section>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-brand-700">Retailer</p>
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
+                <DetailRow label="Name" value={detailsRow.user?.name ?? "—"} />
+                <DetailRow label="Code" value={detailsRow.user?.userCode ?? "—"} />
+                <DetailRow label="Mobile" value={detailsRow.user?.phone ?? "—"} />
+                <DetailRow label="Email" value={detailsRow.user?.email ?? "—"} />
+              </dl>
+            </section>
+
+            {/* Amount + timing */}
+            <section>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-brand-700">Amount &amp; timing</p>
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
+                <DetailRow label="Amount" value={formatINR(detailsRow.amount)} />
+                <DetailRow label="Fee" value={formatINR(detailsRow.fee)} />
+                <DetailRow label="Reserve held" value={formatINR(detailsRow.amount + detailsRow.fee)} />
+                <DetailRow label="Attempt time" value={`${istFull(detailsRow.createdAt)} IST`} />
+                {detailsRow.errorCode && <DetailRow label="Error code" value={detailsRow.errorCode} />}
+              </dl>
+            </section>
+
+            {/* Provider references — the handles to verify with SameDay */}
+            <section>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-brand-700">
+                Provider references (tap to copy)
+              </p>
+              <div className="space-y-2 rounded-xl border border-ink-100 bg-ink-50/50 p-3">
+                <RefLine label="Request ID" value={detailsRow.requestId} />
+                <RefLine label="Bill fetch ref" value={detailsRow.billFetchRef} />
+                <RefLine label="Order / partner txn" value={detailsRow.partnerTxnId ?? detailsRow.orderId} />
+              </div>
+              {!detailsRow.requestId && !detailsRow.billFetchRef && (
+                <p className="mt-2 text-xs text-amber-600">
+                  No provider reference was captured (the pay response was lost). Verify at the provider using the
+                  card ••{detailsRow.customer ?? "?"}, amount {formatINR(detailsRow.amount)}, and attempt time above.
+                </p>
+              )}
+            </section>
+
+            {/* Live provider status — read-only probe + recovered request_id */}
+            <section>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-700">Live provider status</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  isLoading={liveLoading}
+                  onClick={() => fetchLiveStatus(detailsRow.refId)}
+                >
+                  {!liveLoading && <RefreshCw className="mr-1 h-4 w-4" />} Fetch live status
+                </Button>
+              </div>
+
+              {liveStatus ? (
+                <div className="mt-2 space-y-2 rounded-xl border border-ink-100 bg-ink-50/50 p-3">
+                  <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
+                    <DetailRow label="Provider status" value={liveStatus.providerStatus} />
+                    {liveStatus.amount != null && (
+                      <DetailRow label="Provider amount" value={formatINR(liveStatus.amount)} />
+                    )}
+                  </dl>
+                  <RefLine label="Recovered Request ID" value={liveStatus.requestId} />
+                  <RefLine label="Matched on" value={liveStatus.matchedRef} />
+
+                  {liveStatus.providerStatus === "PENDING" && (
+                    <p className="text-xs text-ink-500">
+                      Still PENDING at the provider — keep holding. It clears automatically once the provider returns a
+                      terminal outcome.
+                    </p>
+                  )}
+                  {["SUCCESS", "FAILED", "REFUNDED"].includes(liveStatus.providerStatus) && (
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-emerald-600">
+                        Provider is terminal ({liveStatus.providerStatus}) — Resolve / verify will finalize it.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const ref = detailsRow.refId;
+                          setDetailsRow(null);
+                          setConfirmRef(ref);
+                        }}
+                      >
+                        Resolve / verify
+                      </Button>
+                    </div>
+                  )}
+                  {liveStatus.providerStatus === "UNRESOLVED" && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-amber-600">
+                        The provider returned no record for any reference we hold (ORDER_NOT_FOUND). If this payment is
+                        also absent from the provider panel, the held reserve can be safely released.
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-red-200 text-red-600 hover:bg-red-50"
+                        onClick={() => {
+                          const ref = detailsRow.refId;
+                          setDetailsRow(null);
+                          setConfirmNotFound(ref);
+                        }}
+                      >
+                        Not found — refund
+                      </Button>
+                    </div>
+                  )}
+                  {liveStatus.providerStatus === "NOT_POLLED" && (
+                    <p className="text-xs text-ink-500">This rail is finalized by its own pipeline; no status poll applies.</p>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-ink-400">
+                  Polls Sameday&apos;s <span className="font-mono">bill/status</span> live (read-only) and recovers the
+                  pay-step Request ID. Runs from the whitelisted server.
+                </p>
+              )}
+            </section>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-ink-50 py-0.5">
+      <dt className="shrink-0 text-xs text-ink-500">{label}</dt>
+      <dd className="truncate text-right font-medium text-ink-900">{value}</dd>
     </div>
   );
 }
