@@ -170,13 +170,18 @@ export const KNOWN_SERVICE_ROUTES: ServiceRouteSeed[] = [
     sortOrder: 20,
   },
   {
+    // CONFIG (not SERVICE): Star is a PG PRICING RAIL, not a separately
+    // assignable per-user service. The single PG service gate is `pg_razorpay`
+    // (Comet). This keeps Star visible on the admin PG rail-rates page (which
+    // lists every PG ServiceRoute with a provider) while preventing an admin
+    // from mistakenly enabling "Star" per-user and expecting top-ups to work.
     key: "pg_chagans_star",
     name: "Star PG (Chagans)",
-    type: "SERVICE",
+    type: "CONFIG",
     kind: "PG",
     provider: "CHAGANS_STAR",
     enabled: true,
-    note: "Chagans Star gateway (T+0 same-day settlement, ₹40,000 cap). Set its MDR rate card here, then assign a scheme slab scoped to CHAGANS_STAR.",
+    note: "Chagans Star gateway (T+0 same-day settlement, ₹40,000 cap). Pricing rail only — set its MDR rate card here, then assign a scheme slab scoped to CHAGANS_STAR. Gated by the Comet PG service.",
     sortOrder: 21,
   },
   {
