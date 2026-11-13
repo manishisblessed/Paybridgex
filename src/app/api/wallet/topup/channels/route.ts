@@ -15,17 +15,24 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-server";
 import { toErrorResponse } from "@/lib/security/apiErrors";
-import { chagansChannelHealth, chagansConfigured } from "@/lib/partners/chagans-pg";
+import { chagansChannelHealth, chagansConfigured, chagansScopeForGateway } from "@/lib/partners/chagans-pg";
+import { getEffectiveServiceKeys } from "@/lib/services/guard";
+import { pgServiceKeyForScope } from "@/lib/services/catalog";
 
 export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  let user;
   try {
-    await requireAuth();
+    user = await requireAuth();
   } catch (e) {
     return toErrorResponse(e);
   }
+
+  // Only offer gateways the user is actually granted. Comet is gated by
+  // pg_razorpay, Star by pg_chagans_star — each independently assignable.
+  const effective = new Set(await getEffectiveServiceKeys(user.id, user.role));
 
   const channels: Array<{
     id: string;
@@ -39,6 +46,8 @@ export async function GET() {
   // Chagans channels (Comet + Star)
   if (chagansConfigured()) {
     for (const g of chagansChannelHealth()) {
+      const svcKey = pgServiceKeyForScope(chagansScopeForGateway(g.id));
+      if (!effective.has(svcKey)) continue; // user not granted this gateway
       channels.push({
         id: `chagans:${g.id}`,
         provider: "CHAGANS_PG",

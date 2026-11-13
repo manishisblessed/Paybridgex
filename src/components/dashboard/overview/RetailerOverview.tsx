@@ -22,17 +22,13 @@ import type { Transaction } from "@/lib/data";
 import { Button } from "@/components/ui/Button";
 import type { Session } from "@/lib/auth";
 import { formatINR, cn } from "@/lib/utils";
-import { hrefToServiceKey } from "@/lib/services/catalog";
+import { isServiceHrefAllowed } from "@/lib/services/catalog";
 import { useEffectiveServices } from "@/hooks/useEffectiveServices";
 
 export function RetailerOverview({ session }: { session: Session }) {
   const effectiveServices = useEffectiveServices();
   const quickServices = services
-    .filter((s) => {
-      const key = hrefToServiceKey(s.href);
-      if (!key) return true;
-      return (effectiveServices ?? new Set<string>()).has(key);
-    })
+    .filter((s) => isServiceHrefAllowed(s.href, effectiveServices ?? new Set<string>()))
     .slice(0, 8);
 
   const [txns, setTxns] = useState<Transaction[]>([]);

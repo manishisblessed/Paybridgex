@@ -4,7 +4,8 @@ import { requireAuth } from "@/lib/auth-server";
 import { assertAccountActive } from "@/lib/security/accountGate";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { assertServiceEnabled } from "@/lib/services/guard";
-import { SERVICE_KEYS } from "@/lib/services/catalog";
+import { pgServiceKeyForScope } from "@/lib/services/catalog";
+import { resolveUpiSelection } from "@/lib/partners";
 import { toErrorResponse } from "@/lib/security/apiErrors";
 import { withIdempotency } from "@/lib/idempotency";
 import { clientIp } from "@/lib/security/audit";
@@ -36,8 +37,6 @@ export async function POST(req: Request) {
   try {
     user = await requireAuth();
     await assertAccountActive(user.id);
-    await assertServiceEnabled(SERVICE_KEYS.PG, { name: "Wallet top-up", userId: user.id, role: user.role });
-    await enforceRateLimit(`wallet:topup:${user.id}`, RATE_LIMITS.fundRequestCreate);
   } catch (e) {
     return toErrorResponse(e);
   }
@@ -46,6 +45,17 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
   try {
+    // Gate on the SELECTED gateway's service key: Comet → pg_razorpay,
+    // Star → pg_chagans_star. Each gateway is independently assignable per
+    // user, so a retailer granted only one must be blocked from the other.
+    const sel = resolveUpiSelection(parsed.data.channel);
+    await assertServiceEnabled(pgServiceKeyForScope(sel.scopeKey), {
+      name: "Wallet top-up",
+      userId: user.id,
+      role: user.role,
+    });
+    await enforceRateLimit(`wallet:topup:${user.id}`, RATE_LIMITS.fundRequestCreate);
+
     const result = await withIdempotency(
       { key: parsed.data.idempotencyKey, scope: "wallet.topup", userId: user.id },
       () =>

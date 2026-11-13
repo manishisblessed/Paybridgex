@@ -42,6 +42,7 @@ export type ServiceRouteSeed = {
 export const SERVICE_KEYS = {
   PAYOUT: "payout_bulkpe",
   PG: "pg_razorpay",
+  PG_STAR: "pg_chagans_star",
   POS: "pos_sameday",
   QR: "qr_dynamic",
   UPI: "upi_collect",
@@ -79,6 +80,7 @@ export function isConfigOnlyKey(key: string): boolean {
  */
 export const SERVICE_KEY_TO_HREF: Record<string, string> = {
   [SERVICE_KEYS.PG]: "/dashboard/pg",
+  [SERVICE_KEYS.PG_STAR]: "/dashboard/pg",
   [SERVICE_KEYS.POS]: "/dashboard/pos",
   [SERVICE_KEYS.QR]: "/dashboard/qr",
   [SERVICE_KEYS.PAYOUT]: "/dashboard/payout",
@@ -130,6 +132,44 @@ export function hrefToServiceKey(href: string): string | null {
 }
 
 /**
+ * Per-user service keys that all route to the single `/dashboard/pg` page.
+ * The PG page hosts multiple independently-assignable gateways (Comet = the
+ * `pg_razorpay` key, Star = `pg_chagans_star`), so the page is visible when ANY
+ * of them is granted.
+ */
+export const PG_GATEWAY_SERVICE_KEYS: string[] = [SERVICE_KEYS.PG, SERVICE_KEYS.PG_STAR];
+
+/**
+ * Map a PG pricing scope (RailMdrRate/scheme-slab `company` = CHAGANS_COMET /
+ * CHAGANS_STAR) to the per-user service key that gates it. Unknown/empty scopes
+ * fall back to the primary PG service (Comet).
+ */
+export const PG_SCOPE_TO_SERVICE_KEY: Record<string, string> = {
+  CHAGANS_COMET: SERVICE_KEYS.PG,
+  CHAGANS_STAR: SERVICE_KEYS.PG_STAR,
+};
+
+/** Resolve a PG pricing scope to its gating service key (defaults to Comet). */
+export function pgServiceKeyForScope(scopeKey?: string | null): string {
+  return (scopeKey && PG_SCOPE_TO_SERVICE_KEY[scopeKey]) || SERVICE_KEYS.PG;
+}
+
+/**
+ * True if a dashboard href should be visible given the user's allowed service
+ * keys. Handles the one-page/many-gateways case: the PG page is shown when ANY
+ * PG gateway service is granted. Non-service pages (no gating key) are always
+ * visible.
+ */
+export function isServiceHrefAllowed(href: string, allowed: Set<string>): boolean {
+  const key = hrefToServiceKey(href);
+  if (!key) return true;
+  if (PG_GATEWAY_SERVICE_KEYS.includes(key)) {
+    return PG_GATEWAY_SERVICE_KEYS.some((k) => allowed.has(k));
+  }
+  return allowed.has(key);
+}
+
+/**
  * The known rails seeded on a fresh DB. Re-seeding NEVER overrides an admin's
  * `enabled`/`note` choices (see {@link seedServiceRoutes}); it only backfills
  * presentation metadata and inserts missing rows.
@@ -170,18 +210,19 @@ export const KNOWN_SERVICE_ROUTES: ServiceRouteSeed[] = [
     sortOrder: 20,
   },
   {
-    // CONFIG (not SERVICE): Star is a PG PRICING RAIL, not a separately
-    // assignable per-user service. The single PG service gate is `pg_razorpay`
-    // (Comet). This keeps Star visible on the admin PG rail-rates page (which
-    // lists every PG ServiceRoute with a provider) while preventing an admin
-    // from mistakenly enabling "Star" per-user and expecting top-ups to work.
-    key: "pg_chagans_star",
+    // SERVICE: Star is an independently assignable per-user gateway. An admin
+    // can grant a retailer Comet only, Star only, or both. The top-up route
+    // gates each top-up on the SELECTED gateway's key (pg_razorpay for Comet,
+    // pg_chagans_star for Star); the channels endpoint only offers gateways the
+    // user holds; and the /dashboard/pg page is visible when EITHER is granted
+    // (see isServiceHrefAllowed).
+    key: SERVICE_KEYS.PG_STAR,
     name: "Star PG (Chagans)",
-    type: "CONFIG",
+    type: "SERVICE",
     kind: "PG",
     provider: "CHAGANS_STAR",
     enabled: true,
-    note: "Chagans Star gateway (T+0 same-day settlement, ₹40,000 cap). Pricing rail only — set its MDR rate card here, then assign a scheme slab scoped to CHAGANS_STAR. Gated by the Comet PG service.",
+    note: "Chagans Star gateway (T+0 same-day settlement, ₹40,000 cap). Independently assignable: enable per retailer to offer the Star gateway. Set its MDR rate card here and assign a scheme slab scoped to CHAGANS_STAR.",
     sortOrder: 21,
   },
   {

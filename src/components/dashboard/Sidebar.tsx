@@ -10,7 +10,7 @@ import { Logo } from "@/components/layout/Logo";
 import { cn } from "@/lib/utils";
 import { toDisplayRole, type Role } from "@/lib/auth";
 import { navByRole, type NavGroup } from "@/lib/roles";
-import { hrefToServiceKey } from "@/lib/services/catalog";
+import { isServiceHrefAllowed } from "@/lib/services/catalog";
 import { useEffectiveServices } from "@/hooks/useEffectiveServices";
 
 export function Sidebar({
@@ -73,11 +73,7 @@ export function Sidebar({
       base = base
         .map((group) => ({
           ...group,
-          items: group.items.filter((item) => {
-            const key = hrefToServiceKey(item.href);
-            if (!key) return true;
-            return allowed.has(key);
-          }),
+          items: group.items.filter((item) => isServiceHrefAllowed(item.href, allowed)),
         }))
         .filter((group) => group.items.length > 0);
     }
@@ -85,8 +81,14 @@ export function Sidebar({
     return base;
   }, [role, allowedTabs, isStaff, effectiveServices]);
 
+  /** On mobile close the sidebar after navigating; on desktop keep it open. */
+  const handleNavClick = () => {
+    if (typeof window !== "undefined" && window.innerWidth < 1024) onClose();
+  };
+
   return (
     <>
+      {/* Backdrop — mobile only */}
       {open && (
         <div
           className="fixed inset-0 z-40 bg-ink-950/60 backdrop-blur-sm lg:hidden"
@@ -99,16 +101,22 @@ export function Sidebar({
           // Mobile: fixed overlay, slides in/out via transform
           "fixed inset-y-0 left-0 z-50 flex flex-col bg-[#0b1030] text-white transition-all duration-300 w-72",
           open ? "translate-x-0" : "-translate-x-full",
-          // Desktop: sticky in-flow panel, width animates to 0 when collapsed
+          // Desktop: sticky in-flow panel; collapses to a 64 px icon rail
           "lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 lg:overflow-hidden",
-          open ? "lg:w-72" : "lg:w-0"
+          open ? "lg:w-72" : "lg:w-16"
         )}
       >
         {/* Subtle brand glow at the top of the rail */}
         <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(80%_100%_at_50%_0%,rgba(49,100,246,0.22)_0%,rgba(16,185,129,0.06)_55%,transparent_100%)]" />
 
-        <div className="relative flex h-16 items-center justify-between border-b border-white/10 px-5 md:h-20">
-          <Logo variant="light" />
+        {/* Header — logo + close (mobile) */}
+        <div
+          className={cn(
+            "relative flex h-16 items-center border-b border-white/10 md:h-20 transition-all duration-300",
+            open ? "justify-between px-5" : "lg:justify-center lg:px-0 px-5"
+          )}
+        >
+          <Logo variant="light" iconOnly={!open} />
           <button
             type="button"
             onClick={onClose}
@@ -119,10 +127,21 @@ export function Sidebar({
           </button>
         </div>
 
-        <nav className="relative flex-1 overflow-y-auto px-3 py-5 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.18)_transparent]">
+        {/* Navigation */}
+        <nav
+          className={cn(
+            "relative flex-1 overflow-y-auto py-5 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.18)_transparent] transition-all duration-300",
+            open ? "px-3" : "lg:px-1 px-3"
+          )}
+        >
           {groups.map((group) => (
             <div key={group.heading} className="mb-6 last:mb-0">
-              <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
+              <p
+                className={cn(
+                  "mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35 transition-opacity duration-300",
+                  !open && "lg:opacity-0 lg:h-0 lg:mb-0 lg:overflow-hidden"
+                )}
+              >
                 {group.heading}
               </p>
               <ul className="space-y-0.5">
@@ -135,9 +154,11 @@ export function Sidebar({
                     <li key={item.href}>
                       <Link
                         href={item.href}
-                        onClick={onClose}
+                        onClick={handleNavClick}
+                        title={!open ? item.label : undefined}
                         className={cn(
-                          "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-200",
+                          "group relative flex items-center rounded-xl py-2.5 text-sm font-medium transition-all duration-200",
+                          open ? "gap-3 px-3" : "lg:justify-center lg:px-0 gap-3 px-3",
                           active
                             ? "text-white"
                             : "text-white/60 hover:bg-white/5 hover:text-white"
@@ -167,9 +188,21 @@ export function Sidebar({
                               : "text-white/45 group-hover:text-white/80"
                           )}
                         />
-                        <span className="relative truncate">{item.label}</span>
+                        <span
+                          className={cn(
+                            "relative truncate transition-opacity duration-300",
+                            !open && "lg:hidden"
+                          )}
+                        >
+                          {item.label}
+                        </span>
                         {item.badge && (
-                          <span className="relative ml-auto rounded-full bg-accent-400/15 px-2 py-0.5 text-[10px] font-bold text-accent-300">
+                          <span
+                            className={cn(
+                              "relative ml-auto rounded-full bg-accent-400/15 px-2 py-0.5 text-[10px] font-bold text-accent-300 transition-opacity duration-300",
+                              !open && "lg:hidden"
+                            )}
+                          >
                             {item.badge}
                           </span>
                         )}
@@ -182,7 +215,13 @@ export function Sidebar({
           ))}
         </nav>
 
-        <div className="relative m-3 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] p-4">
+        {/* Pro card — hidden when collapsed on desktop */}
+        <div
+          className={cn(
+            "relative m-3 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] p-4 transition-opacity duration-300",
+            !open && "lg:hidden"
+          )}
+        >
           <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-accent-500/25 blur-2xl" />
           <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-accent-300">
             <Sparkles className="h-3 w-3" />

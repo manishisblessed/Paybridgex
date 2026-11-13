@@ -157,6 +157,17 @@ const FAMILY_ICONS: Record<string, { icon: typeof CreditCard; className: string;
 
 const POS_ICON = { icon: Store, className: "text-orange-600", hover: "hover:bg-orange-50" };
 
+// Presentation for each MDR rail section (scheme detail). The first scope
+// column is labelled per rail: "Company" for POS, "PG Pipeline" for PG, etc.
+const MDR_KIND_META: Record<string, { label: string; color: string; scopeHeader: string }> = {
+  POS: { label: "POS MDR", color: "text-orange-600", scopeHeader: "Company" },
+  PG: { label: "PG MDR", color: "text-violet-600", scopeHeader: "PG Pipeline" },
+  QR: { label: "QR MDR", color: "text-emerald-600", scopeHeader: "QR Provider" },
+  UPI: { label: "UPI MDR", color: "text-sky-600", scopeHeader: "Provider" },
+};
+const mdrKindMeta = (k: string) =>
+  MDR_KIND_META[k] ?? { label: `${k} MDR`, color: "text-ink-600", scopeHeader: "Scope" };
+
 const CARD_TYPES = ["CREDIT", "DEBIT", "PREPAID"];
 const BRAND_TYPES = ["VISA", "MASTERCARD", "RUPAY", "AMEX", "DINERS"];
 // Card tiers used to pin classification-specific MDR. Matching is tier-based
@@ -516,6 +527,25 @@ function SchemeCard({
     );
   }, [slabs]);
 
+  // Split MDR slabs into their own per-rail sections (POS / PG / QR) so a PG
+  // rate card (e.g. CHAGANS_COMET / CHAGANS_STAR) never renders under the POS
+  // MDR table. Order is stable: POS, PG, QR, then anything else.
+  const mdrByKind = useMemo(() => {
+    const map = new Map<string, MdrSlab[]>();
+    for (const s of mdrSlabs ?? []) {
+      const k = s.serviceKind || "POS";
+      const arr = map.get(k) ?? [];
+      arr.push(s);
+      map.set(k, arr);
+    }
+    const order = ["POS", "PG", "QR", "UPI"];
+    const keys = [
+      ...order.filter((k) => map.has(k)),
+      ...[...map.keys()].filter((k) => !order.includes(k)),
+    ];
+    return keys.map((k) => [k, map.get(k)!] as const);
+  }, [mdrSlabs]);
+
   return (
     <Panel flush className="overflow-hidden">
       {/* Card header */}
@@ -701,18 +731,20 @@ function SchemeCard({
                 );
               })}
 
-              {/* POS MDR rates */}
-              {mdrSlabs && mdrSlabs.length > 0 && (
-                <div>
+              {/* MDR rates — one section per rail (POS / PG / QR) */}
+              {mdrByKind.map(([kind, slabs]) => {
+                const meta = mdrKindMeta(kind);
+                return (
+                <div key={kind}>
                   <div className="mb-2 flex items-center gap-1.5">
-                    <Store className="h-4 w-4 text-orange-600" />
-                    <h4 className="text-sm font-semibold text-orange-600">POS MDR ({mdrSlabs.length})</h4>
+                    <Store className={`h-4 w-4 ${meta.color}`} />
+                    <h4 className={`text-sm font-semibold ${meta.color}`}>{meta.label} ({slabs.length})</h4>
                   </div>
                   <TablePro dense>
                     <table>
                       <thead>
                         <tr>
-                          <th>Company</th>
+                          <th>{meta.scopeHeader}</th>
                           <th>Mode</th>
                           <th>Card</th>
                           <th>Brand</th>
@@ -730,7 +762,7 @@ function SchemeCard({
                         </tr>
                       </thead>
                       <tbody>
-                        {mdrSlabs.map((s) => {
+                        {slabs.map((s) => {
                           // Instant (T+0) settlement uses the dedicated T0 rate,
                           // falling back to the T+1 value when unset — mirroring
                           // the resolver (slabMdrValue / slabVendorValue) so the
@@ -800,7 +832,8 @@ function SchemeCard({
                     </table>
                   </TablePro>
                 </div>
-              )}
+                );
+              })}
 
               {/* Assigned users */}
               {assignedUsers.length > 0 && (
