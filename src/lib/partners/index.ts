@@ -243,6 +243,12 @@ export type UpiSelection = {
   channel?: string;
   prepareAmount: (amount: number) => number;
   maxAmount?: number;
+  /**
+   * MDR pricing scope for this selection. For Chagans this is the PER-GATEWAY
+   * scope (CHAGANS_COMET / CHAGANS_STAR) so Comet and Star are priced + rate-
+   * carded separately. Undefined for providers that don't scope per gateway.
+   */
+  scopeKey?: string;
 };
 
 export function resolveUpiSelection(channelId?: string): UpiSelection {
@@ -258,6 +264,7 @@ export function resolveUpiSelection(channelId?: string): UpiSelection {
       channel: gw.id,
       prepareAmount: gw.requiresRandom ? randomizeChagansAmount : (a) => a,
       maxAmount: gw.maxAmount,
+      scopeKey: gw.scopeKey,
     };
   }
   // Explicit Razorpay selection.
@@ -275,6 +282,7 @@ export function resolveUpiSelection(channelId?: string): UpiSelection {
       channel: gw.id,
       prepareAmount: gw.requiresRandom ? randomizeChagansAmount : (a) => a,
       maxAmount: gw.maxAmount,
+      scopeKey: gw.scopeKey,
     };
   }
   return { provider, channel: channelId || undefined, prepareAmount: (a) => a };

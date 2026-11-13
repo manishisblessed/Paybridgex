@@ -44,7 +44,9 @@ export async function GET(req: Request) {
     userId: user.id,
     serviceKind: "PG",
     grossAmount: amount,
-    scopeKey: pgScopeForTxn(sel.provider.name),
+    // Price against the selected gateway's scope (CHAGANS_COMET / CHAGANS_STAR)
+    // so the quote matches what settlement will later charge.
+    scopeKey: sel.scopeKey ?? pgScopeForTxn(sel.provider.name),
     settlementType: "T0",
     anyPaymentMode: true,
   });

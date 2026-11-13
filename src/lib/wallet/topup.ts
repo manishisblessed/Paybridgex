@@ -45,6 +45,19 @@ export function pgScopeForTxn(partnerName: string): string {
   return partnerName.toUpperCase(); // e.g. "CHAGANS_PG"
 }
 
+/**
+ * The MDR pricing scope to settle a top-up against. Prefers the PER-GATEWAY
+ * scope persisted on the Transaction at initiate time (CHAGANS_COMET /
+ * CHAGANS_STAR) so settlement reprices against the exact gateway's rate card +
+ * slab. Falls back to the partner name for legacy rows created before the
+ * per-gateway scope was persisted.
+ */
+function settleScopeForTxn(txn: { partner: string | null; request: Prisma.JsonValue }): string {
+  const req = (txn.request && typeof txn.request === "object" ? txn.request : {}) as Record<string, unknown>;
+  const stored = typeof req.scopeKey === "string" && req.scopeKey.trim() ? req.scopeKey.trim() : null;
+  return stored ?? pgScopeForTxn(txn.partner ?? "CHAGANS_PG");
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type TopupState = "INITIATED" | "PROCESSING" | "HOLD" | "SUCCESS" | "FAILED";
@@ -134,6 +147,14 @@ export async function initiateTopup(input: {
     );
   }
 
+  // The MDR pricing scope for this selection. For Chagans this is the
+  // PER-GATEWAY scope (CHAGANS_COMET / CHAGANS_STAR) resolved from the chosen
+  // channel, so Comet and Star price against their own rate card + slab. Falls
+  // back to the provider name for any rail that doesn't scope per gateway.
+  const pgScope = isPgMdrProvider(upi.name)
+    ? sel.scopeKey ?? pgScopeForTxn(upi.name)
+    : null;
+
   // Pre-flight MDR probe for PG-MDR rails (shows the retailer their net credit).
   let mdrPreview: number | undefined;
   let netPreview: number | undefined;
@@ -142,7 +163,7 @@ export async function initiateTopup(input: {
       userId: input.userId,
       serviceKind: "PG",
       grossAmount: input.amount,
-      scopeKey: pgScopeForTxn(upi.name),
+      scopeKey: pgScope,
       settlementType: "T0",
       anyPaymentMode: true,
     });
@@ -169,6 +190,9 @@ export async function initiateTopup(input: {
         amount: input.amount,
         collectAmount,
         channel: input.channel ?? null,
+        // Persist the resolved per-gateway MDR scope so settlement reprices
+        // against the SAME scope the quote/preview used (Comet vs Star).
+        scopeKey: pgScope,
         vpa: input.vpa ?? null,
         note: input.note ?? null,
         mdrPreview: mdrPreview ?? null,
@@ -187,6 +211,10 @@ export async function initiateTopup(input: {
     customerPhone: input.customerPhone,
     customerEmail: input.customerEmail,
     customerName: input.customerName,
+    // Pass the resolved gateway token ("comet" | "star") so the provider
+    // creates the order on the SELECTED gateway. Without this the provider
+    // falls back to its primary gateway (Comet) and a Star selection is lost.
+    channel: sel.channel,
     callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL}/pay/return?ref=${refId}`,
   });
 
@@ -291,7 +319,7 @@ export async function settleTopup(
       grossAmount: webhookVerified.amount,
       paymentMode: webhookVerified.paymentMode,
       providerRef: webhookVerified.reference,
-      scopeKey: pgScopeForTxn(txn.partner ?? "CHAGANS_PG"),
+      scopeKey: settleScopeForTxn(txn),
     });
 
     if (result.status === "SETTLED") {
