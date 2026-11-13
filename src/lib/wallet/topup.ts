@@ -159,13 +159,16 @@ export async function initiateTopup(input: {
   let mdrPreview: number | undefined;
   let netPreview: number | undefined;
   if (isPgMdrProvider(upi.name)) {
+    // Default to "CARD" so card-pinned slabs resolve at quote time (the real
+    // mode from the webhook is used at settlement). Wildcard ("*") slabs match
+    // any explicit mode, so this covers both configurations.
     const probe = await priceSchemeSettlement({
       userId: input.userId,
       serviceKind: "PG",
       grossAmount: input.amount,
+      paymentMode: "CARD",
       scopeKey: pgScope,
       settlementType: "T0",
-      anyPaymentMode: true,
     });
     if (probe) {
       mdrPreview = Number(probe.mdrAmount);

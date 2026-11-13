@@ -40,15 +40,19 @@ export async function GET(req: Request) {
     return NextResponse.json({ priceable: false });
   }
 
+  // PG quote: the actual payment mode (UPI vs card) is unknown at quote time,
+  // but default to "CARD" so card-pinned slabs match — this is the most common
+  // PG instrument and also matches wildcard ("*") slabs. anyPaymentMode is NOT
+  // used because it skips every mode-pinned slab (a wildcard-only slab still
+  // matches with an explicit mode). The settlement path uses the real mode from
+  // the webhook so there is no pricing mismatch at capture time.
   const price = await priceSchemeSettlement({
     userId: user.id,
     serviceKind: "PG",
     grossAmount: amount,
-    // Price against the selected gateway's scope (CHAGANS_COMET / CHAGANS_STAR)
-    // so the quote matches what settlement will later charge.
+    paymentMode: "CARD",
     scopeKey: sel.scopeKey ?? pgScopeForTxn(sel.provider.name),
     settlementType: "T0",
-    anyPaymentMode: true,
   });
 
   if (!price) {
