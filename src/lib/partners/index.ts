@@ -9,7 +9,7 @@ import { flags, isProd } from "../env";
 import * as mock from "./mock";
 import { paysprintAeps, paysprintConfigured, paysprintDmt } from "./paysprint";
 import { razorpayPayout, razorpayPayoutConfigured, razorpayUpi, razorpayUpiConfigured } from "./razorpay";
-import { chagansConfigured, chagansUpi, resolveChagansGateway, randomizeChagansAmount } from "./chagans-pg";
+import { chagansConfigured, chagansUpi, resolveChagansGateway, prepareChagansAmount } from "./chagans-pg";
 import { samedayBbps, samedayBbpsConfigured } from "./sameday-bbps";
 import { samedaySettlementConfigured } from "./sameday-settlement";
 import { samedaySettlementPayout } from "./sameday-payout";
@@ -262,7 +262,7 @@ export function resolveUpiSelection(channelId?: string): UpiSelection {
     return {
       provider: chagansUpi,
       channel: gw.id,
-      prepareAmount: gw.requiresRandom ? randomizeChagansAmount : (a) => a,
+      prepareAmount: (a) => prepareChagansAmount(a, gw.requiresRandom),
       maxAmount: gw.maxAmount,
       scopeKey: gw.scopeKey,
     };
@@ -280,7 +280,7 @@ export function resolveUpiSelection(channelId?: string): UpiSelection {
     return {
       provider,
       channel: gw.id,
-      prepareAmount: gw.requiresRandom ? randomizeChagansAmount : (a) => a,
+      prepareAmount: (a) => prepareChagansAmount(a, gw.requiresRandom),
       maxAmount: gw.maxAmount,
       scopeKey: gw.scopeKey,
     };

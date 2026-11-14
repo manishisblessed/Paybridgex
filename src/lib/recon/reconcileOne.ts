@@ -8,6 +8,7 @@ import {
 } from "@/lib/services/finalize";
 import { reconcileRechargekitFromWebhook } from "@/lib/recon/rechargekit";
 import { rechargekitStatus } from "@/lib/partners/sameday-rechargekit";
+import { chagansCcCheckStatus } from "@/lib/partners/chagans-cc-bill";
 import { deriveTxnRefs } from "@/lib/recon/refs";
 import { recoverRefsFromApiLog } from "@/lib/recon/recover";
 import { logger } from "@/lib/logger";
@@ -16,6 +17,9 @@ const log = logger.child({ module: "recon/reconcileOne" });
 
 /** Every RechargeKit (CC-2) transaction carries this partner tag. */
 const RK_PARTNER = "SAMEDAY_RECHARGEKIT";
+
+/** Every Chagans CC Bill transaction carries this partner tag. */
+const CHAGANS_CC_PARTNER = "CHAGANS_CC_BILL";
 
 /** Services settled over the BBPS (Bharat BillPay / Pay2New) rail. */
 const BBPS_SERVICES = new Set<ServiceCode>([
@@ -43,7 +47,7 @@ export type ReconcileOneResult =
       alreadyTerminal: boolean;
       /** Status BEFORE this call. */
       status: string;
-      rail: "rechargekit" | "bbps" | "unsupported";
+      rail: "rechargekit" | "bbps" | "chagans_cc" | "unsupported";
       outcome: "settled" | "refunded" | "pending" | "noop";
     };
 
@@ -77,17 +81,42 @@ export async function reconcileOneTransaction(
 
   const { request, response, ...txn } = row;
 
-  const rail: "rechargekit" | "bbps" | "unsupported" =
+  const rail: "rechargekit" | "bbps" | "chagans_cc" | "unsupported" =
     txn.partner === RK_PARTNER
       ? "rechargekit"
-      : BBPS_SERVICES.has(txn.service)
-        ? "bbps"
-        : "unsupported";
+      : txn.partner === CHAGANS_CC_PARTNER
+        ? "chagans_cc"
+        : BBPS_SERVICES.has(txn.service)
+          ? "bbps"
+          : "unsupported";
 
   // Already terminal → nothing to do. NEEDS_REVIEW is NON-terminal (held,
   // awaiting an authoritative outcome), so it remains resolvable here.
   if (txn.status !== "INITIATED" && txn.status !== "PROCESSING" && txn.status !== "NEEDS_REVIEW") {
     return { found: true, refId: txn.refId, alreadyTerminal: true, status: txn.status, rail, outcome: "noop" };
+  }
+
+  // ── Chagans CC Bill ───────────────────────────────────────────────────────
+  if (rail === "chagans_cc") {
+    const refs = deriveTxnRefs({ partnerTxnId: txn.partnerTxnId, request, response });
+    for (const ref of refs) {
+      const r = await chagansCcCheckStatus(ref);
+      if (!r.ok) continue;
+      if (r.data.status === "PENDING") {
+        return { found: true, refId: txn.refId, alreadyTerminal: false, status: txn.status, rail, outcome: "pending" };
+      }
+      const res = await finalizeServiceTransaction({
+        txn,
+        status: r.data.status,
+        partnerTxnId: txn.partnerTxnId ?? r.data.orderId ?? ref,
+        errorCode: r.data.status === "SUCCESS" ? null : "CHAGANS_CC_FAILED",
+        errorMessage: r.data.status === "SUCCESS" ? null : `CC bill payment ${r.data.status.toLowerCase()} by provider`,
+        raw: r.raw,
+        source,
+      });
+      return { found: true, refId: txn.refId, alreadyTerminal: false, status: txn.status, rail, outcome: normalizeOutcome(res.outcome) };
+    }
+    return { found: true, refId: txn.refId, alreadyTerminal: false, status: txn.status, rail, outcome: "noop" };
   }
 
   // ── RechargeKit CC-2 ──────────────────────────────────────────────────────
@@ -165,10 +194,22 @@ type ProviderStatus = "SUCCESS" | "FAILED" | "REFUNDED" | "PENDING";
 
 /** Poll the rail's status API across candidate refs; first authoritative wins. */
 async function resolveProviderStatus(
-  rail: "rechargekit" | "bbps",
+  rail: "rechargekit" | "bbps" | "chagans_cc",
   refs: string[]
 ): Promise<{ status: ProviderStatus; ref: string; payRef: string | null; amount: number | null; raw: unknown } | null> {
   for (const ref of refs) {
+    if (rail === "chagans_cc") {
+      const r = await chagansCcCheckStatus(ref);
+      if (r.ok)
+        return {
+          status: r.data.status,
+          ref,
+          payRef: r.data.orderId ?? null,
+          amount: typeof r.data.amount === "number" ? r.data.amount : null,
+          raw: r.raw,
+        };
+      continue;
+    }
     if (rail === "bbps") {
       const bbps = getPartner("bbps");
       if (!bbps.status) return null;
@@ -219,7 +260,7 @@ export type CorrectOneResult =
   | {
       found: true;
       refId: string;
-      rail: "rechargekit" | "bbps" | "unsupported";
+      rail: "rechargekit" | "bbps" | "chagans_cc" | "unsupported";
       /** Row status BEFORE this call. */
       status: string;
       /** Provider's authoritative status, or "UNRESOLVED" when no ref resolved. */
@@ -265,12 +306,14 @@ export async function correctOneTransaction(
   if (!row) return { found: false };
 
   const { request, response, ...txn } = row;
-  const rail: "rechargekit" | "bbps" | "unsupported" =
+  const rail: "rechargekit" | "bbps" | "chagans_cc" | "unsupported" =
     txn.partner === RK_PARTNER
       ? "rechargekit"
-      : BBPS_SERVICES.has(txn.service)
-        ? "bbps"
-        : "unsupported";
+      : txn.partner === CHAGANS_CC_PARTNER
+        ? "chagans_cc"
+        : BBPS_SERVICES.has(txn.service)
+          ? "bbps"
+          : "unsupported";
 
   if (rail === "unsupported") {
     return { found: true, refId: txn.refId, rail, status: txn.status, providerStatus: "NOT_POLLED", outcome: "not_applicable" };
@@ -423,7 +466,7 @@ export type LiveStatusResult =
       refId: string;
       /** Our current DB status for the row. */
       status: string;
-      rail: "rechargekit" | "bbps" | "unsupported";
+      rail: "rechargekit" | "bbps" | "chagans_cc" | "unsupported";
       /** True when we hold at least one reference the provider API can be keyed on. */
       pollable: boolean;
       /**
@@ -465,12 +508,14 @@ export async function checkProviderStatusOne(ref: string): Promise<LiveStatusRes
   if (!row) return { found: false };
 
   const { request, response, ...txn } = row;
-  const rail: "rechargekit" | "bbps" | "unsupported" =
+  const rail: "rechargekit" | "bbps" | "chagans_cc" | "unsupported" =
     txn.partner === RK_PARTNER
       ? "rechargekit"
-      : BBPS_SERVICES.has(txn.service)
-        ? "bbps"
-        : "unsupported";
+      : txn.partner === CHAGANS_CC_PARTNER
+        ? "chagans_cc"
+        : BBPS_SERVICES.has(txn.service)
+          ? "bbps"
+          : "unsupported";
 
   if (rail === "unsupported") {
     return {

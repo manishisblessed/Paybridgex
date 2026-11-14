@@ -14,6 +14,7 @@ import {
   CreditCard,
   ShieldCheck,
   Zap,
+  Banknote,
 } from "lucide-react";
 import { cn, formatIST } from "@/lib/utils";
 import { formatINRFull } from "./CumulativeWalletCard";
@@ -46,6 +47,11 @@ const PROVIDER_META: Record<
     subtitle: "KYC & Verification credits",
     tint: "emerald",
     icon: ShieldCheck,
+  },
+  chagans: {
+    subtitle: "CC Bill Pay float",
+    tint: "amber",
+    icon: Banknote,
   },
 };
 

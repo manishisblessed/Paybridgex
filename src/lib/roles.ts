@@ -91,6 +91,7 @@ const moneyOutServices: NavItem[] = [
 /** BBPS bill-payment rails — retailer only. */
 const billPayServices: NavItem[] = [
   { href: "/dashboard/bill-pay/credit-card", label: "Credit Card Bills", icon: CreditCard },
+  { href: "/dashboard/bill-pay/cc-bill-pay", label: "CC Bill Payment", icon: CreditCard, badge: "New" },
   { href: "/dashboard/bill-pay/cc-pay", label: "Credit Card Direct", icon: CreditCard },
   { href: "/dashboard/bill-pay/bbps-1", label: "Bharat BillPay (BBPS)", icon: Receipt }
 ];

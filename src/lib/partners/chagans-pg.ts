@@ -191,6 +191,25 @@ export function randomizeChagansAmount(amount: number): number {
   return Math.round((rupees + paise / 100) * 100) / 100;
 }
 
+/**
+ * Prepare the charge amount for a Chagans payRequest.
+ *
+ * Chagans HARD-REJECTS any amount that is an exact multiple of ₹100
+ * ("Invalid amount, amount should not be multiple of 100") — which would break
+ * every round quick-select button (₹500 / ₹1,000 / ₹5,000 …). When the amount
+ * is a multiple of 100 we add a 1–99 paise nonce so it clears that check; the
+ * paise are credited back in full (we credit exactly what the customer pays),
+ * so there is no loss. Non-round amounts are charged EXACTLY as entered
+ * (product decision 2026-10-14). `forceRandom` (per-gateway requiresRandom)
+ * still applies the nonce to every amount for duplicate-sensitive gateways.
+ */
+export function prepareChagansAmount(amount: number, forceRandom = false): number {
+  // Exact multiple of ₹100 (to the paise): 1000 → 100000 paise, %10000 === 0.
+  const isMultipleOf100 = Math.round(amount * 100) % 10000 === 0;
+  if (forceRandom || isMultipleOf100) return randomizeChagansAmount(amount);
+  return amount;
+}
+
 // ---------------------------------------------------------------------------
 // Create-order
 // ---------------------------------------------------------------------------

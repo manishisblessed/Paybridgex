@@ -9,6 +9,7 @@ import {
 import { sendOpsAlert } from "@/lib/monitoring/alerts";
 import { deriveTxnRefs } from "@/lib/recon/refs";
 import { recoverRefsFromApiLog } from "@/lib/recon/recover";
+import { chagansCcCheckStatus } from "@/lib/partners/chagans-cc-bill";
 import { logger } from "@/lib/logger";
 
 const BBPS_SERVICES: ServiceCode[] = [
@@ -22,6 +23,12 @@ const BBPS_SERVICES: ServiceCode[] = [
 // and the /api/webhooks/sameday receiver). Never let the BBPS/Pay2New status
 // endpoint be asked about a RechargeKit txn — exclude it from every query here.
 const RK_PARTNER = "SAMEDAY_RECHARGEKIT";
+
+/** Chagans CC Bill partner tag — uses its own checkStatus (POST /bbps/checkStatus). */
+const CHAGANS_CC_PARTNER = "CHAGANS_CC_BILL";
+
+/** All partners handled by the BBPS recon sweep. */
+const RECON_PARTNERS = [RK_PARTNER, CHAGANS_CC_PARTNER];
 
 /**
  * BBPS reconciliation — polls PROCESSING BBPS transactions and settles them.
@@ -86,7 +93,20 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
       // funds held) are both non-terminal and must be polled for resolution.
       status: { in: ["PROCESSING", "NEEDS_REVIEW"] },
       service: { in: BBPS_SERVICES },
-      partner: { not: RK_PARTNER },
+      partner: { notIn: RECON_PARTNERS },
+      createdAt: { lt: new Date(now - DRAIN_AGE_MS) },
+    },
+    orderBy: { createdAt: "asc" },
+    take: 200,
+    select: { ...FINALIZABLE_TXN_SELECT, request: true, response: true },
+  });
+
+  // Also drain Chagans CC Bill transactions.
+  const chagansCcInflight = await prisma.transaction.findMany({
+    where: {
+      status: { in: ["PROCESSING", "NEEDS_REVIEW"] },
+      service: { in: BBPS_SERVICES },
+      partner: CHAGANS_CC_PARTNER,
       createdAt: { lt: new Date(now - DRAIN_AGE_MS) },
     },
     orderBy: { createdAt: "asc" },
@@ -105,14 +125,19 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
   };
   const tryResolve = async (refs: string[]): Promise<Resolved | null> => {
     for (const ref of refs) {
-      // Try the ref as a pay order_id, then request_id, then — since the Oct-2026
-      // provider release — the bill_fetch_ref we always retain. The last form is
-      // what recovers a payment whose pay response was lost.
       let r = await bbps.status!({ orderId: ref });
       if (!r.ok) r = await bbps.status!({ requestId: ref });
       if (!r.ok) r = await bbps.status!({ billFetchRef: ref });
-      if (!r.ok) continue; // transient/unknown for this ref — try the next
+      if (!r.ok) continue;
       return { status: r.data.status, ref, payRef: r.data.orderId ?? r.data.requestId ?? null, raw: r.raw };
+    }
+    return null;
+  };
+  const tryResolveChagansCc = async (refs: string[]): Promise<Resolved | null> => {
+    for (const ref of refs) {
+      const r = await chagansCcCheckStatus(ref);
+      if (!r.ok) continue;
+      return { status: r.data.status, ref, payRef: r.data.orderId || null, raw: r.raw };
     }
     return null;
   };
@@ -167,6 +192,31 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
       drained++;
     } catch (err) {
       logger.warn({ action: "recon.bbps_poll_failed", txnId: row.id, err: String(err) });
+    }
+  }
+
+  // 1b. DRAIN Chagans CC Bill — same pattern but uses chagansCcCheckStatus.
+  for (const row of chagansCcInflight) {
+    try {
+      const { request, response, ...txn } = row;
+      const refs = deriveTxnRefs({ partnerTxnId: txn.partnerTxnId, request, response });
+      const resolved = refs.length ? await tryResolveChagansCc(refs) : null;
+      if (!resolved) continue;
+      if (resolved.status === "PENDING") { drained++; continue; }
+      const res = await finalizeServiceTransaction({
+        txn,
+        status: resolved.status,
+        partnerTxnId: txn.partnerTxnId ?? resolved.payRef ?? resolved.ref,
+        errorCode: resolved.status === "SUCCESS" ? null : "CHAGANS_CC_FAILED",
+        errorMessage: resolved.status === "SUCCESS" ? null : `CC bill payment ${resolved.status.toLowerCase()} by provider`,
+        raw: resolved.raw,
+        source: "recon",
+      });
+      if (res.outcome === "settled") settled++;
+      else if (res.outcome === "refunded") refunded++;
+      drained++;
+    } catch (err) {
+      logger.warn({ action: "recon.chagans_cc_poll_failed", txnId: row.id, err: String(err) });
     }
   }
 
@@ -268,12 +318,15 @@ export async function runBbpsReconciliation(): Promise<BbpsReconSummary> {
     },
     orderBy: { updatedAt: "desc" },
     take: 200,
-    select: { id: true, refId: true, status: true, partnerTxnId: true, userId: true },
+    select: { id: true, refId: true, status: true, partnerTxnId: true, partner: true, userId: true },
   });
 
   for (const row of recentTerminal) {
     try {
-      const r = await bbps.status({ orderId: row.partnerTxnId! });
+      // Route status check to the correct provider
+      const r = row.partner === CHAGANS_CC_PARTNER
+        ? await chagansCcCheckStatus(row.partnerTxnId!)
+        : await bbps.status({ orderId: row.partnerTxnId! });
       if (!r.ok) continue;
       verified++;
 

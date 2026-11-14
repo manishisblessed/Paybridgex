@@ -18,6 +18,7 @@ import { TopupError } from "../wallet/topup";
 import { QrClaimError } from "../qr/claims";
 import { DisputeError } from "../disputes/service";
 import { ApiKeyError } from "../platform/apiKeys";
+import { BbpsMerchantRequiredError } from "../services/bbpsMerchant";
 import { securityLogger } from "../logger";
 
 /**
@@ -113,6 +114,12 @@ export function toErrorResponse(e: unknown): NextResponse {
   }
   if (e instanceof ApiKeyError) {
     return NextResponse.json({ error: e.message, code: e.code }, { status: e.statusCode });
+  }
+  if (e instanceof BbpsMerchantRequiredError) {
+    return NextResponse.json(
+      { error: e.message, merchantRequired: true },
+      { status: e.statusCode }
+    );
   }
 
   securityLogger.error({ action: "route.unhandled_error", err: String(e) });

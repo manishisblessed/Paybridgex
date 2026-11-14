@@ -214,6 +214,7 @@ model User {
   posRentalPlansOwned   PosRentalPlan[]       @relation("PosRentalPlanOwner")
   posBookings           PosBookingRequest[]   @relation("PosBookingRequester")
   aepsMerchant          AepsMerchant?
+  bbpsMerchant          BbpsMerchant?
   aepsSettlementAccounts AepsSettlementAccount[] @relation("AepsAccountOwner")
   aepsSettlements       AepsSettlement[]      @relation("AepsSettlementOwner")
   commissionCredits     CommissionCredit[]    @relation("CommissionCredits")
@@ -3103,4 +3104,32 @@ model CardBinCache {
   country     String
   issuerBank  String
   createdAt   DateTime @default(now())
+}
+
+enum BbpsMerchantStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+model BbpsMerchant {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider           String  // CHAGANS | MOCK | ...
+  providerMerchantId String? // merchantId from Chagans createMerchant
+  kycStatus          String? // "validated" | null — mirrors Chagans KYC status
+  status             BbpsMerchantStatus @default(PENDING)
+
+  meta Json?
+
+  activatedAt DateTime?
+  suspendedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([providerMerchantId])
 }
