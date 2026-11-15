@@ -279,7 +279,11 @@ export async function settleTopup(
   if (!txn || txn.service !== "WALLET_TOPUP") {
     throw new TopupError("Top-up not found", 404, "NOT_FOUND");
   }
-  if (txn.status === "SUCCESS") return { refId, status: "SUCCESS" };
+  if (txn.status === "SUCCESS") {
+    const gross = Number(txn.amount);
+    const net   = gross - Number(txn.fee);
+    return { refId, status: "SUCCESS", amount: gross, net };
+  }
   if (txn.status === "FAILED") return { refId, status: "FAILED" };
   if (txn.status === "HOLD")   return { refId, status: "HOLD" };
 
@@ -340,7 +344,8 @@ export async function settleTopup(
       return { refId, status: "SUCCESS", amount: webhookVerified.amount, net: result.netAmount };
     }
     if (result.status === "DUPLICATE") {
-      return { refId, status: "SUCCESS", net: result.netAmount };
+      const gross = Number(txn.amount);
+      return { refId, status: "SUCCESS", amount: gross, net: result.netAmount };
     }
     // NO_SCHEME — transaction already marked FAILED by handleTopupCapture.
     return { refId, status: "FAILED" };
