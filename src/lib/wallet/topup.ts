@@ -218,7 +218,12 @@ export async function initiateTopup(input: {
     // creates the order on the SELECTED gateway. Without this the provider
     // falls back to its primary gateway (Comet) and a Star selection is lost.
     channel: sel.channel,
-    callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL}/pay/return?ref=${refId}`,
+    // Route through /pay/callback (a route handler that accepts GET + POST)
+    // instead of /pay/return (a page, GET-only). Many PGs — including Chagans —
+    // do a form-POST redirect after payment; a POST to a Next.js page crashes
+    // with "Invalid URL" in handleAction. The callback route 302-redirects to
+    // /pay/return as a clean browser GET.
+    callbackUrl: `${process.env.NEXT_PUBLIC_APP_URL}/pay/callback?ref=${refId}`,
   });
 
   if (!r.ok) {
