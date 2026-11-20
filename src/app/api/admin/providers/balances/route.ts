@@ -52,7 +52,7 @@ export async function GET() {
       }),
       withTimeout(probeChagans(), {
         key: "chagans",
-        name: "CC Bill Pay float",
+        name: "Chagan Wallet",
         provider: "CHAGANS",
         configured: chagansCcBaseConfigured(),
         balance: null,
@@ -133,7 +133,7 @@ async function probeEkychub(): Promise<ProviderBalance> {
 async function probeChagans(): Promise<ProviderBalance> {
   const base: ProviderBalance = {
     key: "chagans",
-    name: "CC Bill Pay float",
+    name: "Chagan Wallet",
     provider: "CHAGANS",
     configured: chagansCcBaseConfigured(),
     balance: null,
@@ -147,7 +147,8 @@ async function probeChagans(): Promise<ProviderBalance> {
       : r.data.mainBalance !== r.data.balance
         ? `Main: ₹${r.data.mainBalance.toFixed(2)}`
         : null;
-    return { ...base, balance: r.data.balance, detail };
+    const usable = r.data.balance || r.data.mainBalance || 0;
+    return { ...base, balance: usable, detail };
   } catch (e) {
     return { ...base, error: e instanceof Error ? e.message : "probe failed" };
   }
