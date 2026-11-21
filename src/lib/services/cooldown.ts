@@ -104,17 +104,16 @@ export async function checkCooldown(input: CooldownInput): Promise<CooldownResul
 }
 
 /**
- * Atomic cooldown enforcement for pay endpoints. Acquires a PostgreSQL advisory
- * lock scoped to (userId, operator, customer) so concurrent requests on the
- * same card are serialized — only one can pass the check before a Transaction
- * row exists for the other to find.
+ * Atomic cooldown enforcement for pay endpoints. Locks the User row with
+ * SELECT … FOR UPDATE (same pattern as ledger.ts lockUser) to serialize
+ * concurrent payment attempts by the same user. The lock is released when
+ * the short transaction commits — well before the partner call.
  */
 export async function enforceCooldownAtomic(input: CooldownInput): Promise<CooldownResult> {
   const cooldownSec = input.cooldownSec ?? CC_COOLDOWN_SEC;
 
   return prisma.$transaction(async (tx) => {
-    const lockKey = `cc_cooldown:${input.userId}:${input.operator}:${input.customer}`;
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${input.userId} FOR UPDATE`;
 
     const recent = await queryRecentTransaction(input, tx);
 

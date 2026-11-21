@@ -33,21 +33,25 @@ export async function POST(req: Request) {
 
   const { billerId, cardLast4, partner } = parsed.data;
 
-  const result = await checkCooldown({
-    userId: user.id,
-    service: "BILL_CREDIT_CARD",
-    operator: billerId,
-    customer: cardLast4,
-    partner,
-  });
+  try {
+    const result = await checkCooldown({
+      userId: user.id,
+      service: "BILL_CREDIT_CARD",
+      operator: billerId,
+      customer: cardLast4,
+      partner,
+    });
 
-  return NextResponse.json({
-    success: true,
-    allowed: !result.blocked,
-    remainingSeconds: result.retryAfterSec,
-    remainingMilliseconds: result.retryAfterMs,
-    cooldownExpiry: result.cooldownExpiry,
-    serverTime: new Date().toISOString(),
-    ...(result.blocked ? { message: "Please wait before making another payment to this credit card." } : {}),
-  });
+    return NextResponse.json({
+      success: true,
+      allowed: !result.blocked,
+      remainingSeconds: result.retryAfterSec,
+      remainingMilliseconds: result.retryAfterMs,
+      cooldownExpiry: result.cooldownExpiry,
+      serverTime: new Date().toISOString(),
+      ...(result.blocked ? { message: "Please wait before making another payment to this credit card." } : {}),
+    });
+  } catch (e) {
+    return toErrorResponse(e);
+  }
 }
