@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { recordPayin } from "@/lib/wallet/payin";
 import { canonicalPosCaptureRef } from "@/lib/partners/sameday-pos";
+import { computeCardFingerprint } from "@/lib/pos/cardFingerprint";
 import type {
   PosTransaction,
   PosTransactionStatus,
@@ -107,6 +108,12 @@ function feedRowToMirrorData(
       // every sweep (null for live rows, set once voided/refunded upstream).
       reversedAt: toDate(t.reversed_at),
       reversalReason: clean(t.reversal_reason),
+      cardFingerprint: computeCardFingerprint({
+        cardNumber: t.card_number,
+        cardBrand: t.card_brand,
+        cardType: t.card_type,
+        issuingBank: t.issuing_bank,
+      }),
       raw: t as unknown as Prisma.InputJsonValue,
       source: "SWEEP",
     },
@@ -310,6 +317,13 @@ export async function upsertMirrorFromWebhook(input: {
 
   // Only the fields the webhook actually provides — undefined values are left
   // untouched by Prisma on update, preserving any richer sweep-sourced data.
+  const fingerprint = computeCardFingerprint({
+    cardNumber: input.cardNumber,
+    cardBrand: input.cardBrand,
+    cardType: input.cardType,
+    issuingBank: null,
+  });
+
   const shared = {
     terminalId,
     amount: input.grossAmount,
@@ -326,6 +340,7 @@ export async function upsertMirrorFromWebhook(input: {
     mid: clean(input.mid) ?? undefined,
     externalId: input.externalId ?? undefined,
     txnTime,
+    ...(fingerprint ? { cardFingerprint: fingerprint } : {}),
   } satisfies Prisma.PosTransactionMirrorUncheckedUpdateInput;
 
   // Prior status BEFORE the upsert → detect the first CAPTURED transition for

@@ -58,6 +58,7 @@ import { deliverWebhook } from "@/lib/platform/webhooks";
 import { runAmlSweep } from "@/lib/aml/engine";
 import { runAuditAnchorJob } from "@/lib/audit/anchor";
 import { runKycVideoRetention } from "@/lib/kyc/video/retention";
+import { detectDuplicateSwipe, type DetectInput } from "@/lib/risk/duplicateSwipe";
 import { productionSecretIssues } from "@/lib/env";
 import { purgeExpiredRateLimits } from "@/lib/security/rateLimit";
 import { prisma } from "@/lib/db";
@@ -691,6 +692,27 @@ async function main() {
   });
   await boss.schedule(QUEUES.AUDIT_ANCHOR, "20 0 * * *", {}, { tz: "Asia/Kolkata" });
 
+  // QUEUES.DUPLICATE_SWIPE_DETECT — asynchronous duplicate card-swipe analysis.
+  // Enqueued by the POS webhook and mirror sweep; serialized per terminal+day
+  // via singletonKey so detection for one terminal never races itself.
+  await boss.work<DetectInput>(
+    QUEUES.DUPLICATE_SWIPE_DETECT,
+    { teamSize: 2 },
+    async (jobs) => {
+      for (const job of jobs) {
+        try {
+          const result = await detectDuplicateSwipe(job.data);
+          if (result.detected) {
+            log(`duplicate_swipe: case ${result.caseId} — held ${result.entriesHeld}, liened ${result.entriesLiened}`);
+          }
+        } catch (e) {
+          captureError(e, { context: "duplicate_swipe_detect", data: job.data });
+          throw e;
+        }
+      }
+    }
+  );
+
   // QUEUES.KYC_VIDEO_RETENTION — Phase 5. Purge raw liveness videos past the
   // retention window (opt-in via KYC_VIDEO_RETENTION_ENABLED). 01:30 IST daily.
   await boss.work(QUEUES.KYC_VIDEO_RETENTION, async () => {
@@ -712,7 +734,7 @@ async function main() {
   }
 
   log(
-    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), bbps.health_monitor (*/5 * * * *), rechargekit.reconcile (*/5 * * * *), recon.heartbeat (*/15 * * * *), recon.connectivity (*/5 * * * *), txn.anomaly.sweep (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.settle.sweep (*/10 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), pos.mirror.sync (*/2 * * * * IST), webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
+    "ready · handlers: payout.initiate, payout.reconcile (*/5 * * * *), bbps.reconcile (*/5 * * * *), bbps.health_monitor (*/5 * * * *), rechargekit.reconcile (*/5 * * * *), recon.heartbeat (*/15 * * * *), recon.connectivity (*/5 * * * *), txn.anomaly.sweep (*/5 * * * *), rekyc.monthly (0 0 1 * * IST), kyc.video.baseline, recon.daily (30 2 * * * IST), dispute.sla (*/30 * * * *), settlement.autosweep (30 19 * * * IST), settlement.t1 (5 * * * * IST), pos.settle.sweep (*/10 * * * * IST), pos.settlement.t1 (10 * * * * IST), pos.settlement.instant (*/3 * * * * IST), qr.settlement.t1 (12 * * * * IST), pg.settlement.t1 (14 * * * * IST), pg.settlement.instant (*/3 * * * * IST), pos.machines.sync (*/10 * * * * IST), pos.mirror.sync (*/2 * * * * IST), risk.duplicate_swipe.detect, webhook.deliver, aml.sweep (15 * * * *), audit.anchor (20 0 * * * IST), kyc.video.retention (30 1 * * * IST)"
   );
 }
 

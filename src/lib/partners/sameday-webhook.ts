@@ -14,6 +14,8 @@ import { upsertMirrorFromWebhook } from "@/lib/pos/mirror";
 import { reconcilePayoutFromWebhook, fuzzyMatchHeldPayoutFromWebhook } from "@/lib/payout/service";
 import { reconcileRechargekitFromWebhook } from "@/lib/recon/rechargekit";
 import { reconcileBbpsFromWebhook } from "@/lib/recon/bbps";
+import { computeCardFingerprint, istBusinessDate } from "@/lib/pos/cardFingerprint";
+import { enqueue, QUEUES } from "@/lib/queue";
 
 /**
  * Unified inbound receiver for EVERY Same Day webhook channel
@@ -448,6 +450,37 @@ async function processSamedayPosEvent(
     });
   } catch {
     // Non-blocking: the reconciliation sweep will pick this capture up.
+  }
+
+  // Enqueue duplicate-swipe detection if card fingerprint is computable.
+  if (terminalId) {
+    try {
+      const cardBrandStr = String(txnData.paymentCardBrand ?? txnData.cardBrand ?? "").trim();
+      const cardTypeStr = String(txnData.paymentCardType ?? txnData.cardType ?? "").trim();
+      const issuingBank = String(txnData.issuingBank ?? txnData.issuerBank ?? txnData.acquiringBank ?? "").trim();
+      const fp = computeCardFingerprint({
+        cardNumber: maskedPan,
+        cardBrand: cardBrandStr,
+        cardType: cardTypeStr,
+        issuingBank,
+      });
+      if (fp && capturedAt) {
+        const bd = istBusinessDate(capturedAt).toISOString().split("T")[0];
+        await enqueue(QUEUES.DUPLICATE_SWIPE_DETECT, {
+          transactionRef,
+          terminalId,
+          cardFingerprint: fp,
+          txnTime: capturedAt.toISOString(),
+          grossAmount,
+          maskedPan,
+          cardBrand: cardBrandStr,
+          cardType: cardTypeStr,
+          issuingBank,
+        }, { singletonKey: `dupswipe:${terminalId}:${bd}` });
+      }
+    } catch {
+      // Non-blocking: detection is async and eventual.
+    }
   }
 
   // Log the webhook for audit.

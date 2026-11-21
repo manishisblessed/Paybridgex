@@ -166,8 +166,9 @@ export async function chagansCcBalance(): Promise<PartnerResult<ChagansCcBalance
       };
     }
 
-    // Chagans may use different field names across API versions — try each in order.
     const d = json.data as Record<string, unknown>;
+    log.info({ rawBalanceData: d }, "Chagans apiBalance raw response");
+
     const pickNum = (keys: string[]): number => {
       for (const k of keys) {
         const v = d[k];
@@ -180,8 +181,8 @@ export async function chagansCcBalance(): Promise<PartnerResult<ChagansCcBalance
     return {
       ok: true,
       data: {
-        balance: pickNum(["balance", "walletBalance", "availableBalance", "mainBalance"]),
-        mainBalance: pickNum(["mainBalance", "balance"]),
+        balance: pickNum(["availableBalance", "mainBalance", "walletBalance", "balance"]),
+        mainBalance: pickNum(["mainBalance", "availableBalance", "balance"]),
         lienBalance: pickNum(["lienBalance", "holdBalance", "blockedBalance"]),
         unsettledBalance: pickNum(["unsettledBalance", "pendingBalance"]),
       },

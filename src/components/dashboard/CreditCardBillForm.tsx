@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CheckCircle2, ArrowLeft, RefreshCw } from "lucide-react";
+import { AlertCircle, CheckCircle2, ArrowLeft, RefreshCw, Clock } from "lucide-react";
+import { useCooldownTimer } from "@/hooks/useCooldownTimer";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import {
@@ -68,6 +69,13 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
   const router = useRouter();
   const { health, refresh: refreshHealth } = useBbpsHealth();
   const apiDown = health.status === "API_DOWN";
+
+  const cooldown = useCooldownTimer({
+    billerId: billerCode,
+    cardLast4,
+    partner: "SAMEDAY_PAY2NEW",
+    enabled: !!billerCode && /^\d{4}$/.test(cardLast4),
+  });
   const billerDown = !!billerCode && health.downBillers.includes(billerCode);
 
   const loadBillers = useCallback(async () => {
@@ -241,11 +249,7 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
       // allowed immediately. Don't reset or flag a failed attempt.
       if (res.status === 429 && data?.code === "DUPLICATE_COOLDOWN") {
         setPinOpen(false);
-        setError(
-          typeof data.error === "string"
-            ? data.error
-            : "Please wait a moment before repeating the same amount on this card."
-        );
+        cooldown.applyServerCooldown(data.retryAfterSec ?? 61, data.cooldownExpiry);
         return null;
       }
       // Only a DEFINITIVE failure (status FAILED, or a non-PIN HTTP error) is an
@@ -414,6 +418,21 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
           </div>
         )}
 
+        {cooldown.blocked && (
+          <div className="sm:col-span-2 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <Clock className="h-5 w-5 shrink-0 text-amber-600" />
+            <div>
+              <p className="font-semibold">
+                Same Bank &ndash; Same Credit Card &nbsp;
+                <span className="font-display tabular-nums">{cooldown.display}</span>
+              </p>
+              <p className="text-xs text-amber-700/70">
+                You can make the next payment after the cooldown period.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="sm:col-span-2">
           {!bill ? (
             <Button
@@ -529,10 +548,14 @@ export function CreditCardBillForm({ route }: { route?: string } = {}) {
                 type="submit"
                 size="lg"
                 className="w-full"
-                disabled={paying || !amount || quote?.withinLimit === false || apiDown}
+                disabled={paying || !amount || quote?.withinLimit === false || apiDown || cooldown.blocked}
                 isLoading={paying}
               >
-                {apiDown ? "Payment service temporarily down" : `Pay ${quote ? formatINR(quote.totalDebit) : amount ? formatINR(Number(amount)) : "bill"}`}
+                {cooldown.blocked
+                  ? `Wait ${cooldown.display}`
+                  : apiDown
+                    ? "Payment service temporarily down"
+                    : `Pay ${quote ? formatINR(quote.totalDebit) : amount ? formatINR(Number(amount)) : "bill"}`}
               </Button>
               <p className="mt-2 text-center text-[11px] text-ink-400">
                 Confirmed with your transaction PIN. Debited from your wallet — failed payments are auto-refunded.

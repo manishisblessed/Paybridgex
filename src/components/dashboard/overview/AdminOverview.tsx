@@ -108,6 +108,11 @@ export function AdminOverview({ session }: { session: Session }) {
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
+  useEffect(() => {
+    const id = setInterval(loadProviders, 60_000);
+    return () => clearInterval(id);
+  }, [loadProviders]);
+
   const livePartners = stats?.serviceHealth.filter((s) => s.live).length ?? 0;
   const totalPartners = stats?.serviceHealth.length ?? 0;
 

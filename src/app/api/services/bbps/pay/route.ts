@@ -15,16 +15,7 @@ import { isBbpsPriceScope } from "@/lib/services/priceScope";
 import { getSchemeLimit, resolveRequiredRate, withGst } from "@/lib/scheme/resolver";
 import { toNumber, dec, gt, sub, round } from "@/lib/money";
 import { AuthError } from "@/lib/auth-server";
-import { prisma } from "@/lib/db";
-
-// Debounce window for repeat payments on the SAME card. The upstream provider
-// returns the same bill_fetch_ref per card, so a rapid re-tap — even for a
-// DIFFERENT amount — can quietly latch onto the same provider order and settle
-// twice, double-charging the retailer for a single real card credit. We
-// therefore hold off ANY new payment on the same card inside this window,
-// regardless of amount, and allow it again once the window passes. Env-tunable;
-// defaults to 60 seconds.
-const DUP_GUARD_COOLDOWN_SEC = Number(process.env.BBPS_DUP_GUARD_COOLDOWN_SEC ?? 60);
+import { enforceCooldownAtomic } from "@/lib/services/cooldown";
 
 const Body = z.object({
   billerCode: z.string().min(2),
@@ -87,49 +78,28 @@ export async function POST(req: Request) {
     // sets the charge (fee). BBPS does not earn commission.
     const service = SERVICE[parsed.data.category];
 
-    // --- Same-card debounce guard ------------------------------------------
-    // The upstream provider returns the same bill_fetch_ref per card, so a
-    // rapid re-tap on the SAME card — even for a DIFFERENT amount — can quietly
-    // latch onto the same provider order and settle twice, double-charging the
-    // retailer for a single real card credit. We therefore hold off ANY new
-    // payment on the same card within a short window, regardless of amount,
-    // then allow it once the window passes.
-    //
-    // Only a prior NON-FAILED attempt gates here: a FAILED row was already given
-    // a definitive provider rejection and auto-refunded, so it carries no
-    // double-settle risk and must not block a genuine retry.
     const customerKey = Object.values(parsed.data.customerParams)[0];
     if (customerKey) {
-      const since = new Date(Date.now() - DUP_GUARD_COOLDOWN_SEC * 1000);
-      const recent = await prisma.transaction.findFirst({
-        where: {
-          userId: user.id,
-          service,
-          customer: String(customerKey),
-          status: { in: ["PROCESSING", "NEEDS_REVIEW", "SUCCESS"] },
-          createdAt: { gte: since },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { refId: true, createdAt: true },
+      const cooldown = await enforceCooldownAtomic({
+        userId: user.id,
+        service,
+        operator: parsed.data.billerCode,
+        customer: String(customerKey),
+        partner: bbps.name,
       });
-      if (recent) {
-        const waitSec = Math.max(
-          1,
-          DUP_GUARD_COOLDOWN_SEC - Math.floor((Date.now() - recent.createdAt.getTime()) / 1000)
-        );
+      if (cooldown.blocked) {
         return NextResponse.json(
           {
-            error:
-              `A payment on this card was just submitted. To avoid paying twice, any payment on the same card is held for ${DUP_GUARD_COOLDOWN_SEC} seconds — please wait ${waitSec} more second${waitSec === 1 ? "" : "s"} and try again.`,
+            error: `A payment on this card was just submitted. Please wait ${cooldown.retryAfterSec} more second${cooldown.retryAfterSec === 1 ? "" : "s"} and try again.`,
             code: "DUPLICATE_COOLDOWN",
-            refId: recent.refId,
-            retryAfterSec: waitSec,
+            refId: cooldown.recentRefId,
+            retryAfterSec: cooldown.retryAfterSec,
+            cooldownExpiry: cooldown.cooldownExpiry,
           },
           { status: 429 }
         );
       }
     }
-    // -----------------------------------------------------------------------
 
     // Per-product pricing scope: the product route key (e.g. "bbps_sameday" vs
     // "bbps_credit_card") is the slab/rate-card scope. These keys are retained

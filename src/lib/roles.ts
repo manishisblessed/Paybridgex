@@ -161,6 +161,7 @@ export const ASSIGNABLE_ADMIN_TABS = [
   { href: "needs-review", label: "Needs Review" },
   { href: "payout-review", label: "Held Payouts" },
   { href: "money-at-risk", label: "Money at Risk" },
+  { href: "duplicate-swipes", label: "Duplicate Card Risk" },
   { href: "aeps", label: "AePS Centre" },
   { href: "qr", label: "QR Collections" },
   { href: "disputes", label: "Support Desk" },
@@ -226,6 +227,7 @@ const adminMoneyDesk: NavItem[] = [
   { href: "/dashboard/admin/needs-review", label: "Needs Review", icon: Inbox },
   { href: "/dashboard/admin/payout-review", label: "Held Payouts", icon: Landmark },
   { href: "/dashboard/admin/money-at-risk", label: "Money at Risk", icon: ShieldAlert },
+  { href: "/dashboard/admin/duplicate-swipes", label: "Duplicate Card Risk", icon: CreditCard },
   { href: "/dashboard/payout-approvals", label: "Payout Approvals", icon: ListChecks }
 ];
 
@@ -233,7 +235,11 @@ const adminMoneyDesk: NavItem[] = [
  *  (the Revenue Wallet), which is never shown to plain admins/sub-admins. */
 const masterMoneyDesk: NavItem[] = adminMoneyDesk.flatMap((item) =>
   item.href === "/dashboard/admin/ledger"
-    ? [item, { href: "/dashboard/admin/revenue", label: "Company Earnings", icon: CircleDollarSign }]
+    ? [
+        item,
+        { href: "/dashboard/admin/revenue", label: "Company Earnings", icon: CircleDollarSign },
+        { href: "/dashboard/admin/topup-resettle", label: "PG Re-settle", icon: RotateCcw },
+      ]
     : [item]
 );
 

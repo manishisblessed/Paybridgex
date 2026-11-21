@@ -31,6 +31,7 @@ export const LIEN_REASON_CODES = [
   "FRAUD",
   "DISPUTE",
   "INVESTIGATION",
+  "DUPLICATE_SWIPE",
   "OTHER",
 ] as const;
 

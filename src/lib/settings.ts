@@ -251,6 +251,14 @@ const SETTING_SCHEMAS = {
     MASTER_DISTRIBUTOR: z.array(z.string()).default([]),
     SUPER_DISTRIBUTOR: z.array(z.string()).default([]),
   }),
+
+  /** POS duplicate card swipe detection — risk control. When enabled, the system
+   *  detects repeated card swipes (same card fingerprint + TID + IST business day)
+   *  and auto-holds unsettled transactions / liens already-settled amounts. Only
+   *  MASTER_ADMIN can release a risk case. */
+  "risk.duplicate_swipe": z.object({
+    enabled: z.boolean().default(false),
+  }),
 } as const;
 
 /** Network (non-staff) roles that carry a per-tier default service allowlist. */

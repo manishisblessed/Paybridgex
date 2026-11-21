@@ -145,6 +145,10 @@ export const QUEUES = {
   // Lien governance report (daily): flags ageing and large ACTIVE liens for ops
   // review. Never writes off or releases a lien. See src/lib/recon/lienGovernance.ts.
   LIEN_AGING_REPORT: "recon.lien.aging",
+  // Duplicate card swipe detection — asynchronous analysis triggered by mirror
+  // upserts (webhook + sweep). Serialized per terminal+businessDate via
+  // singletonKey to prevent concurrent detection races on the same terminal.
+  DUPLICATE_SWIPE_DETECT: "risk.duplicate_swipe.detect",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];

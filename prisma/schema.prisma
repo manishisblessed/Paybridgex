@@ -222,6 +222,7 @@ model User {
   posSettlements        PosSettlementEntry[]  @relation("PosSettlements")
   posManualSlips        PosManualSlip[]       @relation("PosManualSlipUploader")
   posManualSlipsReviewed PosManualSlip[]      @relation("PosManualSlipReviewer")
+  duplicateSwipeRiskCases DuplicateSwipeRiskCase[] @relation("DuplicateSwipeRiskCaseUser")
   pgSettlements         PgSettlementEntry[]   @relation("PgSettlements")
   networkTransfersOut   NetworkWalletTransfer[] @relation("NetworkTransfersOut")
   networkTransfersIn    NetworkWalletTransfer[] @relation("NetworkTransfersIn")
@@ -1689,6 +1690,11 @@ model PosTransactionMirror {
   issuingBank        String?
   acquiringBank      String?
 
+  // Duplicate swipe detection: deterministic SHA-256 of card identity fields
+  // (last4 | brand | type | issuingBank). Computed at upsert time. Null when
+  // card fields are absent (UPI/QR). See src/lib/pos/cardFingerprint.ts.
+  cardFingerprint String?
+
   // References, device, and parties.
   razorpayTxnId String?
   externalRef   String?
@@ -1724,6 +1730,7 @@ model PosTransactionMirror {
   @@index([status, txnTime])
   @@index([paymentMode])
   @@index([reversedAt])
+  @@index([cardFingerprint, terminalId, txnTime])
 }
 
 // Inbound webhook delivery dedup — keyed on Same Day's X-Sameday-Delivery header
@@ -2747,12 +2754,18 @@ model PosSettlementEntry {
   reversedAt     DateTime?
   reversalReason String?
 
+  // Duplicate swipe risk hold: when set, the settlement engine MUST NOT credit
+  // this entry until the risk case is resolved (admin releases). The entry stays
+  // PENDING, but the cron/instant sweep skips entries with a non-null riskHoldId.
+  riskHoldId String?
+
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([status, capturedAt])
   @@index([brandId])
+  @@index([riskHoldId])
 }
 
 // Manual POS slip submissions (Yes Bank & other no-API "External POS"
@@ -3132,4 +3145,126 @@ model BbpsMerchant {
 
   @@index([status])
   @@index([providerMerchantId])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// POS Duplicate Card Swipe Risk Management
+// ────────────────────────────────────────────────────────────────────────────
+// If the same credit card is swiped more than once on the same POS machine
+// (same TID) within the same IST business day, ALL matching transactions are
+// grouped into a single risk case. Unsettled transactions are held from
+// automatic settlement; already-settled transactions are liened via WalletLien.
+// Only MASTER_ADMIN can release a risk case.
+
+model DuplicateSwipeRiskCase {
+  id              String   @id @default(cuid())
+
+  // Matching dimensions — the composite identity of this case.
+  cardFingerprint String   // SHA-256(last4|brand|type|issuingBank)
+  terminalId      String   // POS TID
+  businessDate    DateTime @db.Date // IST-local calendar date
+
+  // Denormalized card info for display (avoid re-joining the mirror).
+  maskedPan  String? // e.g. "XXXX XXXX XXXX 1234"
+  cardBrand  String? // VISA | MASTERCARD | RUPAY | ...
+  cardType   String? // CREDIT | DEBIT | PREPAID
+  issuingBank String?
+
+  // Retailer who owns the terminal.
+  userId String?
+  user   User?  @relation("DuplicateSwipeRiskCaseUser", fields: [userId], references: [id])
+  mid    String? // merchant ID from the terminal
+
+  // Aggregate amounts (Decimal(14,2), maintained on each txn addition).
+  totalGrossAmount   Decimal @default(0) @db.Decimal(14, 2)
+  totalNetSettled    Decimal @default(0) @db.Decimal(14, 2) // sum of netAmounts already credited
+  totalHeldAmount    Decimal @default(0) @db.Decimal(14, 2) // sum of grossAmounts on settlement hold
+  totalLienAmount    Decimal @default(0) @db.Decimal(14, 2) // sum of lien amounts placed
+  pendingLienAmount  Decimal @default(0) @db.Decimal(14, 2) // lien placement failed / not yet attempted
+  transactionCount   Int     @default(0)
+
+  // Lifecycle: OPEN → RELEASED | CLOSED
+  status String @default("OPEN")
+
+  // Resolution (set by MASTER_ADMIN).
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolution     String?  // "all_legitimate" | "partial_release" | "all_fraudulent"
+  resolutionNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries    DuplicateSwipeRiskEntry[]
+  auditEvents DuplicateSwipeAuditEvent[]
+
+  @@unique([cardFingerprint, terminalId, businessDate])
+  @@index([status, createdAt])
+  @@index([userId])
+  @@index([terminalId, businessDate])
+}
+
+model DuplicateSwipeRiskEntry {
+  id         String @id @default(cuid())
+  riskCaseId String
+  riskCase   DuplicateSwipeRiskCase @relation(fields: [riskCaseId], references: [id])
+
+  transactionRef String // canonical POS capture ref (SDPOS:<tid>:<rrn>)
+
+  // Snapshot at detection time.
+  grossAmount Decimal  @db.Decimal(14, 2)
+  netAmount   Decimal? @db.Decimal(14, 2) // net settled amount (null if not yet settled)
+  txnTime     DateTime
+  rrn         String?
+  authCode    String?
+
+  // What action was taken on THIS specific swipe.
+  // HELD          — settlement entry exists and is on hold (riskHoldId stamped)
+  // LIENED        — settlement was already done; a WalletLien was placed
+  // PENDING_LIEN  — lien placement failed or funds already withdrawn; needs manual recovery
+  // RELEASED      — admin released this entry (hold removed or lien released)
+  // REVERSED      — upstream reversal (VOIDED/REFUNDED) — no financial action needed
+  action String @default("HELD")
+
+  // Link to the settlement entry (if it existed at detection time).
+  settlementEntryId String?
+
+  // Link to the WalletLien (if a lien was placed for an already-settled txn).
+  lienId String?
+
+  // Per-entry resolution.
+  releaseNote  String?
+  releasedById String?
+  releasedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([riskCaseId, transactionRef])
+  @@index([transactionRef])
+  @@index([settlementEntryId])
+  @@index([lienId])
+}
+
+model DuplicateSwipeAuditEvent {
+  id         String @id @default(cuid())
+  riskCaseId String
+  riskCase   DuplicateSwipeRiskCase @relation(fields: [riskCaseId], references: [id])
+  entryId    String? // null for case-level events
+
+  // Event type:
+  //   detected | entry_added | entry_held | entry_liened | lien_failed
+  //   entry_released | lien_released | case_released | case_closed
+  event          String
+  previousStatus String?
+  newStatus      String?
+  amount         Decimal? @db.Decimal(14, 2)
+  actorId        String?  // null for system-initiated events
+  reason         String?
+  providerRef    String?
+  settlementRef  String?
+  meta           Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([riskCaseId, createdAt])
 }

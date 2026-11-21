@@ -33,12 +33,13 @@ export type MoneyAtRisk = {
   payoutReview: { count: number; exposure: number };
   txnAnomalies: { count: number; exposure: number };
   outstandingLiens: { count: number; amount: number };
-  /** Headline figure: payout held + anomaly exposure + outstanding liens. */
+  duplicateSwipeHolds: { count: number; heldAmount: number; lienAmount: number; pendingLienAmount: number };
+  /** Headline figure: payout held + anomaly exposure + outstanding liens + dup swipe holds. */
   totalAtRisk: number;
 };
 
 export async function getMoneyAtRisk(): Promise<MoneyAtRisk> {
-  const [payoutAgg, lienAgg, anomaly] = await Promise.all([
+  const [payoutAgg, lienAgg, anomaly, dupSwipeAgg] = await Promise.all([
     prisma.payoutRequest.aggregate({
       where: { status: "NEEDS_REVIEW" },
       _sum: { totalDebit: true },
@@ -50,6 +51,11 @@ export async function getMoneyAtRisk(): Promise<MoneyAtRisk> {
       _count: true,
     }),
     getAnomalyExposure(),
+    prisma.duplicateSwipeRiskCase.aggregate({
+      where: { status: "OPEN" },
+      _sum: { totalHeldAmount: true, totalLienAmount: true, pendingLienAmount: true },
+      _count: true,
+    }),
   ]);
 
   const payoutExposure = toNumber(payoutAgg._sum.totalDebit ?? 0);
@@ -57,13 +63,23 @@ export async function getMoneyAtRisk(): Promise<MoneyAtRisk> {
     0,
     toNumber(lienAgg._sum.amount ?? 0) - toNumber(lienAgg._sum.recoveredAmount ?? 0)
   );
+  const dupHeld = toNumber(dupSwipeAgg._sum.totalHeldAmount ?? 0);
+  const dupLien = toNumber(dupSwipeAgg._sum.totalLienAmount ?? 0);
+  const dupPending = toNumber(dupSwipeAgg._sum.pendingLienAmount ?? 0);
+  const dupSwipeTotal = dupHeld + dupLien + dupPending;
 
   return {
     generatedAt: new Date().toISOString(),
     payoutReview: { count: payoutAgg._count, exposure: payoutExposure },
     txnAnomalies: { count: anomaly.count, exposure: anomaly.exposure },
     outstandingLiens: { count: lienAgg._count, amount: lienOutstanding },
-    totalAtRisk: payoutExposure + anomaly.exposure + lienOutstanding,
+    duplicateSwipeHolds: {
+      count: dupSwipeAgg._count,
+      heldAmount: dupHeld,
+      lienAmount: dupLien,
+      pendingLienAmount: dupPending,
+    },
+    totalAtRisk: payoutExposure + anomaly.exposure + lienOutstanding + dupSwipeTotal,
   };
 }
 

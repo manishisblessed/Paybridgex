@@ -7,6 +7,7 @@ import { dec, sub, gte, toNumber, round, gt, eq, GST_RATE_PCT } from "@/lib/mone
 import { getSetting } from "@/lib/settings";
 import { SETTLED_VIA, type SettledVia, isInstantButtonEnabled } from "@/lib/settlement/engine";
 import { resolvePosHolderAt, resolvePosHolderForMachine } from "@/lib/pos/holder";
+import { applyRiskHoldIfNeeded } from "@/lib/risk/duplicateSwipe";
 import type { MdrServiceKind, ServiceCode } from "@prisma/client";
 
 /**
@@ -339,6 +340,17 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
       throw e;
     }
 
+    // If the instant credit failed and the entry was left PENDING, check
+    // whether a duplicate-swipe risk case already exists for this card/terminal
+    // and stamp the hold so the safety-net cron doesn't settle it either.
+    if (!wtxnId && input.terminalId) {
+      try {
+        await applyRiskHoldIfNeeded(input.transactionRef, input.terminalId, capturedAt);
+      } catch {
+        // Best-effort — the async detection queue is the primary mechanism.
+      }
+    }
+
     // Book company margin + upline commission ONLY when the retailer was
     // actually settled now (wtxnId set) — INSTANT credit IS the settlement
     // moment. If the credit failed and the entry was parked PENDING, the instant
@@ -395,6 +407,15 @@ export async function handlePosCapture(input: PosCaptureInput): Promise<PosCaptu
   // Commission + revenue margin are NOT booked here. They are distributed when
   // the entry is actually settled (settleEntry), so the Revenue Wallet and the
   // upline (DT/MD/SD) are credited AT settlement time — never at swipe/capture.
+
+  // Stamp risk hold if a duplicate-swipe case already exists for this card/TID.
+  if (input.terminalId) {
+    try {
+      await applyRiskHoldIfNeeded(input.transactionRef, input.terminalId, capturedAt);
+    } catch {
+      // Best-effort — async detection queue is the primary mechanism.
+    }
+  }
 
   return {
     status: "QUEUED",
@@ -726,6 +747,7 @@ type PendingEntry = {
   brandId: string | null;
   provider: string | null;
   mdrRateId: string | null;
+  riskHoldId: string | null;
 };
 
 /**
@@ -780,6 +802,13 @@ async function settleEntry(
         reversalReason: `auto: mirror status ${mirrorRow.status} at settlement time`,
       },
     });
+    return null;
+  }
+
+  // Duplicate-swipe risk hold: an entry flagged by the detection engine must
+  // NOT be settled until a MASTER_ADMIN releases the hold. Leave PENDING so
+  // the T+1/instant sweep retries on the next run after release.
+  if (entry.riskHoldId) {
     return null;
   }
 
